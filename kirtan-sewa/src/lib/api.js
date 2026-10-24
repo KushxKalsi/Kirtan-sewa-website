@@ -47,6 +47,8 @@ export const adminApi = (token) => ({
   deletePerson: (id) => request(`/admin/people/${id}`, { method: 'DELETE', token }),
   assign: (id, personIds) => request(`/admin/bookings/${id}/assign`, { method: 'PATCH', body: { personIds }, token }),
   saveBlockedDates: (dates) => request('/admin/blocked-dates', { method: 'PUT', body: { dates }, token }),
+  blockTimes: (body) => request('/admin/blocked-times', { method: 'POST', body, token }),
+  unblockTime: (id) => request(`/admin/blocked-times/${id}`, { method: 'DELETE', token }),
   setStatus: (id, status, reason, amount) => request(`/admin/bookings/${id}`, { method: 'PATCH', body: { status, reason, amount }, token }),
   deleteBooking: (id) => request(`/admin/bookings/${id}`, { method: 'DELETE', token }),
   deleteBookings: (ids) => request('/admin/bookings/delete', { method: 'POST', body: { ids }, token }),

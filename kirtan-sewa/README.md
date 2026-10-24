@@ -71,15 +71,18 @@ empty, it copies `data/db.json` into it. Upload the UPI QR again afterwards.
 
 Each time slot takes one booking per day, across all sewas, because there is one jatha.
 
-## Requests, booked times and custom times
+## Requests, blocked times and custom times
 
-- A customer's booking is a **request**. Requests never block a time, so several people can ask for the same
-  time. The time is **booked** only when you confirm one in admin. Only booked times show on the public calendar.
-- In admin, requests that compete for a time are tagged ("2 other requests for this time"). Once one is
-  confirmed, the others show **Time already booked** and can't be confirmed until that booking is cancelled.
-- Besides the fixed slots, customers can enter **their own time** (start and end, at least 30 minutes). Any
-  overlap with a booked time is refused, for fixed slots and custom times alike. Turn this off in
-  Site settings ("Let customers enter their own time").
+- Bookings never block a time. Anyone can request any time, even one already requested or confirmed, and two
+  different sewas can share a time. Confirmed bookings show on the public calendar (sewa and venue) for
+  information, but the time stays open.
+- A time is **not available** only when you block it: Admin → Schedule → **Blocked times** (pick a date, then
+  slots and/or a from–to time, with a private note). Or open a booking and tap **Block this time on the
+  calendar**; tap again to unblock. Blocking a whole day still works under **Unavailable dates**.
+- In admin, bookings that share a time are tagged ("2 other bookings at this time") so you can decide.
+- Besides the fixed slots, customers can enter **their own time** (start and end, at least 30 minutes). It's
+  refused only if it overlaps a blocked time. Turn this off in Site settings ("Let customers enter their own
+  time").
 - All dates and times use Indian time (`TZ=Asia/Kolkata` is set by the server; override with the `TZ` env var).
 
 ## Categories, team and assignments

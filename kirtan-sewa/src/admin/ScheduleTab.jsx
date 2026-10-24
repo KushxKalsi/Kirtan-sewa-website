@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { CalendarX, Loader2, Plus, Save, Trash2, X } from 'lucide-react';
-import { prettyDate } from '../lib/date';
+import { CalendarX, Clock, Loader2, Lock, Plus, Save, Trash2, X } from 'lucide-react';
+import { prettyDate, rangeTo12 } from '../lib/date';
 import { ease } from '../lib/motion';
 
 export default function ScheduleTab({ data, api, patch, toast }) {
@@ -10,6 +10,36 @@ export default function ScheduleTab({ data, api, patch, toast }) {
   const [newDate, setNewDate] = useState('');
   const blocked = data.blockedDates;
   const upcomingBlocked = blocked.filter((d) => d >= data.today);
+
+  // Blocked times: the only thing that makes a time unavailable to customers.
+  const blockedTimes = (data.blockedTimes || []).filter((t) => t.date >= data.today);
+  const [blockForm, setBlockForm] = useState({ date: '', slotIds: [], start: '', end: '', note: '' });
+  const [blocking, setBlocking] = useState(false);
+  const toggleBlockSlot = (id) =>
+    setBlockForm((f) => ({ ...f, slotIds: f.slotIds.includes(id) ? f.slotIds.filter((x) => x !== id) : [...f.slotIds, id] }));
+  const blockTimes = async (e) => {
+    e.preventDefault();
+    setBlocking(true);
+    try {
+      const { date, slotIds, start, end, note } = blockForm;
+      const res = await api.blockTimes({ date, slotIds, note, ...(start || end ? { start, end } : {}) });
+      patch({ blockedTimes: res.blockedTimes });
+      toast(`Blocked on ${prettyDate(date, 'd MMM yyyy')}.`);
+      setBlockForm((f) => ({ ...f, slotIds: [], start: '', end: '', note: '' }));
+    } catch (err) {
+      toast(err.message, 'error');
+    } finally {
+      setBlocking(false);
+    }
+  };
+  const unblockTime = async (id) => {
+    try {
+      const res = await api.unblockTime(id);
+      patch({ blockedTimes: res.blockedTimes });
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+  };
 
   const update = (i, k, v) => setSlots((list) => list.map((s, j) => (j === i ? { ...s, [k]: v } : s)));
   const remove = (i) => setSlots((list) => list.filter((_, j) => j !== i));
@@ -52,7 +82,7 @@ export default function ScheduleTab({ data, api, patch, toast }) {
         <div className="admin-section-head">
           <div>
             <h2>Daily time slots</h2>
-            <p>Each slot can hold one booking per day. Existing bookings keep their original times.</p>
+            <p>The times customers can pick. Bookings don't block a slot — block a time below when the jatha is not available. Existing bookings keep their original times.</p>
           </div>
         </div>
         <motion.ul className="slot-editor" layout>
@@ -78,6 +108,71 @@ export default function ScheduleTab({ data, api, patch, toast }) {
             {savingSlots ? <Loader2 size={16} className="spin" /> : <Save size={16} />} Save slots
           </button>
         </div>
+      </div>
+
+      <div className="admin-card glass">
+        <div className="admin-section-head">
+          <div>
+            <h2>Blocked times</h2>
+            <p>Customers can request any time, even one that is already booked. Block a time here when the jatha can't take more bookings for it; it then shows as not available.</p>
+          </div>
+        </div>
+        <form className="admin-form block-times-form" onSubmit={blockTimes}>
+          <label>
+            <span className="label">Date *</span>
+            <input className="input" type="date" value={blockForm.date} min={data.today} onChange={(e) => setBlockForm((f) => ({ ...f, date: e.target.value }))} required />
+          </label>
+          <div>
+            <span className="label">Time slots</span>
+            <div className="slot-checks">
+              {data.slots.map((sl) => (
+                <button type="button" key={sl.id} className={`check-pill ${blockForm.slotIds.includes(sl.id) ? 'active' : ''}`} onClick={() => toggleBlockSlot(sl.id)}>
+                  {sl.label} <small>{rangeTo12(`${sl.start} – ${sl.end}`)}</small>
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="grid-2">
+            <label>
+              <span className="label">Or a time from</span>
+              <input className="input" type="time" value={blockForm.start} onChange={(e) => setBlockForm((f) => ({ ...f, start: e.target.value }))} />
+            </label>
+            <label>
+              <span className="label">to</span>
+              <input className="input" type="time" value={blockForm.end} onChange={(e) => setBlockForm((f) => ({ ...f, end: e.target.value }))} />
+            </label>
+          </div>
+          <label>
+            <span className="label">Note (only you see it)</span>
+            <input className="input" value={blockForm.note} onChange={(e) => setBlockForm((f) => ({ ...f, note: e.target.value }))} placeholder="e.g. Booked for Singh family" />
+          </label>
+          <div className="row-actions">
+            <button className="btn btn-primary btn-sm" disabled={blocking}>
+              {blocking ? <Loader2 size={16} className="spin" /> : <Lock size={16} />} Block
+            </button>
+          </div>
+        </form>
+        <ul className="blocked-times">
+          <AnimatePresence initial={false}>
+            {blockedTimes.length === 0 && (
+              <motion.li className="muted" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+                No upcoming times blocked.
+              </motion.li>
+            )}
+            {blockedTimes.map((t) => (
+              <motion.li key={t.id} layout initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, x: 30 }} transition={{ duration: 0.3, ease }}>
+                <Clock size={15} />
+                <span>
+                  <strong>{prettyDate(t.date, 'EEE, d MMM yyyy')}</strong> · {t.label ? `${t.label} (${rangeTo12(`${t.start} – ${t.end}`)})` : rangeTo12(`${t.start} – ${t.end}`)}
+                  {t.note && <small>{t.note}</small>}
+                </span>
+                <button className="icon-btn" onClick={() => unblockTime(t.id)} aria-label="Unblock">
+                  <X size={15} />
+                </button>
+              </motion.li>
+            ))}
+          </AnimatePresence>
+        </ul>
       </div>
 
       <div className="admin-card glass">
