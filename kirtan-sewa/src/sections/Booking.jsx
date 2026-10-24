@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { addDays, endOfMonth, format, startOfMonth } from 'date-fns';
-import { ArrowLeft, ArrowRight, CalendarDays, CalendarHeart, Clock, Loader2, CircleAlert, MapPin, MousePointerClick } from 'lucide-react';
+import { ArrowLeft, ArrowRight, CalendarDays, CalendarHeart, Check, Loader2, CircleAlert, MapPin, MousePointerClick, X } from 'lucide-react';
 import Calendar from '../components/Calendar';
 import SplitText from '../components/SplitText';
 import Reveal from '../components/Reveal';
@@ -17,6 +17,8 @@ import { ease } from '../lib/motion';
 
 const nowHHMM = () => format(new Date(), 'HH:mm');
 const emptyForm = { name: '', phone: '', email: '', address: '', notes: '' };
+const MAX_ITEMS = 20;
+const keyOf = (date, slotId) => `${date}|${slotId}`;
 
 const panelAnim = {
   initial: { opacity: 0, x: 40, filter: 'blur(6px)' },
@@ -35,7 +37,7 @@ export default function Booking({ preselect }) {
   const [serviceId, setServiceId] = useState('');
   const [month, setMonth] = useState(() => startOfMonth(new Date()));
   const [date, setDate] = useState('');
-  const [slotId, setSlotId] = useState('');
+  const [selection, setSelection] = useState([]); // [{ serviceId, date, slotId }] — many slots across dates
   const [step, setStep] = useState('pick');
   const [booked, setBooked] = useState([]);
   const [blocked, setBlocked] = useState([]);
@@ -52,7 +54,6 @@ export default function Booking({ preselect }) {
   useEffect(() => {
     if (!preselect) return;
     setServiceId(preselect.id);
-    setSlotId('');
     setStep('pick');
     scrollToId('book');
   }, [preselect]);
@@ -81,12 +82,19 @@ export default function Booking({ preselect }) {
     return () => document.removeEventListener('visibilitychange', onFocus);
   }, [loadAvailability]);
 
-  const bookedMap = useMemo(() => new Map(booked.map((b) => [`${b.date}|${b.slotId}`, b])), [booked]);
+  const bookedMap = useMemo(() => new Map(booked.map((b) => [keyOf(b.date, b.slotId), b])), [booked]);
+  const pickedMap = useMemo(() => new Map(selection.map((it) => [keyOf(it.date, it.slotId), it])), [selection]);
+  const serviceById = useCallback((id) => services.find((x) => x.id === id), [services]);
+  const slotById = useCallback((id) => slots.find((x) => x.id === id), [slots]);
+  const sortedSelection = useMemo(
+    () => [...selection].sort((a, b) => (a.date + slotById(a.slotId)?.start).localeCompare(b.date + slotById(b.slotId)?.start)),
+    [selection, slotById],
+  );
   const isOffered = useCallback((slot) => !service?.allowedSlots?.length || service.allowedSlots.includes(slot.id), [service]);
 
   const slotState = useCallback(
     (key, slot) => {
-      if (bookedMap.has(`${key}|${slot.id}`)) return 'booked';
+      if (bookedMap.has(keyOf(key, slot.id))) return 'booked';
       if (!isOffered(slot)) return 'not-offered';
       if (key === today && slot.start <= nowHHMM()) return 'passed';
       return 'free';
@@ -100,28 +108,41 @@ export default function Booking({ preselect }) {
       if (key > maxDate) return { state: 'closed' };
       if (blocked.includes(key)) return { state: 'blocked' };
       const states = slots.map((sl) => slotState(key, sl));
-      const daySlots = states.map((st) => ({ booked: st === 'booked', offered: st === 'free' }));
+      const daySlots = states.map((st, i) => ({ booked: st === 'booked', offered: st === 'free', picked: pickedMap.has(keyOf(key, slots[i].id)) }));
+      const picked = daySlots.filter((d) => d.picked).length;
       const offered = slots.filter((sl, i) => isOffered(sl) && states[i] !== 'passed').length;
       const free = states.filter((st) => st === 'free').length;
-      if (offered === 0) return { state: 'closed', slots: daySlots };
-      if (free === 0) return { state: 'full', slots: daySlots };
-      if (free < offered) return { state: 'partial', slots: daySlots };
-      return { state: 'free', slots: daySlots };
+      if (offered === 0) return { state: 'closed', slots: daySlots, picked };
+      if (free === 0) return { state: 'full', slots: daySlots, picked };
+      if (free < offered) return { state: 'partial', slots: daySlots, picked };
+      return { state: 'free', slots: daySlots, picked };
     },
-    [today, maxDate, blocked, slots, slotState, isOffered],
+    [today, maxDate, blocked, slots, slotState, isOffered, pickedMap],
   );
 
-  // If the chosen service changes, drop a slot it does not offer.
+  // Drop picked slots that someone else booked (or that got blocked) since they were picked.
   useEffect(() => {
-    if (date && slotId) {
-      const sl = slots.find((s) => s.id === slotId);
-      if (!sl || slotState(date, sl) !== 'free') setSlotId('');
+    const keep = selection.filter((it) => !bookedMap.has(keyOf(it.date, it.slotId)) && !blocked.includes(it.date));
+    if (keep.length === selection.length) return;
+    setSelection(keep);
+    toast('A slot you picked was just booked by someone else, so it was removed.', 'error');
+  }, [selection, bookedMap, blocked, toast]);
+
+  const toggleSlot = (sl) => {
+    const key = keyOf(date, sl.id);
+    if (pickedMap.has(key)) return setSelection((list) => list.filter((it) => keyOf(it.date, it.slotId) !== key));
+    if (!service) {
+      setNudge((n) => n + 1);
+      if (window.innerWidth < 960) scrollToId('book', -20);
+      return;
     }
-  }, [serviceId, date, slotId, slots, slotState]);
+    if (selection.length >= MAX_ITEMS) return toast(`You can book up to ${MAX_ITEMS} slots at once.`, 'error');
+    setSelection((list) => [...list, { serviceId: service.id, date, slotId: sl.id }]);
+  };
+  const removeItem = (it) => setSelection((list) => list.filter((x) => x !== it));
 
   const pickDate = (key) => {
     setDate(key);
-    setSlotId('');
     setStep('pick');
     if (window.innerWidth < 960) setTimeout(() => scrollToId(panelRef.current, -90), 80);
   };
@@ -131,9 +152,10 @@ export default function Booking({ preselect }) {
     setError('');
     setSubmitting(true);
     try {
-      const { booking } = await api.createBooking({ serviceId: service.id, date, slotId, ...form });
-      rememberBooking(booking, form.phone);
-      setResult(booking);
+      const { bookings } = await api.createBooking({ items: selection, ...form });
+      bookings.forEach((b) => rememberBooking(b, form.phone));
+      setResult(bookings);
+      setSelection([]); // clear first, so the refresh below doesn't treat our own new bookings as taken
       setStep('success');
       loadAvailability();
       setTimeout(() => scrollToId(panelRef.current, -90), 50);
@@ -148,13 +170,60 @@ export default function Booking({ preselect }) {
   const reset = () => {
     setForm(emptyForm);
     setDate('');
-    setSlotId('');
+    setSelection([]);
     setResult(null);
     setStep('pick');
   };
 
-  const slot = slots.find((s) => s.id === slotId);
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
+
+  const basket = (editable) => (
+    <div className="basket">
+      <p className="basket-title">
+        Your selection <span>{selection.length}</span>
+      </p>
+      <motion.ul layout>
+        <AnimatePresence initial={false}>
+          {sortedSelection.map((it) => {
+            const svc = serviceById(it.serviceId);
+            const sl = slotById(it.slotId);
+            return (
+              <motion.li
+                key={keyOf(it.date, it.slotId)}
+                layout
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -20, height: 0, marginBottom: 0 }}
+                transition={{ duration: 0.3, ease }}
+                style={{ '--accent': svc?.color }}
+              >
+                <button type="button" className="basket-item" onClick={() => editable && pickDate(it.date)} disabled={!editable}>
+                  <strong>{prettyDate(it.date, 'EEE, d MMM')}</strong>
+                  <span>
+                    {sl?.label} · {sl && slotTime(sl)}
+                  </span>
+                  <em>{svc?.name}</em>
+                </button>
+                {editable && (
+                  <button type="button" className="icon-btn basket-remove" onClick={() => removeItem(it)} aria-label="Remove">
+                    <X size={15} />
+                  </button>
+                )}
+              </motion.li>
+            );
+          })}
+        </AnimatePresence>
+      </motion.ul>
+      {editable && (
+        <div className="basket-continue">
+          <button type="button" className="btn btn-primary btn-block" onClick={() => setStep('details')}>
+            Continue with {selection.length} slot{selection.length > 1 ? 's' : ''} <ArrowRight size={18} />
+          </button>
+          <p className="fine-print">Tip: pick more dates on the calendar, or switch sewa, to add more slots.</p>
+        </div>
+      )}
+    </div>
+  );
 
   return (
     <section id="book" className="section booking">
@@ -166,7 +235,7 @@ export default function Booking({ preselect }) {
           </Reveal>
           <SplitText className="section-title" text="Check availability & book your date" highlight={[3, 4, 5]} />
           <Reveal delay={0.1}>
-            <p className="section-lead">Every booked slot shows on the calendar in real time. Pick a sewa, a date and a time — it takes under a minute.</p>
+            <p className="section-lead">Every booked slot shows on the calendar in real time. Pick a sewa, then as many dates and times as you need — and book them all at once.</p>
           </Reveal>
         </div>
 
@@ -238,25 +307,15 @@ export default function Booking({ preselect }) {
             <AnimatePresence mode="wait">
               {step === 'success' && result ? (
                 <motion.div key="success" {...panelAnim}>
-                  <BookingSuccess booking={result} phone={form.phone} onAgain={reset} />
+                  <BookingSuccess bookings={result} phone={form.phone} onAgain={reset} />
                 </motion.div>
-              ) : step === 'details' && slot ? (
+              ) : step === 'details' && selection.length ? (
                 <motion.form key="details" className="details-form" onSubmit={submit} {...panelAnim}>
                   <button type="button" className="back-link" onClick={() => setStep('pick')}>
-                    <ArrowLeft size={16} /> Change date or time
+                    <ArrowLeft size={16} /> Change dates or times
                   </button>
                   <h3 className="panel-title">Your details</h3>
-                  <div className="summary-chips">
-                    <span className="chip" style={{ color: service.color }}>
-                      {service.name}
-                    </span>
-                    <span className="chip">
-                      <CalendarDays size={13} /> {prettyDate(date, 'EEE, d MMM yyyy')}
-                    </span>
-                    <span className="chip">
-                      <Clock size={13} /> {slot.label} · {slotTime(slot)}
-                    </span>
-                  </div>
+                  {basket(false)}
                   <motion.div className="form-stack" initial="hidden" animate="show" variants={{ hidden: {}, show: { transition: { staggerChildren: 0.06, delayChildren: 0.1 } } }}>
                     {[
                       { k: 'name', label: 'Full name *', type: 'text', auto: 'name', required: true },
@@ -288,7 +347,7 @@ export default function Booking({ preselect }) {
 
                   <button className="btn btn-primary btn-block" disabled={submitting}>
                     {submitting ? <Loader2 size={18} className="spin" /> : <CalendarHeart size={18} />}
-                    {submitting ? 'Booking…' : 'Confirm booking request'}
+                    {submitting ? 'Booking…' : selection.length > 1 ? `Request all ${selection.length} bookings` : 'Confirm booking request'}
                   </button>
                   <p className="fine-print">
                     The sewa and venue address will be shown on the public calendar so the sangat knows where the jatha is. Manage your booking anytime with your phone number — the jatha will call you to confirm.
@@ -301,7 +360,7 @@ export default function Booking({ preselect }) {
                   <p className="panel-sub">
                     {service ? (
                       <>
-                        Choose a time for <strong style={{ color: service.color }}>{service.name}</strong>
+                        Tap one or more times to add <strong style={{ color: service.color }}>{service.name}</strong> — you can add other dates too
                       </>
                     ) : (
                       'See what is booked below. To book a free slot, first choose your sewa (step 1).'
@@ -310,29 +369,27 @@ export default function Booking({ preselect }) {
                   <motion.div className="slot-list" initial="hidden" animate="show" variants={{ hidden: {}, show: { transition: { staggerChildren: 0.07 } } }}>
                     {slots.map((sl) => {
                       const st = slotState(date, sl);
-                      const selected = slotId === sl.id;
+                      const pickedItem = pickedMap.get(keyOf(date, sl.id));
+                      const selected = !!pickedItem;
                       const info = bookedMap.get(`${date}|${sl.id}`);
                       return (
                         <motion.button
                           key={sl.id}
                           type="button"
                           className={`slot s-${st} ${selected ? 'selected' : ''}`}
-                          disabled={st !== 'free'}
-                          onClick={() => {
-                            if (service) return setSlotId(sl.id);
-                            setNudge((n) => n + 1);
-                            if (window.innerWidth < 960) scrollToId('book', -20);
-                          }}
+                          disabled={st !== 'free' && !selected}
+                          aria-pressed={selected}
+                          onClick={() => toggleSlot(sl)}
                           variants={{ hidden: { opacity: 0, y: 18 }, show: { opacity: 1, y: 0, transition: { duration: 0.45, ease } } }}
-                          whileTap={st === 'free' ? { scale: 0.97 } : undefined}
+                          whileTap={st === 'free' || selected ? { scale: 0.97 } : undefined}
                         >
-                          {selected && <motion.span layoutId="slot-selected" className="slot-sel-bg" transition={{ type: 'spring', stiffness: 420, damping: 34 }} />}
+                          {selected && <motion.span className="slot-sel-bg" initial={{ opacity: 0, scale: 0.94 }} animate={{ opacity: 1, scale: 1 }} transition={{ type: 'spring', stiffness: 420, damping: 30 }} />}
                           <span className="slot-main">
                             <strong>{sl.label}</strong>
                             <span>{slotTime(sl)}</span>
                             {info && (
                               <span className="slot-booked-info">
-                                <em>{info.serviceName}</em>
+                                <em>{info.serviceName || services.find((x) => x.id === info.serviceId)?.name || 'Booked'}</em>
                                 {info.location && (
                                   <span>
                                     <MapPin size={12} /> {info.location}
@@ -342,18 +399,28 @@ export default function Booking({ preselect }) {
                             )}
                           </span>
                           <span className="slot-status">
-                            {st === 'free' ? (selected ? 'Selected' : service ? 'Available' : 'Free') : st === 'booked' ? 'Booked' : st === 'passed' ? 'Time passed' : 'Not offered'}
+                            {selected ? (
+                              <>
+                                <Check size={14} /> {serviceById(pickedItem.serviceId)?.name}
+                              </>
+                            ) : st === 'free' ? (
+                              service ? 'Tap to add' : 'Free'
+                            ) : st === 'booked' ? (
+                              'Booked'
+                            ) : st === 'passed' ? (
+                              'Time passed'
+                            ) : (
+                              'Not offered'
+                            )}
                           </span>
                         </motion.button>
                       );
                     })}
                   </motion.div>
                   <AnimatePresence>
-                    {slotId && (
+                    {selection.length > 0 && (
                       <motion.div initial={{ opacity: 0, y: 20, height: 0 }} animate={{ opacity: 1, y: 0, height: 'auto' }} exit={{ opacity: 0, y: 10, height: 0 }} transition={{ duration: 0.4, ease }}>
-                        <button className="btn btn-primary btn-block continue-btn" onClick={() => setStep('details')}>
-                          Continue <ArrowRight size={18} />
-                        </button>
+                        {basket(true)}
                       </motion.div>
                     )}
                   </AnimatePresence>
@@ -369,6 +436,7 @@ export default function Booking({ preselect }) {
                       ? 'Tap a day on the calendar to see its time slots. Dots under each date show which slots are already booked.'
                       : 'Start by choosing which sewa you want to book. You can also tap any day to see what is already booked there and where.'}
                   </p>
+                  {selection.length > 0 && basket(true)}
                 </motion.div>
               )}
             </AnimatePresence>

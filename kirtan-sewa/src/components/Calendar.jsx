@@ -78,7 +78,7 @@ export default function Calendar({ month, onMonthChange, selected, onSelect, get
                 <motion.button
                   key={key}
                   type="button"
-                  className={`cal-day s-${info.state} ${inMonth ? '' : 'out'} ${isSel ? 'selected' : ''} ${key === todayKey ? 'today' : ''}`}
+                  className={`cal-day s-${info.state} ${inMonth ? '' : 'out'} ${isSel ? 'selected' : ''} ${key === todayKey ? 'today' : ''} ${info.picked ? 'has-picked' : ''}`}
                   disabled={disabled}
                   onClick={() => onSelect(key)}
                   initial={{ opacity: 0, scale: 0.85 }}
@@ -90,10 +90,17 @@ export default function Calendar({ month, onMonthChange, selected, onSelect, get
                 >
                   {isSel && <motion.span layoutId="cal-selected" className="cal-sel-bg" transition={{ type: 'spring', stiffness: 420, damping: 34 }} />}
                   <span className="cal-num">{format(d, 'd')}</span>
+                  <AnimatePresence>
+                    {inMonth && info.picked > 0 && (
+                      <motion.span key={info.picked} className="cal-picked" initial={{ scale: 0 }} animate={{ scale: 1 }} exit={{ scale: 0 }} transition={{ type: 'spring', stiffness: 500, damping: 22 }}>
+                        {info.picked}
+                      </motion.span>
+                    )}
+                  </AnimatePresence>
                   {inMonth && info.slots?.length > 0 && info.state !== 'past' && info.state !== 'blocked' && (
                     <span className="cal-dots">
                       {info.slots.map((sl, j) => (
-                        <i key={j} className={sl.booked ? 'b' : sl.offered ? 'f' : 'n'} />
+                        <i key={j} className={sl.booked ? 'b' : sl.picked ? 'p' : sl.offered ? 'f' : 'n'} />
                       ))}
                     </span>
                   )}
@@ -107,6 +114,9 @@ export default function Calendar({ month, onMonthChange, selected, onSelect, get
       <div className="cal-legend">
         <span>
           <i className="lg-free" /> Available
+        </span>
+        <span>
+          <i className="lg-picked" /> Your pick
         </span>
         <span>
           <i className="lg-partial" /> Few slots left

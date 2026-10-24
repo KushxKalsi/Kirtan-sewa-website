@@ -60,7 +60,7 @@ export default function BookingsTab({ data, api, patch, toast }) {
       if (filter === 'all') return true;
       return b.status === filter;
     });
-    if (q) rows = rows.filter((b) => [b.name, b.phone, b.ref, b.serviceName, b.address].some((v) => v?.toLowerCase().includes(q)));
+    if (q) rows = rows.filter((b) => [b.name, b.phone, b.ref, b.serviceName, b.address, b.groupId].some((v) => v?.toLowerCase().includes(q)));
     const asc = filter === 'upcoming' || filter === 'pending' || filter === 'confirmed';
     return [...rows].sort((a, b) => {
       const ka = a.date + a.slotTime;
@@ -68,6 +68,12 @@ export default function BookingsTab({ data, api, patch, toast }) {
       return asc ? ka.localeCompare(kb) : kb.localeCompare(ka) || b.createdAt.localeCompare(a.createdAt);
     });
   }, [bookings, filter, query, today]);
+
+  const groupSize = useMemo(() => {
+    const count = {};
+    for (const b of bookings) if (b.groupId) count[b.groupId] = (count[b.groupId] || 0) + 1;
+    return count;
+  }, [bookings]);
 
   const replace = (booking) => patch({ bookings: bookings.map((b) => (b.id === booking.id ? booking : b)) });
 
@@ -233,6 +239,20 @@ export default function BookingsTab({ data, api, patch, toast }) {
                       <span className="ab-who">
                         {b.name} · <code>{b.ref}</code>
                         {hasRequest(b) && <span className="pay-tag req-tag">Cancel requested</span>}
+                        {b.groupId && groupSize[b.groupId] > 1 && (
+                          <span
+                            className="pay-tag group-tag"
+                            role="button"
+                            title="Show all bookings made together"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setFilter('all');
+                              setQuery(b.groupId);
+                            }}
+                          >
+                            {groupSize[b.groupId]} booked together
+                          </span>
+                        )}
                         {b.amount > 0 && b.status !== 'cancelled' && (
                           <span className={`pay-tag pay-${b.paymentStatus || 'unpaid'}`}>
                             {rupees(b.amount)} · {PAY_TEXT[b.paymentStatus || 'unpaid']}

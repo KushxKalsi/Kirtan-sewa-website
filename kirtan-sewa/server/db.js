@@ -94,30 +94,81 @@ const defaults = () => ({
   bookings: [],
 });
 
-function load() {
+/* ---------------- storage ----------------
+ * DATABASE_URL set  -> Postgres (needed on hosts with a wiped disk, e.g. Render's free plan)
+ * otherwise         -> JSON files in DATA_DIR
+ * Both store small JSON documents by key: "db" (everything) and "upi-qr" (the QR image).
+ */
+
+function fileStore() {
+  const fileFor = (key) => (key === 'db' ? FILE : path.join(DATA_DIR, `${key}.json`));
   fs.mkdirSync(DATA_DIR, { recursive: true });
-  const base = defaults();
-  if (!fs.existsSync(FILE)) {
-    fs.writeFileSync(FILE, JSON.stringify(base, null, 2));
-    return base;
-  }
-  const stored = JSON.parse(fs.readFileSync(FILE, 'utf8'));
-  // Fill in keys added in newer versions without touching existing data.
   return {
-    ...base,
-    ...stored,
-    meta: { ...base.meta, ...stored.meta },
-    settings: { ...base.settings, ...stored.settings },
+    name: `file (${DATA_DIR})`,
+    async read(key) {
+      const file = fileFor(key);
+      return fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : null;
+    },
+    async write(key, json) {
+      const file = fileFor(key);
+      fs.writeFileSync(file + '.tmp', json);
+      fs.renameSync(file + '.tmp', file);
+    },
   };
 }
 
-export const db = load();
-
-export function save() {
-  const tmp = FILE + '.tmp';
-  fs.writeFileSync(tmp, JSON.stringify(db, null, 2));
-  fs.renameSync(tmp, FILE);
+async function postgresStore(url) {
+  const { default: pg } = await import('pg');
+  const local = /@(localhost|127\.0\.0\.1)[:/]/.test(url);
+  const pool = new pg.Pool({ connectionString: url, ssl: local ? false : { rejectUnauthorized: false }, max: 3 });
+  await pool.query('CREATE TABLE IF NOT EXISTS sewa_store (key text PRIMARY KEY, value jsonb NOT NULL, updated_at timestamptz NOT NULL DEFAULT now())');
+  return {
+    name: 'postgres',
+    async read(key) {
+      const { rows } = await pool.query('SELECT value FROM sewa_store WHERE key = $1', [key]);
+      return rows[0]?.value ?? null;
+    },
+    async write(key, json) {
+      await pool.query(
+        'INSERT INTO sewa_store (key, value) VALUES ($1, $2::jsonb) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()',
+        [key, json],
+      );
+    },
+  };
 }
+
+let store;
+export let db;
+
+export async function initDb() {
+  store = process.env.DATABASE_URL ? await postgresStore(process.env.DATABASE_URL) : fileStore();
+  const base = defaults();
+  let stored = await store.read('db');
+  // First run on a new database: bring over bookings from the local file, if there is one.
+  if (!stored && process.env.DATABASE_URL && fs.existsSync(FILE)) {
+    stored = JSON.parse(fs.readFileSync(FILE, 'utf8'));
+    console.log(`[sewa] Copied existing data from ${FILE} into the database.`);
+  }
+  // Fill in keys added in newer versions without touching existing data.
+  db = stored
+    ? { ...base, ...stored, meta: { ...base.meta, ...stored.meta }, settings: { ...base.settings, ...stored.settings } }
+    : base;
+  await save();
+  console.log(`[sewa] Storage: ${store.name}`);
+}
+
+// Writes run one after another, each saving a snapshot taken when save() was called.
+let chain = Promise.resolve();
+export function save() {
+  const json = JSON.stringify(db);
+  chain = chain.catch(() => {}).then(() => store.write('db', json));
+  return chain;
+}
+
+export const kv = {
+  get: (key) => store.read(key),
+  set: (key, value) => store.write(key, JSON.stringify(value)),
+};
 
 export const uid = () => crypto.randomBytes(8).toString('hex');
 

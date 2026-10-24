@@ -3,7 +3,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { db, save, uid, makeRef, slugify, DATA_DIR } from './db.js';
+import { db, save, uid, makeRef, slugify, DATA_DIR, initDb, kv } from './db.js';
+
+await initDb();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT) || 5174;
@@ -15,12 +17,22 @@ if (!process.env.ADMIN_PASSWORD) {
   console.warn('[sewa] ADMIN_PASSWORD not set — using default "waheguru". Set it before going live.');
 }
 
+if (db.settings.upiQrFile) {
+  const old = path.join(DATA_DIR, 'uploads', db.settings.upiQrFile);
+  if (fs.existsSync(old)) {
+    const ext = path.extname(old).slice(1);
+    await kv.set('upi-qr', { type: ext === 'jpg' ? 'image/jpeg' : `image/${ext}`, data: fs.readFileSync(old).toString('base64') });
+  }
+  delete db.settings.upiQrFile;
+  await save();
+}
+
 const app = express();
 const QR_PATH = '/api/admin/upi-qr';
 const smallJson = express.json({ limit: '300kb' });
 // The QR upload carries an image, so it gets its own larger body limit.
 app.use((req, res, next) => (req.path === QR_PATH ? next() : smallJson(req, res, next)));
-const UPLOADS = path.join(DATA_DIR, 'uploads');
+
 
 /* ---------------- helpers ---------------- */
 
@@ -122,6 +134,7 @@ const customerView = (b) => ({
   utr: b.utr || '',
   paidAt: b.paidAt || '',
   phone: b.phone,
+  groupId: b.groupId || '',
   cancelRequest: b.cancelRequest || null,
 });
 
@@ -133,7 +146,7 @@ const readAmount = (value) => {
 
 /* ---------------- public API ---------------- */
 
-app.get('/api/public', (_req, res) => {
+app.get('/api/public', async (_req, res) => {
   res.json({
     settings: publicSettings(),
     services: db.services.filter((s) => s.active),
@@ -144,7 +157,7 @@ app.get('/api/public', (_req, res) => {
   });
 });
 
-app.get('/api/availability', (req, res) => {
+app.get('/api/availability', async (req, res) => {
   const from = str(req.query.from, 10);
   const to = str(req.query.to, 10);
   if (!DATE_RE.test(from) || !DATE_RE.test(to)) fail(400, 'Invalid date range.');
@@ -155,23 +168,43 @@ app.get('/api/availability', (req, res) => {
   res.json({ booked, blockedDates: db.blockedDates, today: todayKey(), now: nowHHMM() });
 });
 
-app.post('/api/bookings', (req, res) => {
-  const body = req.body || {};
-  const service = db.services.find((s) => s.id === body.serviceId && s.active);
-  if (!service) fail(400, 'Please choose a sewa.');
-  const date = str(body.date, 10);
-  if (!DATE_RE.test(date)) fail(400, 'Please choose a valid date.');
-  if (date < todayKey()) fail(400, 'That date has already passed.');
-  if (date > addDaysKey(Number(db.settings.maxAdvanceDays) || 365)) fail(400, 'That date is too far ahead to book yet.');
-  if (db.blockedDates.includes(date)) fail(409, 'The jatha is not available on that date.');
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const shortDate = (d) => `${Number(d.slice(8))} ${MONTHS[Number(d.slice(5, 7)) - 1]}`;
+const MAX_ITEMS = 20;
 
-  const slot = db.slots.find((s) => s.id === body.slotId);
+// Checks one requested sewa/date/slot and returns what is needed to create it.
+function readItem(item) {
+  const service = db.services.find((s) => s.id === item?.serviceId && s.active);
+  if (!service) fail(400, 'Please choose a sewa for every selected slot.');
+  const date = str(item.date, 10);
+  if (!DATE_RE.test(date)) fail(400, 'Please choose a valid date.');
+  const slot = db.slots.find((s) => s.id === item.slotId);
   if (!slot) fail(400, 'Please choose a time slot.');
-  if (service.allowedSlots?.length && !service.allowedSlots.includes(slot.id)) {
-    fail(400, `${service.name} is not offered in the ${slot.label} slot.`);
+  const label = `${shortDate(date)}, ${slot.label}`;
+  if (date < todayKey()) fail(400, `${label}: that date has already passed.`);
+  if (date > addDaysKey(Number(db.settings.maxAdvanceDays) || 365)) fail(400, `${label}: that date is too far ahead to book yet.`);
+  if (db.blockedDates.includes(date)) fail(409, `${shortDate(date)}: the jatha is not available on that date.`);
+  if (service.allowedSlots?.length && !service.allowedSlots.includes(slot.id)) fail(400, `${label}: ${service.name} is not offered in this slot.`);
+  if (date === todayKey() && slot.start <= nowHHMM()) fail(400, `${label}: that time slot has already started.`);
+  if (slotTaken(date, slot.id)) fail(409, `${label} was just booked by someone else. Please remove it and try again.`);
+  return { service, date, slot };
+}
+
+// Accepts one slot ({ serviceId, date, slotId }) or several ({ items: [...] }) with one set of contact details.
+app.post('/api/bookings', async (req, res) => {
+  const body = req.body || {};
+  const requested = Array.isArray(body.items) ? body.items : [body];
+  if (!requested.length) fail(400, 'Please choose at least one time slot.');
+  if (requested.length > MAX_ITEMS) fail(400, `You can book up to ${MAX_ITEMS} slots at once.`);
+
+  // Validate everything first so either all slots are booked or none are.
+  const items = requested.map(readItem);
+  const seen = new Set();
+  for (const it of items) {
+    const key = `${it.date}|${it.slot.id}`;
+    if (seen.has(key)) fail(400, `${shortDate(it.date)}, ${it.slot.label} is selected twice.`);
+    seen.add(key);
   }
-  if (date === todayKey() && slot.start <= nowHHMM()) fail(400, 'That time slot has already started.');
-  if (slotTaken(date, slot.id)) fail(409, 'Sorry — that slot was just booked. Please pick another.');
 
   const name = str(body.name, 80);
   const phone = str(body.phone, 20);
@@ -183,37 +216,45 @@ app.post('/api/bookings', (req, res) => {
   if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) fail(400, 'Please enter a valid email or leave it empty.');
   if (address.length < 5) fail(400, 'Please enter the venue address.');
 
-  const booking = {
-    id: uid(),
-    ref: makeRef(),
-    serviceId: service.id,
-    serviceName: service.name,
-    date,
-    slotId: slot.id,
-    slotLabel: slot.label,
-    slotTime: `${slot.start} – ${slot.end}`,
-    name,
-    phone,
-    email,
-    address,
-    notes,
-    paymentMethod: '',
-    paymentStatus: 'unpaid',
-    amount: null,
-    billNo: '',
-    billedAt: '',
-    utr: '',
-    paidAt: '',
-    paymentNote: '',
-    status: 'pending',
-    createdAt: new Date().toISOString(),
-    cancelReason: '',
-    cancelledBy: '',
-    cancelledAt: '',
-  };
-  db.bookings.push(booking);
-  save();
-  res.status(201).json({ booking: customerView(booking) });
+  const groupId = items.length > 1 ? `G-${uid().slice(0, 8).toUpperCase()}` : '';
+  const createdAt = new Date().toISOString();
+  const created = [];
+  for (const { service, date, slot } of items) {
+    const booking = {
+      id: uid(),
+      ref: makeRef(),
+      groupId,
+      serviceId: service.id,
+      serviceName: service.name,
+      date,
+      slotId: slot.id,
+      slotLabel: slot.label,
+      slotTime: `${slot.start} – ${slot.end}`,
+      name,
+      phone,
+      email,
+      address,
+      notes,
+      paymentMethod: '',
+      paymentStatus: 'unpaid',
+      amount: null,
+      billNo: '',
+      billedAt: '',
+      utr: '',
+      paidAt: '',
+      paymentNote: '',
+      status: 'pending',
+      createdAt,
+      cancelReason: '',
+      cancelledBy: '',
+      cancelledAt: '',
+    };
+    db.bookings.push(booking); // pushed before the next makeRef() so refs stay unique
+    created.push(booking);
+  }
+  await save();
+  const views = created.map(customerView).sort((a, b) => (a.date + a.slotTime).localeCompare(b.date + b.slotTime));
+  res.status(201).json({ booking: views[0], bookings: views });
 });
 
 const findOwnBooking = (body) => {
@@ -225,7 +266,7 @@ const findOwnBooking = (body) => {
   return booking;
 };
 
-app.post('/api/bookings/lookup', (req, res) => {
+app.post('/api/bookings/lookup', async (req, res) => {
   throttle(`lookup:${req.ip}`, 40);
   const phone = str(req.body?.phone, 20);
   if (digits(phone).length < 10) fail(400, 'Please enter the 10-digit phone number used for booking.');
@@ -244,7 +285,7 @@ app.post('/api/bookings/lookup', (req, res) => {
   res.json({ bookings: mine.map(customerView) });
 });
 
-app.post('/api/bookings/payment', (req, res) => {
+app.post('/api/bookings/payment', async (req, res) => {
   const booking = findOwnBooking(req.body);
   if (booking.status !== 'confirmed' && booking.status !== 'completed') fail(400, 'Payment opens once the jatha confirms your booking.');
   if (!booking.amount) fail(400, 'The bill for this booking is not ready yet.');
@@ -252,18 +293,25 @@ app.post('/api/bookings/payment', (req, res) => {
   const utr = str(req.body.utr, 40).replace(/\s/g, '');
   if (!/^[A-Za-z0-9]{6,40}$/.test(utr)) fail(400, 'Please enter the UPI transaction ID / UTR shown in your payment app.');
   Object.assign(booking, { paymentMethod: 'upi', paymentStatus: 'submitted', utr, paymentSubmittedAt: new Date().toISOString() });
-  save();
+  await save();
   res.json({ booking: customerView(booking) });
 });
 
-app.get('/api/upi-qr', (_req, res) => {
-  const file = db.settings.upiQrFile && path.join(UPLOADS, db.settings.upiQrFile);
-  if (!file || !fs.existsSync(file)) fail(404, 'No QR uploaded.');
-  res.sendFile(file);
+let qrCache; // { type, data } — loaded once, refreshed on upload
+const loadQr = async () => (qrCache ??= (await kv.get('upi-qr')) || null);
+
+app.get('/api/upi-qr', async (_req, res) => {
+  const qr = await loadQr();
+  if (!qr) fail(404, 'No QR uploaded.');
+  res.set('Cache-Control', 'public, max-age=86400').type(qr.type).send(Buffer.from(qr.data, 'base64'));
+});
+
+app.get('/api/health', async (_req, res) => {
+  res.json({ ok: true, uptime: Math.round(process.uptime()) });
 });
 
 // Customers can only ask to cancel; the admin approves or rejects the request.
-app.post('/api/bookings/cancel-request', (req, res) => {
+app.post('/api/bookings/cancel-request', async (req, res) => {
   const booking = findOwnBooking(req.body);
   if (!isActive(booking)) fail(400, `This booking is already ${booking.status}.`);
   if (booking.date < todayKey()) fail(400, 'Past bookings cannot be cancelled.');
@@ -271,21 +319,21 @@ app.post('/api/bookings/cancel-request', (req, res) => {
   const reason = str(req.body.reason, 500);
   if (reason.length < 3) fail(400, 'Please tell us the reason for cancelling.');
   booking.cancelRequest = { status: 'pending', reason, at: new Date().toISOString(), note: '' };
-  save();
+  await save();
   res.json({ booking: customerView(booking) });
 });
 
-app.post('/api/bookings/cancel-request/withdraw', (req, res) => {
+app.post('/api/bookings/cancel-request/withdraw', async (req, res) => {
   const booking = findOwnBooking(req.body);
   if (booking.cancelRequest?.status !== 'pending') fail(400, 'There is no pending cancellation request.');
   booking.cancelRequest = null;
-  save();
+  await save();
   res.json({ booking: customerView(booking) });
 });
 
 /* ---------------- admin API ---------------- */
 
-app.post('/api/admin/login', (req, res) => {
+app.post('/api/admin/login', async (req, res) => {
   throttle(`login:${req.ip}`);
   const given = Buffer.from(String(req.body?.password || ''));
   const real = Buffer.from(ADMIN_PASSWORD);
@@ -296,7 +344,7 @@ app.post('/api/admin/login', (req, res) => {
 
 app.use('/api/admin', requireAdmin);
 
-app.get('/api/admin/data', (_req, res) => {
+app.get('/api/admin/data', async (_req, res) => {
   res.json({
     settings: db.settings,
     services: db.services,
@@ -307,7 +355,7 @@ app.get('/api/admin/data', (_req, res) => {
   });
 });
 
-app.put('/api/admin/settings', (req, res) => {
+app.put('/api/admin/settings', async (req, res) => {
   const b = req.body || {};
   const s = db.settings;
   // Validate before changing anything so a rejected save leaves settings untouched.
@@ -331,7 +379,7 @@ app.put('/api/admin/settings', (req, res) => {
       .filter((t) => t.name && t.text)
       .slice(0, 30);
   }
-  save();
+  await save();
   res.json({ settings: s });
 });
 
@@ -352,42 +400,42 @@ const readService = (b, existing = {}) => {
   };
 };
 
-app.post('/api/admin/services', (req, res) => {
+app.post('/api/admin/services', async (req, res) => {
   const service = readService(req.body || {});
   let id = slugify(service.name);
   while (db.services.some((s) => s.id === id)) id = `${id}-${uid().slice(0, 4)}`;
   service.id = id;
   db.services.push(service);
-  save();
+  await save();
   res.status(201).json({ services: db.services });
 });
 
-app.put('/api/admin/services/:id', (req, res) => {
+app.put('/api/admin/services/:id', async (req, res) => {
   const idx = db.services.findIndex((s) => s.id === req.params.id);
   if (idx < 0) fail(404, 'Service not found.');
   db.services[idx] = readService(req.body || {}, db.services[idx]);
-  save();
+  await save();
   res.json({ services: db.services });
 });
 
-app.delete('/api/admin/services/:id', (req, res) => {
+app.delete('/api/admin/services/:id', async (req, res) => {
   db.services = db.services.filter((s) => s.id !== req.params.id);
-  save();
+  await save();
   res.json({ services: db.services });
 });
 
-app.put('/api/admin/services-order', (req, res) => {
+app.put('/api/admin/services-order', async (req, res) => {
   const order = Array.isArray(req.body?.ids) ? req.body.ids : [];
   db.services.sort((a, b) => {
     const ia = order.indexOf(a.id);
     const ib = order.indexOf(b.id);
     return (ia < 0 ? 1e9 : ia) - (ib < 0 ? 1e9 : ib);
   });
-  save();
+  await save();
   res.json({ services: db.services });
 });
 
-app.put('/api/admin/slots', (req, res) => {
+app.put('/api/admin/slots', async (req, res) => {
   const list = Array.isArray(req.body?.slots) ? req.body.slots : fail(400, 'Invalid slots.');
   const seen = new Set();
   const slots = list.map((s) => {
@@ -404,18 +452,18 @@ app.put('/api/admin/slots', (req, res) => {
   db.slots = slots;
   // Drop references to removed slots from services.
   for (const svc of db.services) svc.allowedSlots = (svc.allowedSlots || []).filter((id) => seen.has(id));
-  save();
+  await save();
   res.json({ slots: db.slots, services: db.services });
 });
 
-app.put('/api/admin/blocked-dates', (req, res) => {
+app.put('/api/admin/blocked-dates', async (req, res) => {
   const list = Array.isArray(req.body?.dates) ? req.body.dates : [];
   db.blockedDates = [...new Set(list.filter((d) => DATE_RE.test(d)))].sort();
-  save();
+  await save();
   res.json({ blockedDates: db.blockedDates });
 });
 
-app.patch('/api/admin/bookings/:id', (req, res) => {
+app.patch('/api/admin/bookings/:id', async (req, res) => {
   const booking = db.bookings.find((b) => b.id === req.params.id);
   if (!booking) fail(404, 'Booking not found.');
   const status = req.body?.status;
@@ -441,11 +489,11 @@ app.patch('/api/admin/bookings/:id', (req, res) => {
   }
   booking.status = status;
   booking.updatedAt = new Date().toISOString();
-  save();
+  await save();
   res.json({ booking });
 });
 
-app.patch('/api/admin/bookings/:id/cancel-request', (req, res) => {
+app.patch('/api/admin/bookings/:id/cancel-request', async (req, res) => {
   const booking = db.bookings.find((b) => b.id === req.params.id);
   if (!booking) fail(404, 'Booking not found.');
   const request = booking.cancelRequest;
@@ -464,11 +512,11 @@ app.patch('/api/admin/bookings/:id/cancel-request', (req, res) => {
     fail(400, 'Choose approve or reject.');
   }
   booking.updatedAt = new Date().toISOString();
-  save();
+  await save();
   res.json({ booking });
 });
 
-app.patch('/api/admin/bookings/:id/payment', (req, res) => {
+app.patch('/api/admin/bookings/:id/payment', async (req, res) => {
   const booking = db.bookings.find((b) => b.id === req.params.id);
   if (!booking) fail(404, 'Booking not found.');
   const b = req.body || {};
@@ -488,39 +536,34 @@ app.patch('/api/admin/bookings/:id/payment', (req, res) => {
   } else {
     fail(400, 'Invalid payment status.');
   }
-  save();
+  await save();
   res.json({ booking });
 });
 
-const QR_TYPES = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp' };
-const removeQrFile = () => {
-  if (db.settings.upiQrFile) fs.rmSync(path.join(UPLOADS, db.settings.upiQrFile), { force: true });
-};
 
-app.post(QR_PATH, express.json({ limit: '4mb' }), (req, res) => {
+app.post(QR_PATH, express.json({ limit: '4mb' }), async (req, res) => {
   const match = /^data:(image\/(?:png|jpeg|webp));base64,([A-Za-z0-9+/=]+)$/.exec(req.body?.dataUrl || '');
   if (!match) fail(400, 'Please upload a PNG, JPG or WebP image.');
   const data = Buffer.from(match[2], 'base64');
   if (data.length > 3 * 1024 * 1024) fail(400, 'Image is too large (max 3 MB).');
-  fs.mkdirSync(UPLOADS, { recursive: true });
-  removeQrFile();
-  const file = `upi-qr-${Date.now()}.${QR_TYPES[match[1]]}`;
-  fs.writeFileSync(path.join(UPLOADS, file), data);
-  Object.assign(db.settings, { upiQrFile: file, upiQr: `/api/upi-qr?v=${Date.now()}` });
-  save();
+  qrCache = { type: match[1], data: match[2] };
+  await kv.set('upi-qr', qrCache);
+  db.settings.upiQr = `/api/upi-qr?v=${Date.now()}`;
+  await save();
   res.json({ settings: db.settings });
 });
 
-app.delete(QR_PATH, (_req, res) => {
-  removeQrFile();
-  Object.assign(db.settings, { upiQrFile: '', upiQr: '' });
-  save();
+app.delete(QR_PATH, async (_req, res) => {
+  qrCache = null;
+  await kv.set('upi-qr', null);
+  db.settings.upiQr = '';
+  await save();
   res.json({ settings: db.settings });
 });
 
-app.delete('/api/admin/bookings/:id', (req, res) => {
+app.delete('/api/admin/bookings/:id', async (req, res) => {
   db.bookings = db.bookings.filter((b) => b.id !== req.params.id);
-  save();
+  await save();
   res.json({ ok: true });
 });
 
@@ -543,6 +586,14 @@ app.use((err, _req, res, _next) => {
   if (status >= 500) console.error(err);
   res.status(status).json({ error: status >= 500 ? 'Server error. Please try again.' : err.message });
 });
+
+// Free hosting plans put the site to sleep when idle. Render sets RENDER_EXTERNAL_URL itself;
+// on other hosts set KEEP_ALIVE_URL to the public address. KEEP_ALIVE=off disables it.
+const keepAliveUrl = process.env.KEEP_ALIVE_URL || process.env.RENDER_EXTERNAL_URL;
+if (keepAliveUrl && process.env.KEEP_ALIVE !== 'off') {
+  setInterval(() => fetch(`${keepAliveUrl.replace(/\/$/, '')}/api/health`).catch(() => {}), 10 * 60 * 1000);
+  console.log(`[sewa] Keep-alive ping every 10 min → ${keepAliveUrl}/api/health`);
+}
 
 // Express 5 calls this with an error too when the server cannot start.
 app.listen(PORT, (err) => {

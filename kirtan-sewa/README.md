@@ -28,19 +28,53 @@ folder on persistent storage and back it up. Set `DATA_DIR=/some/path` to store 
 | `PORT`           | Port for the server                       | `5174`         |
 | `DATA_DIR`       | Folder for `db.json`                      | `./data`       |
 | `TOKEN_SECRET`   | Signs admin sessions (auto-generated)     | stored in db   |
+| `DATABASE_URL`   | Postgres connection string; when set, data goes to Postgres instead of `DATA_DIR` | — |
+| `KEEP_ALIVE_URL` | Public address to ping every 10 min (Render sets `RENDER_EXTERNAL_URL` itself) | — |
+| `KEEP_ALIVE`     | Set to `off` to disable the keep-awake ping | on             |
+
+## Deploy free on Render (with Neon Postgres)
+
+Render's free plan wipes the disk on every deploy and restart, so bookings must live in a database.
+When `DATABASE_URL` is set the app stores everything (bookings, settings, the UPI QR) in Postgres.
+
+1. **Database**: sign up at neon.tech, create a project (region: *AWS Asia Pacific (Singapore)*), and copy the
+   connection string (`postgresql://…?sslmode=require`).
+2. **GitHub**: push this folder to a new repository. `data/`, `dist/` and `node_modules/` are git-ignored.
+3. **Render**: New → **Blueprint** → pick the repo. `render.yaml` sets the build, start and health check.
+   Fill in `ADMIN_PASSWORD` and `DATABASE_URL` → **Apply**.
+4. The site is live at `https://<name>.onrender.com` (admin: `/admin`).
+
+**Staying awake:** free Render sites sleep after 15 idle minutes. While running, the app pings its own
+`/api/health` every 10 minutes (Render provides `RENDER_EXTERNAL_URL`). As a backup that can also wake a sleeping
+site, add a free monitor at cron-job.org or uptimerobot.com for `https://<name>.onrender.com/api/health`.
+One always-on free service uses about 744 of the 750 free hours a month, so keep only one free service running.
+
+**Moving local bookings:** run the app once on your computer with `DATABASE_URL=… npm start`. If the database is
+empty, it copies `data/db.json` into it. Upload the UPI QR again afterwards.
 
 ## What's where
 
-- **Visitors**: browse the portfolio, check the live calendar, book a sewa (service → date → time slot → details),
-  and get a Booking ID.
-- **`/manage`**: look up a booking with the ID and phone number, then cancel it with a reason.
+- **Visitors**: browse the portfolio, check the live calendar and book sewa. They choose a sewa, then tap as many
+  time slots as they need across any dates (switching sewa in between if they like), enter their details once,
+  and submit everything together (up to 20 slots). Each slot becomes its own booking with its own ID, linked by a
+  group ID. Either all the slots are booked or none are.
+- **Calendar**: anyone can see which slots are booked, what sewa each is for, and the venue address.
+  Visitors must choose their sewa first. Nothing is pre-selected.
+- **`/manage`**: customers enter only their phone number to see all their bookings, bills and payments.
+  They can **request** a cancellation with a reason. The booking stays active until you approve it.
 - **`/admin`**:
-  - **Bookings**: confirm, complete, cancel with a reason, restore or delete. Customer cancellation reasons show here.
+  - **Bookings**: confirm, complete, cancel with a reason, restore or delete. The **Cancel requests** filter lists
+    customers' cancellation requests, which you can **Approve** (this frees the slot) or **Reject** (with an optional message).
   - **Sewa services**: add, edit, hide, reorder or delete sewas, and choose which time slots each one is offered in.
   - **Schedule**: edit the daily time slots and block dates when the jatha is unavailable.
   - **Site settings**: name, taglines, about text, photo, contact details, stats, gallery images and testimonials.
 
 Each time slot takes one booking per day, across all sewas, because there is one jatha.
+
+## Light / dark mode
+
+The site follows the visitor's phone or browser theme by default. The button in the navbar cycles through
+Auto → Light → Dark, and the choice is remembered on that device.
 
 ## Payments & bills
 

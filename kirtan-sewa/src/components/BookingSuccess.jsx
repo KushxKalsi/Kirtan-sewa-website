@@ -12,14 +12,16 @@ const BURST = Array.from({ length: 18 }, (_, i) => {
   return { x: Math.cos(angle) * dist, y: Math.sin(angle) * dist, s: 4 + (i % 4) * 2, d: (i % 5) * 0.03 };
 });
 
-export default function BookingSuccess({ booking, phone, onAgain }) {
+export default function BookingSuccess({ bookings, phone, onAgain }) {
+  const booking = bookings[0];
+  const many = bookings.length > 1;
   const { site } = useSite();
   const [copied, setCopied] = useState(false);
   const wa = site?.settings.whatsapp?.replace(/\D/g, '');
 
   const copy = async () => {
     try {
-      await navigator.clipboard.writeText(booking.ref);
+      await navigator.clipboard.writeText(bookings.map((b) => b.ref).join(', '));
       setCopied(true);
       setTimeout(() => setCopied(false), 1800);
     } catch {
@@ -27,7 +29,8 @@ export default function BookingSuccess({ booking, phone, onAgain }) {
     }
   };
 
-  const message = `Waheguru Ji Ka Khalsa, Waheguru Ji Ki Fateh 🙏\n\nI have requested a booking:\n• ${booking.serviceName}\n• ${prettyDate(booking.date)}\n• ${booking.slotLabel} (${rangeTo12(booking.slotTime)})\n• Booking ID: ${booking.ref}\n\nName: ${booking.name}`;
+  const lines = bookings.map((b) => `• ${b.serviceName} — ${prettyDate(b.date, 'EEE, d MMM yyyy')}, ${b.slotLabel} (${rangeTo12(b.slotTime)}) — ID ${b.ref}`);
+  const message = `Waheguru Ji Ka Khalsa, Waheguru Ji Ki Fateh 🙏\n\nI have requested ${many ? `${bookings.length} bookings` : 'a booking'}:\n${lines.join('\n')}\n\nName: ${booking.name}\nVenue: ${booking.address}`;
 
   return (
     <div className="success">
@@ -55,36 +58,51 @@ export default function BookingSuccess({ booking, phone, onAgain }) {
       </div>
 
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.6, duration: 0.6, ease }}>
-        <h3 className="panel-title">Booking request received</h3>
+        <h3 className="panel-title">{many ? `${bookings.length} booking requests received` : 'Booking request received'}</h3>
         <p className="panel-sub">Waheguru Ji! The jatha will contact you shortly to confirm.</p>
 
-        <div className="ref-box">
-          <span>Your Booking ID</span>
-          <strong>{booking.ref}</strong>
-          <button className="icon-btn" onClick={copy} aria-label="Copy booking ID">
-            {copied ? <Check size={16} /> : <Copy size={16} />}
-          </button>
-        </div>
-
-        <dl className="success-details">
-          <div>
-            <dt>Sewa</dt>
-            <dd>{booking.serviceName}</dd>
-          </div>
-          <div>
-            <dt>Date</dt>
-            <dd>{prettyDate(booking.date, 'EEE, d MMM yyyy')}</dd>
-          </div>
-          <div>
-            <dt>Time</dt>
-            <dd>
-              {booking.slotLabel} · {rangeTo12(booking.slotTime)}
-            </dd>
-          </div>
-        </dl>
+        {many ? (
+          <ul className="success-list">
+            {bookings.map((b, i) => (
+              <motion.li key={b.ref} initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.7 + i * 0.07, duration: 0.4, ease }}>
+                <span>
+                  <strong>{b.serviceName}</strong>
+                  {prettyDate(b.date, 'EEE, d MMM yyyy')} · {b.slotLabel}, {rangeTo12(b.slotTime)}
+                </span>
+                <code>{b.ref}</code>
+              </motion.li>
+            ))}
+          </ul>
+        ) : (
+          <>
+            <div className="ref-box">
+              <span>Your Booking ID</span>
+              <strong>{booking.ref}</strong>
+              <button className="icon-btn" onClick={copy} aria-label="Copy booking ID">
+                {copied ? <Check size={16} /> : <Copy size={16} />}
+              </button>
+            </div>
+            <dl className="success-details">
+              <div>
+                <dt>Sewa</dt>
+                <dd>{booking.serviceName}</dd>
+              </div>
+              <div>
+                <dt>Date</dt>
+                <dd>{prettyDate(booking.date, 'EEE, d MMM yyyy')}</dd>
+              </div>
+              <div>
+                <dt>Time</dt>
+                <dd>
+                  {booking.slotLabel} · {rangeTo12(booking.slotTime)}
+                </dd>
+              </div>
+            </dl>
+          </>
+        )}
 
         <p className="fine-print">
-          You can view this booking anytime under “Manage booking” using just your phone number. Once the jatha confirms, your bill and payment details will appear under “Manage booking”.
+          You can view {many ? 'these bookings' : 'this booking'} anytime under “Manage booking” using just your phone number. Once the jatha confirms, bills and payment details appear there too.
         </p>
 
         <div className="success-actions">
