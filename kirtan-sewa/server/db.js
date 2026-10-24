@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import net from 'node:net';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
@@ -119,8 +120,14 @@ function fileStore() {
 
 async function postgresStore(url) {
   const { default: pg } = await import('pg');
+  // Node gives each IPv4/IPv6 address only 250 ms to connect. To a far-away database (e.g. India or
+  // Singapore -> Neon US-East) that is too short and every attempt "times out", so allow longer.
+  net.setDefaultAutoSelectFamilyAttemptTimeout?.(3000);
   const local = /@(localhost|127\.0\.0\.1)[:/]/.test(url);
-  const pool = new pg.Pool({ connectionString: url, ssl: local ? false : { rejectUnauthorized: false }, max: 3 });
+  // TLS is configured below; drop sslmode from the URL so pg doesn't print a deprecation warning.
+  const cleanUrl = url.replace(/([?&])sslmode=[^&]*&?/, '$1').replace(/[?&]$/, '');
+  const pool = new pg.Pool({ connectionString: cleanUrl, ssl: local ? false : { rejectUnauthorized: false }, max: 3, connectionTimeoutMillis: 20000 });
+  pool.on('error', (e) => console.error('[sewa] Database connection error:', e.message));
   await pool.query('CREATE TABLE IF NOT EXISTS sewa_store (key text PRIMARY KEY, value jsonb NOT NULL, updated_at timestamptz NOT NULL DEFAULT now())');
   return {
     name: 'postgres',
