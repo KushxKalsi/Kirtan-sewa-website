@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Ban, CalendarDays, CircleAlert, Clock, Hourglass, Loader2, MapPin, Search, Undo2, User } from 'lucide-react';
+import { Ban, CalendarDays, CircleAlert, Clock, Hourglass, Loader2, MapPin, Phone, Search, Undo2, User, UsersRound } from 'lucide-react';
 import Modal from '../components/Modal';
 import PaymentBox from '../components/PaymentBox';
 import NotifyButton from '../components/NotifyButton';
@@ -68,6 +68,26 @@ function BookingCard({ booking, phone, index, onChange, onRequestCancel }) {
       </ul>
       {booking.notes && <p className="bc-notes">“{booking.notes}”</p>}
 
+      {booking.team?.length > 0 && booking.status !== 'cancelled' && (
+        <div className="team-box">
+          <span className="team-box-head">
+            <UsersRound size={16} /> Sewa by
+          </span>
+          <ul>
+            {booking.team.map((t, i) => (
+              <li key={i}>
+                <strong>{t.name}</strong>
+                {t.address && (
+                  <span>
+                    <MapPin size={13} /> {t.address}
+                  </span>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       {booking.status === 'cancelled' && (
         <div className="cancel-note">
           <strong>Cancelled {booking.cancelledBy === 'admin' ? 'by the jatha' : 'on your request'}</strong>
@@ -105,12 +125,73 @@ function BookingCard({ booking, phone, index, onChange, onRequestCancel }) {
   );
 }
 
+const mapsLink = (address) => `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`;
+
+/** A sewa the looked-up phone number (a team member) is assigned to. */
+function DutyCard({ duty, index }) {
+  const past = duty.date < toKey(new Date());
+  const status = past && duty.status !== 'cancelled' ? 'completed' : duty.status;
+  return (
+    <motion.article
+      layout
+      className={`booking-card duty-card glass st-${duty.status} ${past ? 'past' : ''}`}
+      initial={{ opacity: 0, y: 40, scale: 0.97 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      exit={{ opacity: 0, y: -20 }}
+      transition={{ duration: 0.7, ease, delay: index * 0.08 }}
+    >
+      <header>
+        <div>
+          <span className="bc-ref">{duty.ref}</span>
+          <h2>{duty.serviceName}</h2>
+          {duty.categoryName && <span className="bc-cat">{duty.categoryName}</span>}
+        </div>
+        <span className={`badge badge-${status}`}>{status}</span>
+      </header>
+      <ul className="bc-list">
+        <li>
+          <CalendarDays size={17} /> {prettyDate(duty.date)}
+        </li>
+        <li>
+          <Clock size={17} /> {duty.slotLabel} · {rangeTo12(duty.slotTime)}
+        </li>
+        <li>
+          <MapPin size={17} />
+          <a href={mapsLink(duty.address)} target="_blank" rel="noreferrer">
+            {duty.address}
+          </a>
+        </li>
+        <li>
+          <User size={17} /> Booked by {duty.name}
+          <a className="duty-call" href={`tel:${duty.phone}`}>
+            <Phone size={13} /> {duty.phone}
+          </a>
+        </li>
+        {duty.with.length > 0 && (
+          <li>
+            <UsersRound size={17} /> With {duty.with.join(', ')}
+          </li>
+        )}
+      </ul>
+      {duty.notes && <p className="bc-notes">“{duty.notes}”</p>}
+      {duty.status === 'cancelled' && (
+        <div className="cancel-note">
+          <strong>This sewa was cancelled</strong>
+          {duty.cancelReason && <p>Reason: {duty.cancelReason}</p>}
+        </div>
+      )}
+    </motion.article>
+  );
+}
+
 export default function ManageBooking() {
   const [params] = useSearchParams();
   const toast = useToast();
   const [phone, setPhone] = useState(params.get('phone') || '');
   const [searched, setSearched] = useState('');
   const [bookings, setBookings] = useState(null);
+  const [duties, setDuties] = useState([]);
+  const [isTeam, setIsTeam] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [cancelFor, setCancelFor] = useState(null);
@@ -126,9 +207,13 @@ export default function ManageBooking() {
     try {
       const data = await api.lookupBookings(p.trim());
       setBookings(data.bookings);
+      setDuties(data.duties || []);
+      setIsTeam(!!data.isTeam);
       setSearched(p.trim());
     } catch (e) {
       setBookings(null);
+      setDuties([]);
+      setIsTeam(false);
       setError(e.message);
     } finally {
       setLoading(false);
@@ -178,7 +263,7 @@ export default function ManageBooking() {
           </motion.span>
           <SplitText as="h1" className="section-title" text="Manage your bookings" highlight={[1, 2]} play />
           <motion.p className="section-lead" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.5, duration: 0.8 }}>
-            Enter the phone number you used while booking to see all your bookings, bills and payments.
+            Enter the phone number you used while booking to see all your bookings, bills and payments. Team members: enter your number to see the sewas you are assigned to.
           </motion.p>
         </div>
 
@@ -227,12 +312,26 @@ export default function ManageBooking() {
           )}
         </AnimatePresence>
 
-        {bookings && (
+        {bookings && <NotifyButton phone={searched} key={`notify-${searched}`} compact team={isTeam} />}
+
+        {duties.length > 0 && (
+          <>
+            <motion.h2 className="results-count duty-title" key={`d-${searched}`} initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+              Your sewa duties · {duties.length}
+            </motion.h2>
+            <AnimatePresence mode="popLayout">
+              {duties.map((d, i) => (
+                <DutyCard key={d.ref} duty={d} index={i} />
+              ))}
+            </AnimatePresence>
+          </>
+        )}
+
+        {bookings?.length > 0 && (
           <motion.p className="results-count" key={searched} initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
             {bookings.length} booking{bookings.length === 1 ? '' : 's'} for {searched}
           </motion.p>
         )}
-        {bookings && <NotifyButton phone={searched} key={`notify-${searched}`} compact />}
         <AnimatePresence mode="popLayout">
           {bookings?.map((b, i) => (
             <BookingCard key={b.ref} booking={b} phone={searched} index={i} onChange={replace} onRequestCancel={openCancel} />

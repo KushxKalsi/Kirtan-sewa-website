@@ -71,6 +71,17 @@ empty, it copies `data/db.json` into it. Upload the UPI QR again afterwards.
 
 Each time slot takes one booking per day, across all sewas, because there is one jatha.
 
+## Requests, booked times and custom times
+
+- A customer's booking is a **request**. Requests never block a time, so several people can ask for the same
+  time. The time is **booked** only when you confirm one in admin. Only booked times show on the public calendar.
+- In admin, requests that compete for a time are tagged ("2 other requests for this time"). Once one is
+  confirmed, the others show **Time already booked** and can't be confirmed until that booking is cancelled.
+- Besides the fixed slots, customers can enter **their own time** (start and end, at least 30 minutes). Any
+  overlap with a booked time is refused, for fixed slots and custom times alike. Turn this off in
+  Site settings ("Let customers enter their own time").
+- All dates and times use Indian time (`TZ=Asia/Kolkata` is set by the server; override with the `TZ` env var).
+
 ## Categories, team and assignments
 
 - **Categories** (admin → Categories): the first choice when booking, e.g. *Kirtan with Raag* (all sewas) and
@@ -81,6 +92,24 @@ Each time slot takes one booking per day, across all sewas, because there is one
 - **Assigning:** open a booking and use **Assigned to**. Only people who do that sewa in that category are listed.
   You can assign several people, and each slot of a multi-slot booking separately. The **Not assigned** filter
   shows upcoming bookings with nobody assigned. Names stay on bookings even if a person is later removed.
+- The customer sees who is doing their sewa, with that person's address, under Manage booking.
+- **Team members' own page:** a team member opens **Manage booking** and enters their own phone number (the
+  one saved in Team). They see every sewa they're assigned to, with date, exact time, venue (map link), and
+  the customer's name and phone. They can turn on notifications there.
+- **Team notifications:** a person is notified when they're assigned or removed, and when that booking is
+  cancelled. They also get a reminder **on the day** (6 AM, or 8 PM the evening before for slots starting by
+  8 AM) and **2 hours before** the start. Assigning waits 30 seconds to settle, so ticking people on and off
+  sends one message.
+
+## Low-end phones
+
+The site measures the device as it loads: 2 GB RAM or less, 4 CPU cores or fewer on a touch screen, data saver,
+or a frame rate under ~40 fps during the first seconds. On a slow phone it keeps the same layout and animations
+but drops the costly effects: frosted glass blur, film grain, blur-in reveals, the mandala's line drawing, and
+smooth-scroll. It also uses fewer particles at 30 fps. Mid and high-end devices get everything.
+
+To force a mode while testing, open the site with `?perf=low` or `?perf=high`; `?perf=auto` goes back to
+automatic.
 
 ## Light / dark mode
 

@@ -1,86 +1,65 @@
 import { useEffect, useRef } from 'react';
+import { createField } from '../lib/particleField';
+import { isLowEnd, onLowEndChange } from '../lib/perf';
 
-/** Soft golden motes drifting upward, like light in a Darbar. Canvas based to stay light on phones. */
+const readColors = () => {
+  const css = getComputedStyle(document.documentElement);
+  return [css.getPropertyValue('--particle-1').trim(), css.getPropertyValue('--particle-2').trim()];
+};
+
+/** Talks to a field drawn in a worker; returns null when the browser can't do that. */
+function workerField(canvas, options) {
+  if (!canvas.transferControlToOffscreen || typeof Worker === 'undefined') return null;
+  try {
+    const offscreen = canvas.transferControlToOffscreen();
+    const worker = new Worker(new URL('../lib/particles.worker.js', import.meta.url), { type: 'module' });
+    worker.postMessage({ type: 'init', canvas: offscreen, options }, [offscreen]);
+    return {
+      resize: (width, height, dpr) => worker.postMessage({ type: 'resize', width, height, dpr }),
+      setColors: (colors) => worker.postMessage({ type: 'colors', colors }),
+      setLow: (low) => worker.postMessage({ type: 'low', low }),
+      setRunning: (running) => worker.postMessage({ type: 'running', running }),
+      destroy: () => worker.terminate(),
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** Soft golden motes drifting upward, like light in a Darbar. Drawn off the main thread where possible. */
 export default function Particles({ className, density = 1 }) {
   const ref = useRef(null);
 
   useEffect(() => {
-    const canvas = ref.current;
-    const ctx = canvas.getContext('2d');
-    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    let w = 0;
-    let h = 0;
-    let raf = 0;
-    let visible = true;
-    let particles = [];
-    let colors = [];
-    const readColors = () => {
-      const css = getComputedStyle(document.documentElement);
-      colors = [css.getPropertyValue('--particle-1').trim(), css.getPropertyValue('--particle-2').trim()];
-    };
-    readColors();
-    window.addEventListener('themechange', readColors);
+    // A canvas can only be handed to a worker once, so each mount gets a fresh one.
+    const canvas = document.createElement('canvas');
+    canvas.style.cssText = 'display:block;width:100%;height:100%';
+    ref.current.appendChild(canvas);
 
-    const resize = () => {
-      const dpr = Math.min(window.devicePixelRatio || 1, 2);
-      w = canvas.clientWidth;
-      h = canvas.clientHeight;
-      canvas.width = w * dpr;
-      canvas.height = h * dpr;
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      const count = Math.round(Math.min(90, (w * h) / 16000) * density);
-      particles = Array.from({ length: count }, () => spawn(true));
-    };
+    const options = { density, low: isLowEnd(), reduce: window.matchMedia('(prefers-reduced-motion: reduce)').matches, colors: readColors() };
+    const field = workerField(canvas, options) || createField(canvas, options);
 
-    const spawn = (anywhere) => ({
-      x: Math.random() * w,
-      y: anywhere ? Math.random() * h : h + 10,
-      r: Math.random() * 1.8 + 0.4,
-      vy: Math.random() * 0.35 + 0.08,
-      vx: (Math.random() - 0.5) * 0.15,
-      phase: Math.random() * Math.PI * 2,
-      tone: Math.random() < 0.7 ? 0 : 1,
-    });
-
-    const tick = (t) => {
-      ctx.clearRect(0, 0, w, h);
-      for (const p of particles) {
-        if (!reduce) {
-          p.y -= p.vy;
-          p.x += p.vx + Math.sin(t / 2000 + p.phase) * 0.12;
-          if (p.y < -10) Object.assign(p, spawn(false));
-        }
-        const alpha = 0.25 + 0.55 * (0.5 + 0.5 * Math.sin(t / 900 + p.phase));
-        const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.r * 6);
-        g.addColorStop(0, `rgba(${colors[p.tone]},${alpha})`);
-        g.addColorStop(1, `rgba(${colors[p.tone]},0)`);
-        ctx.fillStyle = g;
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, p.r * 6, 0, Math.PI * 2);
-        ctx.fill();
-      }
-      if (visible && !reduce) raf = requestAnimationFrame(tick);
-    };
-
-    const io = new IntersectionObserver(([entry]) => {
-      visible = entry.isIntersecting;
-      cancelAnimationFrame(raf);
-      if (visible) raf = requestAnimationFrame(tick);
-    });
-
-    resize();
-    io.observe(canvas);
+    const resize = () => field.resize(canvas.clientWidth, canvas.clientHeight, window.devicePixelRatio || 1);
     const ro = new ResizeObserver(resize);
     ro.observe(canvas);
-    raf = requestAnimationFrame(tick);
+    resize();
+    // Only animate while on screen.
+    const io = new IntersectionObserver(([entry]) => field.setRunning(entry.isIntersecting));
+    io.observe(canvas);
+
+    const onTheme = () => field.setColors(readColors());
+    window.addEventListener('themechange', onTheme);
+    const offLow = onLowEndChange(() => field.setLow(isLowEnd()));
 
     return () => {
-      cancelAnimationFrame(raf);
-      io.disconnect();
+      field.destroy();
       ro.disconnect();
-      window.removeEventListener('themechange', readColors);
+      io.disconnect();
+      offLow();
+      window.removeEventListener('themechange', onTheme);
+      canvas.remove();
     };
   }, [density]);
 
-  return <canvas ref={ref} className={className} aria-hidden="true" />;
+  return <div ref={ref} className={className} aria-hidden="true" />;
 }

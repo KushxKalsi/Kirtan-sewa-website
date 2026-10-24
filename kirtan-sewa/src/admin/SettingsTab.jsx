@@ -119,6 +119,11 @@ export default function SettingsTab({ data, api, patch, toast }) {
             </label>
           ))}
         </div>
+        <label className="switch-row">
+          <input type="checkbox" checked={form.customTimeEnabled !== false} onChange={check('customTimeEnabled')} />
+          <span className="switch" />
+          Let customers enter their own time (besides the fixed time slots)
+        </label>
       </div>
 
       <div className="admin-card glass admin-form">

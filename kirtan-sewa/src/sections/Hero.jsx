@@ -9,6 +9,7 @@ import Magnetic from '../components/Magnetic';
 import { useSite } from '../components/SiteContext';
 import { scrollToId } from '../lib/scroll';
 import { ease } from '../lib/motion';
+import { useLowEnd } from '../lib/perf';
 
 export default function Hero({ ready }) {
   const { site } = useSite();
@@ -19,6 +20,7 @@ export default function Hero({ ready }) {
   const opacity = useTransform(scrollYProgress, [0, 0.75], [1, 0]);
   const emblemScale = useTransform(scrollYProgress, [0, 1], [1, 1.35]);
   const emblemRotate = useTransform(scrollYProgress, [0, 1], [0, 40]);
+  const blur = !useLowEnd();
   const name = s?.siteName || 'Kirtan Sewa';
   const words = name.split(' ');
 
@@ -45,8 +47,8 @@ export default function Hero({ ready }) {
           {ready && <Mandala className="hero-mandala" />}
           <motion.span
             className="ik-onkar gurmukhi"
-            initial={{ opacity: 0, filter: 'blur(16px)' }}
-            animate={ready ? { opacity: 1, filter: 'blur(0px)' } : {}}
+            initial={{ opacity: 0, ...(blur && { filter: 'blur(16px)' }) }}
+            animate={ready ? { opacity: 1, ...(blur && { filter: 'blur(0px)' }) } : {}}
             transition={{ duration: 1.4, ease, delay: 0.5 }}
           >
             ੴ

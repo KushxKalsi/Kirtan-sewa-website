@@ -1,8 +1,10 @@
 import { useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { ease } from '../lib/motion';
+import { isLowEnd } from '../lib/perf';
 
 export default function Preloader({ onDone }) {
+  const blur = !isLowEnd();
   useEffect(() => {
     const t = setTimeout(onDone, 2100);
     return () => clearTimeout(t);
@@ -16,8 +18,8 @@ export default function Preloader({ onDone }) {
     >
       <motion.div
         className="preloader-symbol gurmukhi"
-        initial={{ opacity: 0, scale: 0.6, filter: 'blur(20px)' }}
-        animate={{ opacity: 1, scale: 1, filter: 'blur(0px)' }}
+        initial={{ opacity: 0, scale: 0.6, ...(blur && { filter: 'blur(20px)' }) }}
+        animate={{ opacity: 1, scale: 1, ...(blur && { filter: 'blur(0px)' }) }}
         exit={{ opacity: 0, y: -60, transition: { duration: 0.6, ease } }}
         transition={{ duration: 1.2, ease }}
       >

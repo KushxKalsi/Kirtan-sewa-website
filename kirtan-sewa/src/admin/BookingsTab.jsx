@@ -23,6 +23,13 @@ const active = (b) => b.status === 'pending' || b.status === 'confirmed';
 const hasRequest = (b) => b.cancelRequest?.status === 'pending' && active(b);
 // Same rule as the server: active, with this sewa in this category among their skills.
 const canDo = (p, b) => p.active && (p.skills || []).some((k) => k.serviceId === b.serviceId && (!b.categoryId || k.categoryId === b.categoryId));
+const isBooked = (b) => b.status === 'confirmed' || b.status === 'completed';
+const rangeOf = (b) => (b.slotTime || '').split('–').map((t) => t.trim());
+const overlap = (a, b) => {
+  const [s1, e1] = rangeOf(a);
+  const [s2, e2] = rangeOf(b);
+  return a.date === b.date && s1 < e2 && s2 < e1;
+};
 const PAY_TEXT = { unpaid: 'Unpaid', submitted: 'To verify', paid: 'Paid' };
 
 export default function BookingsTab({ data, api, patch, toast }) {
@@ -95,6 +102,18 @@ export default function BookingsTab({ data, api, patch, toast }) {
     const count = {};
     for (const b of bookings) if (b.groupId) count[b.groupId] = (count[b.groupId] || 0) + 1;
     return count;
+  }, [bookings]);
+
+  // Requests don't block a time; only confirming does. Show which requests compete for the same time.
+  const clashes = useMemo(() => {
+    const map = {};
+    const live = bookings.filter((b) => active(b) || b.status === 'completed');
+    for (const b of live) {
+      if (!active(b)) continue;
+      const others = live.filter((o) => o.id !== b.id && overlap(b, o));
+      if (others.length) map[b.id] = { booked: others.find(isBooked), requests: others.filter((o) => o.status === 'pending') };
+    }
+    return map;
   }, [bookings]);
 
   const replace = (booking) => patch({ bookings: bookings.map((b) => (b.id === booking.id ? booking : b)) });
@@ -309,6 +328,12 @@ export default function BookingsTab({ data, api, patch, toast }) {
                           </span>
                         )}
                         {hasRequest(b) && <span className="pay-tag req-tag">Cancel requested</span>}
+                        {b.status === 'pending' && clashes[b.id]?.booked && <span className="pay-tag req-tag">Time already booked</span>}
+                        {clashes[b.id]?.requests.length > 0 && !(b.status === 'pending' && clashes[b.id].booked) && (
+                          <span className="pay-tag clash-tag" title={clashes[b.id].requests.map((o) => `${o.name} (${o.ref})`).join(', ')}>
+                            {clashes[b.id].requests.length} other request{clashes[b.id].requests.length > 1 ? 's' : ''} for this time
+                          </span>
+                        )}
                         {b.groupId && groupSize[b.groupId] > 1 && (
                           <span
                             className="pay-tag group-tag"
@@ -401,10 +426,14 @@ export default function BookingsTab({ data, api, patch, toast }) {
                                         disabled={!!busy}
                                       >
                                         {on ? <Check size={13} /> : <UserRound size={13} />} {p.name}
+                                        {p.address && <small className="pill-address">{p.address}</small>}
                                       </button>
                                     );
                                   })}
                                 </div>
+                                {eligible.length > 0 && (
+                                  <p className="muted assign-hint">People you tick are notified (if they turned notifications on), and reminded on the day and 2 hours before.</p>
+                                )}
                                 {!eligible.length && (
                                   <p className="muted">
                                     Nobody in your team does {b.serviceName}
@@ -493,12 +522,27 @@ export default function BookingsTab({ data, api, patch, toast }) {
                               </div>
                             </div>
                           )}
+                          {clashes[b.id] && (
+                            <div className={`clash-box ${b.status === 'pending' && clashes[b.id].booked ? 'taken' : ''}`}>
+                              {b.status === 'pending' && clashes[b.id].booked ? (
+                                <p>
+                                  <strong>This time is already booked</strong> for {clashes[b.id].booked.name} ({clashes[b.id].booked.ref}, {rangeTo12(clashes[b.id].booked.slotTime)}). Cancel one of them to confirm this request.
+                                </p>
+                              ) : (
+                                <p>
+                                  <strong>Other requests for this time:</strong>{' '}
+                                  {clashes[b.id].requests.map((o) => `${o.name} (${o.ref}, ${rangeTo12(o.slotTime)})`).join(', ')}.{' '}
+                                  {b.status === 'pending' ? 'Confirming this one books the time — the others can then no longer be confirmed.' : 'They can no longer be confirmed — you may want to cancel them.'}
+                                </p>
+                              )}
+                            </div>
+                          )}
                           <p className="ab-meta">Requested {format(new Date(b.createdAt), 'd MMM yyyy, h:mm a')}</p>
 
                           <div className="ab-actions">
                             {b.status === 'pending' && (
-                              <button className="btn btn-primary btn-sm" onClick={() => openConfirm(b)} disabled={!!busy}>
-                                <Check size={15} /> Confirm &amp; create bill
+                              <button className="btn btn-primary btn-sm" onClick={() => openConfirm(b)} disabled={!!busy || !!clashes[b.id]?.booked}>
+                                <Check size={15} /> Confirm, book the time &amp; create bill
                               </button>
                             )}
                             {b.status === 'confirmed' && !b.amount && (

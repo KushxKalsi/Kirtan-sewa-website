@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Eye, EyeOff, Loader2, Pencil, Phone, Plus, Save, Trash2, UserRound } from 'lucide-react';
+import { BellRing, Eye, EyeOff, Loader2, MapPin, Pencil, Phone, Plus, Save, Trash2, UserRound } from 'lucide-react';
 import Modal from '../components/Modal';
 import { ease } from '../lib/motion';
 
-const blank = { name: '', phone: '', skills: [], active: true };
+const blank = { name: '', phone: '', address: '', skills: [], active: true };
+const phoneKey = (p) => String(p || '').replace(/\D/g, '').slice(-10);
 const skillKey = (k) => `${k.categoryId}|${k.serviceId}`;
 
 /** Team members and what each one does (sewa within a category). Only matching people can be assigned. */
@@ -22,6 +23,7 @@ export default function TeamTab({ data, api, patch, toast }) {
   const groups = categories.length
     ? categories.map((c) => ({ id: c.id, name: c.name, serviceIds: c.serviceIds }))
     : [{ id: '', name: 'Sewas', serviceIds: services.map((s) => s.id) }];
+  const notifyOn = new Set(data.notifyPhones || []);
   const upcomingFor = (id) => bookings.filter((b) => (b.assignees || []).some((a) => a.id === id) && b.date >= data.today && b.status !== 'cancelled').length;
 
   const run = async (fn, msg) => {
@@ -76,7 +78,9 @@ export default function TeamTab({ data, api, patch, toast }) {
       <div className="admin-section-head">
         <div>
           <h2>Team</h2>
-          <p>Add the people who do the sewa and tick what each one does. When you assign people to a booking, only those who do that sewa in that category are listed.</p>
+          <p>
+            Add the people who do the sewa and tick what each one does. When you assign people to a booking, only those who do that sewa in that category are listed. Team members can open <strong>Manage booking</strong>, enter their own phone number to see their sewas, and turn on notifications.
+          </p>
         </div>
         <button className="btn btn-primary btn-sm" onClick={openNew}>
           <Plus size={16} /> Add person
@@ -104,9 +108,19 @@ export default function TeamTab({ data, api, patch, toast }) {
                       </a>
                     )}
                   </strong>
+                  {p.address && (
+                    <p className="person-address">
+                      <MapPin size={13} /> {p.address}
+                    </p>
+                  )}
                   <div className="skill-chips">
                     {summary.length ? summary.map((t) => <span className="chip" key={t}>{t}</span>) : <span className="chip warn-chip">No skills ticked — can't be assigned</span>}
                     {upcoming > 0 && <span className="chip">{upcoming} upcoming</span>}
+                    {p.phone && notifyOn.has(phoneKey(p.phone)) && (
+                      <span className="chip">
+                        <BellRing size={12} /> Notifications on
+                      </span>
+                    )}
                     {!p.active && <span className="chip">Inactive</span>}
                   </div>
                 </div>
@@ -135,10 +149,14 @@ export default function TeamTab({ data, api, patch, toast }) {
               <input className="input" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} required placeholder="e.g. Bhai Jaswant Singh" />
             </label>
             <label>
-              <span className="label">Phone (optional)</span>
+              <span className="label">Phone (to see their sewas and get notifications)</span>
               <input className="input" type="tel" value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} />
             </label>
           </div>
+          <label>
+            <span className="label">Address (shown to the customer with their name)</span>
+            <textarea className="input" rows={2} value={form.address} onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))} placeholder="e.g. Model Town, Ludhiana" />
+          </label>
           <div>
             <span className="label">What does this person do? Tick the sewas, per category.</span>
             <div className="skill-groups">

@@ -115,8 +115,8 @@
 }
 .nav.solid {
   background: var(--nav-bg);
-  backdrop-filter: blur(18px) saturate(140%);
   -webkit-backdrop-filter: blur(18px) saturate(140%);
+  backdrop-filter: blur(18px) saturate(140%);
   border-bottom-color: var(--border);
 }
 .nav-inner {
@@ -306,6 +306,13 @@
   pointer-events: none;
   background: linear-gradient(180deg, transparent 60%, var(--bg) 100%);
 }
+.hero-inner,
+.hero-emblem,
+.about-visual,
+.about-ring {
+  /* moved on every scroll frame: keep them on their own GPU layer instead of repainting */
+  will-change: transform;
+}
 .hero-inner {
   text-align: center;
   display: flex;
@@ -327,20 +334,26 @@
   height: 144%;
   opacity: 0.85;
 }
-.spin-slow,
-.spin-rev,
-.spin-mid {
-  /* viewBox is centred on 0,0 so rotate around the user-space origin */
-  transform-box: view-box;
-  transform-origin: 0 0;
+.mandala-layer {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
 }
-.spin-slow {
+/* Each ring is its own layer and spins on the GPU (see Mandala.jsx). */
+.m-slow,
+.m-mid,
+.m-rev {
+  will-change: transform;
+}
+.m-slow {
   animation: spin 70s linear infinite;
 }
-.spin-mid {
+.m-mid {
   animation: spin 45s linear infinite;
 }
-.spin-rev {
+.m-rev {
   animation: spin 55s linear infinite reverse;
 }
 .ik-onkar {
@@ -687,6 +700,20 @@
   border: 1px solid var(--border-strong);
   transition: background 0.35s var(--ease), color 0.35s, transform 0.35s var(--ease), border-color 0.35s;
 }
+.service-card.pressable {
+  cursor: pointer;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.service-card.pressable:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+.service-card.pressable:active {
+  border-color: var(--accent);
+}
+.service-card.pressable:hover .service-arrow,
+.service-card.pressable:focus-visible .service-arrow,
 .service-book:hover .service-arrow {
   background: var(--accent);
   border-color: var(--accent);
@@ -755,18 +782,35 @@
   font-size: 12.5px;
   color: #1a1206;
   background: var(--grad-gold);
-  box-shadow: 0 0 0 0 rgba(255, 153, 51, 0.6);
+  position: relative;
+}
+/* Pulse ring: scaled and faded (GPU only). Animating box-shadow repainted the whole booking panel every frame. */
+.step-num::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: 50%;
+  background: rgba(255, 153, 51, 0.6);
   animation: stepPulse 1.8s ease-out infinite;
 }
-.step-hint.done .step-num {
-  animation: none;
+.step-hint.done .step-num::before {
+  display: none;
+}
+@keyframes floatY {
+  50% {
+    transform: translateY(-10px);
+  }
 }
 @keyframes stepPulse {
-  70% {
-    box-shadow: 0 0 0 10px rgba(255, 153, 51, 0);
+  0% {
+    transform: scale(1);
+    opacity: 1;
   }
+  70%,
   100% {
-    box-shadow: 0 0 0 0 rgba(255, 153, 51, 0);
+    transform: scale(1.83); /* 24px dot + 10px ring each side */
+    opacity: 0;
   }
 }
 .cat-picker {
@@ -1120,6 +1164,7 @@
   margin: 0 auto;
 }
 .empty-icon {
+  animation: floatY 3.2s ease-in-out infinite;
   display: grid;
   place-items: center;
   width: 84px;
@@ -1134,6 +1179,72 @@
 .slot-list {
   display: grid;
   gap: 10px;
+}
+/* customer's own time */
+.custom-time {
+  margin-top: 12px;
+}
+.custom-time-toggle {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  width: 100%;
+  padding: 14px 18px;
+  border-radius: 16px;
+  border: 1px dashed var(--border-strong);
+  background: transparent;
+  color: var(--muted);
+  font-size: 14px;
+  text-align: left;
+  transition: border-color 0.25s, color 0.25s;
+}
+.custom-time-toggle strong {
+  color: var(--gold);
+}
+.custom-time-toggle:hover {
+  border-color: var(--gold);
+  color: var(--text);
+}
+.custom-time-form {
+  display: grid;
+  gap: 12px;
+  padding: 16px 18px;
+  border-radius: 16px;
+  border: 1px solid var(--gold);
+  background: var(--tint);
+}
+.custom-time-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 14px;
+}
+.custom-time-title svg {
+  color: var(--gold);
+}
+.custom-time-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.custom-time-row label {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+.custom-time-row .input {
+  width: 100%;
+  min-width: 0;
+}
+.custom-time-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.custom-time .form-error {
+  margin: 0;
 }
 .slot {
   position: relative;
@@ -1835,6 +1946,74 @@
   font-size: 14px;
   color: var(--text);
 }
+/* who is doing the sewa (customer view) and team member duties */
+.team-box {
+  margin-top: 18px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+.team-box-head {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--gold);
+}
+.team-box ul {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+.team-box li {
+  display: grid;
+  gap: 2px;
+}
+.team-box li span {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 6px;
+  font-size: 13.5px;
+  color: var(--muted);
+}
+.team-box li span svg {
+  flex-shrink: 0;
+  margin-top: 3px;
+}
+.duty-card .bc-list a {
+  color: var(--text);
+  text-decoration: underline;
+  text-decoration-color: var(--border-strong);
+  text-underline-offset: 3px;
+}
+.bc-list li .duty-call {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 4px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.bc-list li .duty-call svg {
+  margin: 0;
+}
+.bc-list li:has(.duty-call) {
+  flex-wrap: wrap;
+  column-gap: 8px;
+  row-gap: 2px;
+}
+.duty-card.past {
+  opacity: 0.7;
+}
+.duty-title {
+  margin-top: 34px;
+}
 .results-count {
   margin: 28px 0 -8px;
   font-size: 13px;
@@ -2035,6 +2214,27 @@
 .assign-box .muted {
   margin: 8px 0 0;
 }
+.assign-hint {
+  font-size: 12.5px;
+}
+.pill-address {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.person-address {
+  display: flex;
+  align-items: flex-start;
+  gap: 5px;
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+.person-address svg {
+  flex-shrink: 0;
+  margin-top: 3px;
+}
 .skill-groups {
   display: grid;
   gap: 12px;
@@ -2087,6 +2287,25 @@
 .pay-tag.req-tag {
   color: #fff;
   background: var(--danger);
+}
+.pay-tag.clash-tag {
+  color: var(--bg);
+  background: var(--warn);
+}
+.clash-box {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  font-size: 13.5px;
+  border: 1px solid color-mix(in srgb, var(--warn) 45%, transparent);
+  background: color-mix(in srgb, var(--warn) 9%, transparent);
+}
+.clash-box.taken {
+  border-color: rgba(255, 107, 107, 0.35);
+  background: rgba(255, 107, 107, 0.08);
+}
+.clash-box p {
+  margin: 0;
 }
 .cancel-btn {
   margin-top: 24px;
@@ -3373,4 +3592,29 @@ input:focus-visible + .tick {
   .cal-day {
     font-size: 13px;
   }
+}
+
+/* =========================================================
+   Low-end devices (html.low-end, set by src/lib/perf.js)
+   Same layout and motion, minus the effects that are expensive to paint.
+   ========================================================= */
+.low-end body::before {
+  display: none; /* full-screen film grain */
+}
+.low-end *,
+.low-end *::before,
+.low-end *::after {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+.low-end .nav.solid {
+  background: var(--bg);
+}
+.low-end .about-quote {
+  background: var(--modal-bg);
+}
+.low-end .hero-rays,
+.low-end .ik-onkar,
+.low-end .contact-cta-glow {
+  animation: none;
 }

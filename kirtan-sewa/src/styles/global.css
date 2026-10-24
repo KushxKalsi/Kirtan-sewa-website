@@ -302,7 +302,7 @@ button {
 }
 .split-word > span {
   display: inline-block;
-  will-change: transform;
+  /* no will-change: a permanent GPU layer per word made every frame slower on phones */
 }
 
 /* ---------- buttons ---------- */
@@ -395,8 +395,8 @@ button {
   background: var(--glass-grad);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  backdrop-filter: blur(18px);
   -webkit-backdrop-filter: blur(18px);
+  backdrop-filter: blur(18px);
   box-shadow: var(--shadow);
 }
 
