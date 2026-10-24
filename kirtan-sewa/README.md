@@ -85,6 +85,11 @@ signing keys are created on first start and kept in the database. iPhone users m
 Home Screen (Share → Add to Home Screen) and open it from there. The admin panel shows "Notifications on" for
 customers who turned them on.
 
+**Admin notifications:** in /admin, tap **Turn on notifications** on each phone or computer where you want alerts.
+That device is then notified about every customer action: new bookings (including multi-slot ones), UPI payments
+to verify, cancellation requests and withdrawals, and switches between UPI and cash. Tapping a notification opens
+/admin with that booking already searched. Use **Notifications on → Send test** to check a device.
+
 ## Payments & bills
 
 1. **Site settings → Payments**: turn on UPI (enter your UPI ID, upload your QR image) and/or Cash.

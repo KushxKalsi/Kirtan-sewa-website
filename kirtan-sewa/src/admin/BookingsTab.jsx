@@ -23,8 +23,10 @@ const hasRequest = (b) => b.cancelRequest?.status === 'pending' && active(b);
 const PAY_TEXT = { unpaid: 'Unpaid', submitted: 'To verify', paid: 'Paid' };
 
 export default function BookingsTab({ data, api, patch, toast }) {
-  const [filter, setFilter] = useState('upcoming');
-  const [query, setQuery] = useState('');
+  // A tapped admin notification opens /admin?q=<booking ID or group> — show that booking straight away.
+  const linked = new URLSearchParams(window.location.search).get('q') || '';
+  const [filter, setFilter] = useState(linked ? 'all' : 'upcoming');
+  const [query, setQuery] = useState(linked);
   const [openId, setOpenId] = useState(null);
   const [busy, setBusy] = useState('');
   const [cancelFor, setCancelFor] = useState(null);

@@ -4,7 +4,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { db, save, uid, makeRef, slugify, DATA_DIR, initDb, kv } from './db.js';
-import { initPush, pushPublicKey, addSubscription, notifyPhone } from './push.js';
+import { initPush, pushPublicKey, addSubscription, notifyPhone, addAdminSubscription, removeAdminSubscription, adminDeviceCount, notifyAdmins } from './push.js';
 
 await initDb();
 await initPush();
@@ -175,6 +175,20 @@ const shortDate = (d) => `${Number(d.slice(8))} ${MONTHS[Number(d.slice(5, 7)) -
 const MAX_ITEMS = 20;
 
 const rupee = (n) => `₹${Number(n).toLocaleString('en-IN')}`;
+const readSubscription = (sub) => {
+  const valid =
+    typeof sub?.endpoint === 'string' && sub.endpoint.startsWith('https://') && sub.endpoint.length < 1000 && typeof sub.keys?.p256dh === 'string' && typeof sub.keys?.auth === 'string';
+  if (!valid) fail(400, 'This browser sent an invalid notification subscription.');
+  return sub;
+};
+
+// Tells the admin's devices about a customer action; tapping it opens /admin with that booking searched.
+function tellAdmin(kind, title, body, search) {
+  const url = search ? `/admin?q=${encodeURIComponent(search)}` : '/admin';
+  notifyAdmins({ title, body, url, tag: `admin-${kind}-${search || Date.now()}` }).catch(() => {});
+}
+const slotText = (b) => `${b.serviceName} · ${shortDate(b.date)}, ${b.slotLabel}`;
+
 // Sends a phone notification about a booking (if the customer allowed notifications). Never blocks the request.
 function notifyBooking(b, kind) {
   const when = `${b.serviceName} · ${shortDate(b.date)}, ${b.slotLabel}`;
@@ -282,6 +296,12 @@ app.post('/api/bookings', async (req, res) => {
   }
   await save();
   const views = created.map(customerView).sort((a, b) => (a.date + a.slotTime).localeCompare(b.date + b.slotTime));
+  if (created.length === 1) {
+    tellAdmin('new', 'New booking request 🙏', `${name} · ${slotText(created[0])} · ${address}`, created[0].ref);
+  } else {
+    const list = views.slice(0, 3).map(slotText).join('; ') + (views.length > 3 ? ` +${views.length - 3} more` : '');
+    tellAdmin('new', `New booking request: ${created.length} slots 🙏`, `${name} · ${list}`, groupId);
+  }
   res.status(201).json({ booking: views[0], bookings: views });
 });
 
@@ -320,6 +340,7 @@ app.post('/api/bookings/payment-method', async (req, res) => {
   if (booking.paymentStatus === 'submitted') fail(400, 'Your UPI payment is already waiting for verification.');
   booking.paymentMethod = readPaymentChoice(req.body.method);
   await save();
+  tellAdmin('method', 'Payment method changed', `${booking.name} will now pay by ${booking.paymentMethod === 'upi' ? 'UPI' : 'cash'} · ${slotText(booking)}`, booking.ref);
   res.json({ booking: customerView(booking) });
 });
 
@@ -332,6 +353,7 @@ app.post('/api/bookings/payment', async (req, res) => {
   if (!/^[A-Za-z0-9]{6,40}$/.test(utr)) fail(400, 'Please enter the UPI transaction ID / UTR shown in your payment app.');
   Object.assign(booking, { paymentMethod: 'upi', paymentStatus: 'submitted', utr, paymentSubmittedAt: new Date().toISOString() });
   await save();
+  tellAdmin('paid', 'UPI payment to verify 💰', `${booking.name} paid ${rupee(booking.amount)} · UTR ${utr} · ${slotText(booking)}`, booking.ref);
   res.json({ booking: customerView(booking) });
 });
 
@@ -351,11 +373,8 @@ app.get('/api/push/key', async (_req, res) => {
 app.post('/api/push/subscribe', async (req, res) => {
   throttle(`push:${req.ip}`, 30);
   const phone = str(req.body?.phone, 20);
-  const sub = req.body?.subscription;
   if (!db.bookings.some((b) => samePhone(b.phone, phone))) fail(404, 'No bookings found for that phone number.');
-  const valid = typeof sub?.endpoint === 'string' && sub.endpoint.startsWith('https://') && sub.endpoint.length < 1000 && typeof sub.keys?.p256dh === 'string' && typeof sub.keys?.auth === 'string';
-  if (!valid) fail(400, 'This browser sent an invalid notification subscription.');
-  await addSubscription(phone, sub);
+  await addSubscription(phone, readSubscription(req.body?.subscription));
   res.json({ ok: true });
 });
 
@@ -373,6 +392,7 @@ app.post('/api/bookings/cancel-request', async (req, res) => {
   if (reason.length < 3) fail(400, 'Please tell us the reason for cancelling.');
   booking.cancelRequest = { status: 'pending', reason, at: new Date().toISOString(), note: '' };
   await save();
+  tellAdmin('cancel', 'Cancellation requested', `${booking.name} · ${slotText(booking)}. Reason: ${reason}`, booking.ref);
   res.json({ booking: customerView(booking) });
 });
 
@@ -381,6 +401,7 @@ app.post('/api/bookings/cancel-request/withdraw', async (req, res) => {
   if (booking.cancelRequest?.status !== 'pending') fail(400, 'There is no pending cancellation request.');
   booking.cancelRequest = null;
   await save();
+  tellAdmin('withdraw', 'Cancellation request withdrawn', `${booking.name} wants to keep ${slotText(booking)}`, booking.ref);
   res.json({ booking: customerView(booking) });
 });
 
@@ -397,6 +418,22 @@ app.post('/api/admin/login', async (req, res) => {
 
 app.use('/api/admin', requireAdmin);
 
+app.post('/api/admin/push/subscribe', async (req, res) => {
+  await addAdminSubscription(readSubscription(req.body?.subscription));
+  res.json({ devices: adminDeviceCount() });
+});
+
+app.post('/api/admin/push/unsubscribe', async (req, res) => {
+  await removeAdminSubscription(str(req.body?.endpoint, 1000));
+  res.json({ devices: adminDeviceCount() });
+});
+
+app.post('/api/admin/push/test', async (_req, res) => {
+  if (!adminDeviceCount()) fail(400, 'No admin device has notifications turned on yet.');
+  await notifyAdmins({ title: 'Test notification ✅', body: 'Admin notifications are working on this device.', url: '/admin', tag: 'admin-test' });
+  res.json({ devices: adminDeviceCount() });
+});
+
 app.get('/api/admin/data', async (_req, res) => {
   res.json({
     settings: db.settings,
@@ -405,6 +442,7 @@ app.get('/api/admin/data', async (_req, res) => {
     blockedDates: db.blockedDates,
     bookings: db.bookings,
     notifyPhones: Object.keys(db.pushSubs || {}),
+    adminDevices: adminDeviceCount(),
     today: todayKey(),
   });
 });

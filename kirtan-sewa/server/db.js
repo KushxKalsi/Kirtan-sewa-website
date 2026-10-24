@@ -94,6 +94,7 @@ const defaults = () => ({
   blockedDates: [],
   bookings: [],
   pushSubs: {}, // phone (last 10 digits) -> browser push subscriptions
+  adminPushSubs: [], // admin devices that get a notification for every customer action
 });
 
 /* ---------------- storage ----------------
