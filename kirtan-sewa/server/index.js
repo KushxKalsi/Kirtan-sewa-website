@@ -87,12 +87,12 @@ const requireAdmin = (req, _res, next) => {
 
 // Very small in-memory throttle for the login endpoint.
 const attempts = new Map();
-const throttle = (ip) => {
+const throttle = (key, max = 10) => {
   const now = Date.now();
-  const list = (attempts.get(ip) || []).filter((t) => now - t < 15 * 60 * 1000);
-  if (list.length >= 10) fail(429, 'Too many attempts. Try again in a few minutes.');
+  const list = (attempts.get(key) || []).filter((t) => now - t < 15 * 60 * 1000);
+  if (list.length >= max) fail(429, 'Too many attempts. Try again in a few minutes.');
   list.push(now);
-  attempts.set(ip, list);
+  attempts.set(key, list);
 };
 
 const slotTaken = (date, slotId, exceptId) =>
@@ -122,6 +122,7 @@ const customerView = (b) => ({
   utr: b.utr || '',
   paidAt: b.paidAt || '',
   phone: b.phone,
+  cancelRequest: b.cancelRequest || null,
 });
 
 const readAmount = (value) => {
@@ -149,7 +150,8 @@ app.get('/api/availability', (req, res) => {
   if (!DATE_RE.test(from) || !DATE_RE.test(to)) fail(400, 'Invalid date range.');
   const booked = db.bookings
     .filter((b) => isActive(b) && b.date >= from && b.date <= to)
-    .map((b) => ({ date: b.date, slotId: b.slotId, serviceId: b.serviceId }));
+    // Public on purpose: visitors can see what each slot is booked for and where.
+    .map((b) => ({ date: b.date, slotId: b.slotId, serviceId: b.serviceId, serviceName: b.serviceName, location: b.address }));
   res.json({ booked, blockedDates: db.blockedDates, today: todayKey(), now: nowHHMM() });
 });
 
@@ -224,7 +226,22 @@ const findOwnBooking = (body) => {
 };
 
 app.post('/api/bookings/lookup', (req, res) => {
-  res.json({ booking: customerView(findOwnBooking(req.body)) });
+  throttle(`lookup:${req.ip}`, 40);
+  const phone = str(req.body?.phone, 20);
+  if (digits(phone).length < 10) fail(400, 'Please enter the 10-digit phone number used for booking.');
+  const today = todayKey();
+  const mine = db.bookings
+    .filter((b) => samePhone(b.phone, phone))
+    // Upcoming first (soonest at top), then past ones (most recent first).
+    .sort((a, b) => {
+      const ua = a.date >= today;
+      const ub = b.date >= today;
+      if (ua !== ub) return ua ? -1 : 1;
+      return ua ? a.date.localeCompare(b.date) : b.date.localeCompare(a.date);
+    })
+    .slice(0, 30);
+  if (!mine.length) fail(404, 'No bookings found for that phone number.');
+  res.json({ bookings: mine.map(customerView) });
 });
 
 app.post('/api/bookings/payment', (req, res) => {
@@ -245,18 +262,23 @@ app.get('/api/upi-qr', (_req, res) => {
   res.sendFile(file);
 });
 
-app.post('/api/bookings/cancel', (req, res) => {
+// Customers can only ask to cancel; the admin approves or rejects the request.
+app.post('/api/bookings/cancel-request', (req, res) => {
   const booking = findOwnBooking(req.body);
   if (!isActive(booking)) fail(400, `This booking is already ${booking.status}.`);
   if (booking.date < todayKey()) fail(400, 'Past bookings cannot be cancelled.');
+  if (booking.cancelRequest?.status === 'pending') fail(400, 'A cancellation request is already waiting for approval.');
   const reason = str(req.body.reason, 500);
   if (reason.length < 3) fail(400, 'Please tell us the reason for cancelling.');
-  Object.assign(booking, {
-    status: 'cancelled',
-    cancelReason: reason,
-    cancelledBy: 'customer',
-    cancelledAt: new Date().toISOString(),
-  });
+  booking.cancelRequest = { status: 'pending', reason, at: new Date().toISOString(), note: '' };
+  save();
+  res.json({ booking: customerView(booking) });
+});
+
+app.post('/api/bookings/cancel-request/withdraw', (req, res) => {
+  const booking = findOwnBooking(req.body);
+  if (booking.cancelRequest?.status !== 'pending') fail(400, 'There is no pending cancellation request.');
+  booking.cancelRequest = null;
   save();
   res.json({ booking: customerView(booking) });
 });
@@ -264,11 +286,11 @@ app.post('/api/bookings/cancel', (req, res) => {
 /* ---------------- admin API ---------------- */
 
 app.post('/api/admin/login', (req, res) => {
-  throttle(req.ip);
+  throttle(`login:${req.ip}`);
   const given = Buffer.from(String(req.body?.password || ''));
   const real = Buffer.from(ADMIN_PASSWORD);
   if (given.length !== real.length || !crypto.timingSafeEqual(given, real)) fail(401, 'Incorrect password.');
-  attempts.delete(req.ip);
+  attempts.delete(`login:${req.ip}`);
   res.json({ token: makeToken() });
 });
 
@@ -402,10 +424,11 @@ app.patch('/api/admin/bookings/:id', (req, res) => {
   const restoring = status !== 'cancelled' && booking.status === 'cancelled';
   if (restoring && slotTaken(booking.date, booking.slotId, booking.id)) fail(409, 'That slot has been booked by someone else since.');
   const amount = status === 'confirmed' ? readAmount(req.body.amount) : null;
+  const reason = str(req.body.reason, 500);
+  if (status === 'cancelled' && reason.length < 3) fail(400, 'Please give a reason for cancelling.');
   if (restoring) Object.assign(booking, { cancelReason: '', cancelledBy: '', cancelledAt: '' });
+  if (status === 'cancelled' || restoring) booking.cancelRequest = null;
   if (status === 'cancelled') {
-    const reason = str(req.body.reason, 500);
-    if (reason.length < 3) fail(400, 'Please give a reason for cancelling.');
     Object.assign(booking, { cancelReason: reason, cancelledBy: 'admin', cancelledAt: new Date().toISOString() });
   }
   if (status === 'confirmed') {
@@ -417,6 +440,29 @@ app.patch('/api/admin/bookings/:id', (req, res) => {
     booking.billedAt = new Date().toISOString();
   }
   booking.status = status;
+  booking.updatedAt = new Date().toISOString();
+  save();
+  res.json({ booking });
+});
+
+app.patch('/api/admin/bookings/:id/cancel-request', (req, res) => {
+  const booking = db.bookings.find((b) => b.id === req.params.id);
+  if (!booking) fail(404, 'Booking not found.');
+  const request = booking.cancelRequest;
+  if (request?.status !== 'pending') fail(400, 'There is no pending cancellation request.');
+  if (req.body?.action === 'approve') {
+    Object.assign(booking, {
+      status: 'cancelled',
+      cancelReason: request.reason,
+      cancelledBy: 'customer',
+      cancelledAt: new Date().toISOString(),
+      cancelRequest: null,
+    });
+  } else if (req.body?.action === 'reject') {
+    booking.cancelRequest = { ...request, status: 'rejected', note: str(req.body.note, 300) };
+  } else {
+    fail(400, 'Choose approve or reject.');
+  }
   booking.updatedAt = new Date().toISOString();
   save();
   res.json({ booking });

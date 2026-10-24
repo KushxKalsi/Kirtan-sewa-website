@@ -4,6 +4,7 @@ import { AnimatePresence, motion, useMotionValueEvent, useScroll } from 'framer-
 import { CalendarDays, Menu, X } from 'lucide-react';
 import { useSite } from './SiteContext';
 import { useGoTo } from './useGoTo';
+import ThemeToggle from './ThemeToggle';
 import { ease } from '../lib/motion';
 import { lockScroll, unlockScroll } from '../lib/scroll';
 
@@ -74,6 +75,7 @@ export default function Navbar() {
             <Link to="/manage" className="nav-manage">
               Manage booking
             </Link>
+            <ThemeToggle />
             <button className="btn btn-primary btn-sm nav-cta" onClick={() => go('book')}>
               <CalendarDays size={16} /> Book now
             </button>

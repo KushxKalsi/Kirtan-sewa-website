@@ -10,6 +10,7 @@ import { ease } from '../lib/motion';
 
 const FILTERS = [
   { id: 'upcoming', label: 'Upcoming' },
+  { id: 'requests', label: 'Cancel requests' },
   { id: 'pending', label: 'Pending' },
   { id: 'confirmed', label: 'Confirmed' },
   { id: 'completed', label: 'Completed' },
@@ -18,6 +19,7 @@ const FILTERS = [
 ];
 
 const active = (b) => b.status === 'pending' || b.status === 'confirmed';
+const hasRequest = (b) => b.cancelRequest?.status === 'pending' && active(b);
 const PAY_TEXT = { unpaid: 'Unpaid', submitted: 'To verify', paid: 'Paid' };
 
 export default function BookingsTab({ data, api, patch, toast }) {
@@ -33,6 +35,8 @@ export default function BookingsTab({ data, api, patch, toast }) {
   const [payFor, setPayFor] = useState(null);
   const [payForm, setPayForm] = useState({ method: 'upi', amount: '', utr: '', note: '' });
   const [billFor, setBillFor] = useState(null);
+  const [rejectFor, setRejectFor] = useState(null);
+  const [rejectNote, setRejectNote] = useState('');
   const { bookings, today, settings } = data;
 
   const stats = useMemo(
@@ -41,8 +45,9 @@ export default function BookingsTab({ data, api, patch, toast }) {
       { label: 'Awaiting confirmation', value: bookings.filter((b) => b.status === 'pending' && b.date >= today).length, tone: 'warn' },
       { label: 'Confirmed', value: bookings.filter((b) => b.status === 'confirmed').length, tone: 'success' },
       { label: 'Cancelled', value: bookings.filter((b) => b.status === 'cancelled').length, tone: 'danger' },
+      { label: 'Cancel requests', value: bookings.filter(hasRequest).length, tone: 'danger' },
       { label: 'Payments to verify', value: bookings.filter((b) => b.paymentStatus === 'submitted' && b.status !== 'cancelled').length, tone: 'warn' },
-      { label: 'Collected', value: rupees(bookings.filter((b) => b.paymentStatus === 'paid').reduce((sum, b) => sum + (b.amount || 0), 0)), tone: 'success' },
+      { label: 'Collected', value: rupees(bookings.filter((b) => b.paymentStatus === 'paid').reduce((sum, b) => sum + (b.amount || 0), 0)), tone: 'success', wide: true },
     ],
     [bookings, today],
   );
@@ -51,6 +56,7 @@ export default function BookingsTab({ data, api, patch, toast }) {
     const q = query.trim().toLowerCase();
     let rows = bookings.filter((b) => {
       if (filter === 'upcoming') return active(b) && b.date >= today;
+      if (filter === 'requests') return hasRequest(b);
       if (filter === 'all') return true;
       return b.status === filter;
     });
@@ -122,9 +128,28 @@ export default function BookingsTab({ data, api, patch, toast }) {
       settings.upiEnabled && settings.upiId ? `Pay by UPI to: ${settings.upiId}` : '',
       settings.cashEnabled ? 'Cash on the day is also fine.' : '',
       '',
-      `View your bill and pay: ${window.location.origin}/manage?ref=${b.ref}&phone=${encodeURIComponent(b.phone)}`,
+      `View your bill and pay: ${window.location.origin}/manage?phone=${encodeURIComponent(b.phone)}`,
     ];
     return encodeURIComponent(lines.filter((l, i) => l || lines[i - 1]).join('\n'));
+  };
+
+  const resolveRequest = async (b, action, note) => {
+    setBusy(b.id + action);
+    try {
+      const { booking } = await api.resolveCancel(b.id, action, note);
+      replace(booking);
+      toast(action === 'approve' ? `Booking ${booking.ref} cancelled — the slot is free again.` : 'Request rejected. The booking stays active.');
+      return true;
+    } catch (e) {
+      toast(e.message, 'error');
+      return false;
+    } finally {
+      setBusy('');
+    }
+  };
+  const submitReject = async (e) => {
+    e.preventDefault();
+    if (await resolveRequest(rejectFor, 'reject', rejectNote)) setRejectFor(null);
   };
 
   const confirmCancel = async (e) => {
@@ -155,7 +180,7 @@ export default function BookingsTab({ data, api, patch, toast }) {
     <div className="admin-section">
       <div className="admin-stats">
         {stats.map((s, i) => (
-          <motion.div key={s.label} className={`admin-stat glass tone-${s.tone}`} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.06, duration: 0.5, ease }}>
+          <motion.div key={s.label} className={`admin-stat glass tone-${s.tone} ${s.wide ? 'wide' : ''}`} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.06, duration: 0.5, ease }}>
             <strong>{s.value}</strong>
             <span>{s.label}</span>
           </motion.div>
@@ -207,6 +232,7 @@ export default function BookingsTab({ data, api, patch, toast }) {
                       </span>
                       <span className="ab-who">
                         {b.name} · <code>{b.ref}</code>
+                        {hasRequest(b) && <span className="pay-tag req-tag">Cancel requested</span>}
                         {b.amount > 0 && b.status !== 'cancelled' && (
                           <span className={`pay-tag pay-${b.paymentStatus || 'unpaid'}`}>
                             {rupees(b.amount)} · {PAY_TEXT[b.paymentStatus || 'unpaid']}
@@ -241,6 +267,30 @@ export default function BookingsTab({ data, api, patch, toast }) {
                             <MapPin size={15} /> {b.address}
                           </p>
                           {b.notes && <p className="ab-notes">“{b.notes}”</p>}
+                          {hasRequest(b) && (
+                            <div className="request-note for-admin">
+                              <div>
+                                <strong>Customer asked to cancel · {format(new Date(b.cancelRequest.at), 'd MMM, h:mm a')}</strong>
+                                <p>Reason: {b.cancelRequest.reason}</p>
+                                <div className="ab-actions">
+                                  <button className="btn btn-danger btn-sm" onClick={() => resolveRequest(b, 'approve')} disabled={!!busy}>
+                                    {busy === b.id + 'approve' ? <Loader2 size={15} className="spin" /> : <Check size={15} />} Approve cancellation
+                                  </button>
+                                  <button
+                                    className="btn btn-ghost btn-sm"
+                                    onClick={() => {
+                                      setRejectNote('');
+                                      setRejectFor(b);
+                                    }}
+                                    disabled={!!busy}
+                                  >
+                                    <Undo2 size={15} /> Reject
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                          {b.cancelRequest?.status === 'rejected' && active(b) && <p className="ab-meta">Cancellation request was rejected{b.cancelRequest.note && `: “${b.cancelRequest.note}”`}</p>}
                           {b.status === 'cancelled' && (
                             <div className="cancel-note">
                               <strong>
@@ -428,6 +478,23 @@ export default function BookingsTab({ data, api, patch, toast }) {
       </Modal>
 
       <BillModal booking={billFor} settings={settings} onClose={() => setBillFor(null)} />
+
+      <Modal open={!!rejectFor} onClose={() => setRejectFor(null)} title="Reject cancellation request" subtitle="The booking stays active. You can add a message the customer will see.">
+        <form onSubmit={submitReject} className="cancel-form">
+          <label className="field">
+            <textarea value={rejectNote} onChange={(e) => setRejectNote(e.target.value)} placeholder=" " rows={3} />
+            <span>Message to customer (optional)</span>
+          </label>
+          <div className="modal-actions">
+            <button type="button" className="btn btn-ghost" onClick={() => setRejectFor(null)}>
+              Back
+            </button>
+            <button className="btn btn-primary" disabled={!!busy}>
+              {busy ? <Loader2 size={17} className="spin" /> : <Undo2 size={17} />} Reject request
+            </button>
+          </div>
+        </form>
+      </Modal>
 
       <Modal open={!!deleteFor} onClose={() => setDeleteFor(null)} title="Delete booking?" subtitle="This removes the record permanently. To keep a history, cancel it instead.">
         <div className="modal-actions">

@@ -84,7 +84,7 @@ export default function BookingSuccess({ booking, phone, onAgain }) {
         </dl>
 
         <p className="fine-print">
-          Save this ID — you’ll need it with your phone number to view or cancel the booking. Once the jatha confirms, your bill and payment details will appear under “Manage booking”.
+          You can view this booking anytime under “Manage booking” using just your phone number. Once the jatha confirms, your bill and payment details will appear under “Manage booking”.
         </p>
 
         <div className="success-actions">
@@ -93,7 +93,7 @@ export default function BookingSuccess({ booking, phone, onAgain }) {
               <MessageCircle size={18} /> Send on WhatsApp
             </a>
           )}
-          <Link className="btn btn-ghost" to={`/manage?ref=${booking.ref}&phone=${encodeURIComponent(phone || '')}`}>
+          <Link className="btn btn-ghost" to={`/manage?phone=${encodeURIComponent(phone || '')}`}>
             <Settings2 size={18} /> Manage / cancel
           </Link>
           <button className="btn btn-ghost" onClick={onAgain}>

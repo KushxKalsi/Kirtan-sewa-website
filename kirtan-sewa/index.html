@@ -4,6 +4,12 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="theme-color" content="#070A14" />
+    <script>
+      try {
+        var t = JSON.parse(localStorage.getItem('sewa.theme'));
+        if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t;
+      } catch (e) {}
+    </script>
     <meta name="description" content="Book Gurbani Kirtan sewa — Kirtan Diwan, Asa Di Vaar, So Dar Di Chaunki and Aarti — online with a live availability calendar." />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />

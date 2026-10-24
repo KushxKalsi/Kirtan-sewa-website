@@ -17,6 +17,28 @@
   --warn: #f6c453;
   --danger: #ff6b6b;
   --grad-gold: linear-gradient(135deg, #f6d58e 0%, #e9b44c 45%, #ff9933 100%);
+  --grad-text: var(--grad-gold);
+  --danger-text: #ffb3b3;
+  --tint: rgba(255, 255, 255, 0.03);
+  --glass-grad: linear-gradient(180deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.02));
+  --card-grad: linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.015));
+  --nav-bg: rgba(7, 10, 20, 0.72);
+  --menu-bg: radial-gradient(ellipse at 100% 0%, rgba(255, 153, 51, 0.18), transparent 60%), #090d1b;
+  --curtain-bg: radial-gradient(ellipse at 50% 120%, rgba(255, 153, 51, 0.35), transparent 60%), linear-gradient(180deg, #0f1630, #070a14);
+  --preloader-bg: radial-gradient(ellipse at center, #141c38 0%, #070a14 70%);
+  --placeholder-bg: radial-gradient(circle at 50% 35%, rgba(255, 153, 51, 0.35), transparent 55%), linear-gradient(160deg, #1b2448, #0b1020);
+  --placeholder-fg: rgba(246, 213, 142, 0.85);
+  --quote-bg: rgba(7, 10, 20, 0.6);
+  --toast-bg: rgba(18, 26, 51, 0.92);
+  --backdrop: rgba(3, 5, 12, 0.7);
+  --modal-bg: linear-gradient(180deg, #141c38, #0d1328);
+  --stroke-gold: rgba(233, 180, 76, 0.35);
+  --picker-filter: invert(0.8);
+  --particle-1: 246, 213, 142;
+  --particle-2: 255, 153, 51;
+  --mandala-a: #f6d58e;
+  --mandala-b: #e9b44c;
+  --mandala-c: #ff9933;
   --radius: 20px;
   --radius-sm: 12px;
   --shadow: 0 30px 80px -30px rgba(0, 0, 0, 0.7);
@@ -27,6 +49,96 @@
   --gutter: clamp(16px, 4vw, 40px);
   --ease: cubic-bezier(0.22, 1, 0.36, 1);
   color-scheme: dark;
+}
+
+/* Light theme: follows the device unless the visitor picks one (data-theme on <html>). */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme='dark']) {
+    color-scheme: light;
+    --bg: #faf6ee;
+    --bg-2: #f3ecdf;
+    --bg-3: #ece2d0;
+    --surface: rgba(80, 55, 20, 0.045);
+    --surface-2: rgba(80, 55, 20, 0.08);
+    --border: rgba(80, 55, 20, 0.13);
+    --border-strong: rgba(80, 55, 20, 0.24);
+    --text: #22190f;
+    --muted: #65584a;
+    --faint: #978a77;
+    --kesri: #e8801f;
+    --gold: #a86d12;
+    --gold-2: #8a5609;
+    --blue: #4263eb;
+    --success: #138a57;
+    --warn: #b26a00;
+    --danger: #d63c3c;
+    --danger-text: #b42323;
+    --grad-text: linear-gradient(135deg, #c08a2a 0%, #a8650f 50%, #d2691e 100%);
+    --tint: rgba(255, 255, 255, 0.7);
+    --glass-grad: linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(255, 255, 255, 0.66));
+    --card-grad: linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0.7));
+    --shadow: 0 30px 70px -34px rgba(90, 60, 20, 0.35);
+    --nav-bg: rgba(250, 246, 238, 0.82);
+    --menu-bg: radial-gradient(ellipse at 100% 0%, rgba(255, 153, 51, 0.2), transparent 60%), #f7f1e5;
+    --curtain-bg: radial-gradient(ellipse at 50% 120%, rgba(255, 153, 51, 0.35), transparent 60%), linear-gradient(180deg, #f6eedd, #faf6ee);
+    --preloader-bg: radial-gradient(ellipse at center, #fffaf0 0%, #f3ead8 70%);
+    --placeholder-bg: radial-gradient(circle at 50% 35%, rgba(255, 153, 51, 0.3), transparent 55%), linear-gradient(160deg, #fff7e6, #efdfc0);
+    --placeholder-fg: #b7791f;
+    --quote-bg: rgba(255, 252, 245, 0.8);
+    --toast-bg: rgba(255, 252, 245, 0.96);
+    --backdrop: rgba(40, 30, 15, 0.35);
+    --modal-bg: linear-gradient(180deg, #fffdf8, #f8f1e3);
+    --stroke-gold: rgba(168, 109, 18, 0.4);
+    --picker-filter: none;
+    --particle-1: 196, 136, 40;
+    --particle-2: 232, 128, 31;
+    --mandala-a: #d6a64a;
+    --mandala-b: #b7791f;
+    --mandala-c: #e07a1f;
+}
+}
+:root[data-theme='light'] {
+  color-scheme: light;
+  --bg: #faf6ee;
+  --bg-2: #f3ecdf;
+  --bg-3: #ece2d0;
+  --surface: rgba(80, 55, 20, 0.045);
+  --surface-2: rgba(80, 55, 20, 0.08);
+  --border: rgba(80, 55, 20, 0.13);
+  --border-strong: rgba(80, 55, 20, 0.24);
+  --text: #22190f;
+  --muted: #65584a;
+  --faint: #978a77;
+  --kesri: #e8801f;
+  --gold: #a86d12;
+  --gold-2: #8a5609;
+  --blue: #4263eb;
+  --success: #138a57;
+  --warn: #b26a00;
+  --danger: #d63c3c;
+  --danger-text: #b42323;
+  --grad-text: linear-gradient(135deg, #c08a2a 0%, #a8650f 50%, #d2691e 100%);
+  --tint: rgba(255, 255, 255, 0.7);
+  --glass-grad: linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(255, 255, 255, 0.66));
+  --card-grad: linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0.7));
+  --shadow: 0 30px 70px -34px rgba(90, 60, 20, 0.35);
+  --nav-bg: rgba(250, 246, 238, 0.82);
+  --menu-bg: radial-gradient(ellipse at 100% 0%, rgba(255, 153, 51, 0.2), transparent 60%), #f7f1e5;
+  --curtain-bg: radial-gradient(ellipse at 50% 120%, rgba(255, 153, 51, 0.35), transparent 60%), linear-gradient(180deg, #f6eedd, #faf6ee);
+  --preloader-bg: radial-gradient(ellipse at center, #fffaf0 0%, #f3ead8 70%);
+  --placeholder-bg: radial-gradient(circle at 50% 35%, rgba(255, 153, 51, 0.3), transparent 55%), linear-gradient(160deg, #fff7e6, #efdfc0);
+  --placeholder-fg: #b7791f;
+  --quote-bg: rgba(255, 252, 245, 0.8);
+  --toast-bg: rgba(255, 252, 245, 0.96);
+  --backdrop: rgba(40, 30, 15, 0.35);
+  --modal-bg: linear-gradient(180deg, #fffdf8, #f8f1e3);
+  --stroke-gold: rgba(168, 109, 18, 0.4);
+  --picker-filter: none;
+  --particle-1: 196, 136, 40;
+  --particle-2: 232, 128, 31;
+  --mandala-a: #d6a64a;
+  --mandala-b: #b7791f;
+  --mandala-c: #e07a1f;
 }
 
 *,
@@ -43,6 +155,7 @@ html {
 body {
   margin: 0;
   background: var(--bg);
+  transition: background-color 0.4s, color 0.4s;
   color: var(--text);
   font-family: var(--font-body);
   font-size: 16px;
@@ -118,7 +231,7 @@ button {
 }
 
 .gold-text {
-  background: var(--grad-gold);
+  background: var(--grad-text);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
@@ -231,7 +344,7 @@ button {
 }
 .btn-ghost {
   border: 1px solid var(--border-strong);
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--tint);
   backdrop-filter: blur(10px);
 }
 .btn-ghost:hover:not(:disabled) {
@@ -273,7 +386,7 @@ button {
 
 /* ---------- glass card ---------- */
 .glass {
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.02));
+  background: var(--glass-grad);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   backdrop-filter: blur(18px);
@@ -291,7 +404,7 @@ button {
 .field select {
   width: 100%;
   border: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--tint);
   border-radius: 14px;
   padding: 22px 16px 8px;
   font-size: 16px; /* prevents iOS zoom */
@@ -344,7 +457,7 @@ button {
 .input {
   width: 100%;
   border: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--tint);
   border-radius: 12px;
   padding: 11px 14px;
   font-size: 16px;
@@ -361,7 +474,7 @@ textarea.input {
 }
 input[type='date']::-webkit-calendar-picker-indicator,
 input[type='time']::-webkit-calendar-picker-indicator {
-  filter: invert(0.8);
+  filter: var(--picker-filter);
 }
 
 .form-error {
@@ -372,7 +485,7 @@ input[type='time']::-webkit-calendar-picker-indicator {
   border-radius: 12px;
   background: rgba(255, 107, 107, 0.1);
   border: 1px solid rgba(255, 107, 107, 0.3);
-  color: #ffb3b3;
+  color: var(--danger-text);
   font-size: 14px;
 }
 
@@ -498,7 +611,7 @@ input[type='time']::-webkit-calendar-picker-indicator {
   width: 100%;
   padding: 14px 16px;
   border-radius: 14px;
-  background: rgba(18, 26, 51, 0.92);
+  background: var(--toast-bg);
   border: 1px solid var(--border-strong);
   backdrop-filter: blur(16px);
   box-shadow: var(--shadow);
@@ -517,7 +630,7 @@ input[type='time']::-webkit-calendar-picker-indicator {
   position: fixed;
   inset: 0;
   z-index: 80;
-  background: rgba(3, 5, 12, 0.7);
+  background: var(--backdrop);
   backdrop-filter: blur(8px);
   display: grid;
   place-items: center;
@@ -530,7 +643,7 @@ input[type='time']::-webkit-calendar-picker-indicator {
   overflow-y: auto;
   overscroll-behavior: contain;
   padding: clamp(22px, 4vw, 34px);
-  background: linear-gradient(180deg, #141c38, #0d1328);
+  background: var(--modal-bg);
   border: 1px solid var(--border-strong);
   border-radius: 24px;
   box-shadow: 0 40px 120px -20px rgba(0, 0, 0, 0.8);

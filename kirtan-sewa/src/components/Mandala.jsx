@@ -13,9 +13,9 @@ export default function Mandala({ className }) {
     <svg className={className} viewBox="-200 -200 400 400" aria-hidden="true">
       <defs>
         <linearGradient id="mandala-gold" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0" stopColor="#F6D58E" />
-          <stop offset="0.5" stopColor="#E9B44C" />
-          <stop offset="1" stopColor="#FF9933" />
+          <stop offset="0" style={{ stopColor: 'var(--mandala-a)' }} />
+          <stop offset="0.5" style={{ stopColor: 'var(--mandala-b)' }} />
+          <stop offset="1" style={{ stopColor: 'var(--mandala-c)' }} />
         </linearGradient>
         <radialGradient id="mandala-core" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="scale(120)">
           <stop offset="0" stopColor="#FF9933" stopOpacity="0.35" />

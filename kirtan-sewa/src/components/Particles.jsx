@@ -13,6 +13,13 @@ export default function Particles({ className, density = 1 }) {
     let raf = 0;
     let visible = true;
     let particles = [];
+    let colors = [];
+    const readColors = () => {
+      const css = getComputedStyle(document.documentElement);
+      colors = [css.getPropertyValue('--particle-1').trim(), css.getPropertyValue('--particle-2').trim()];
+    };
+    readColors();
+    window.addEventListener('themechange', readColors);
 
     const resize = () => {
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -32,7 +39,7 @@ export default function Particles({ className, density = 1 }) {
       vy: Math.random() * 0.35 + 0.08,
       vx: (Math.random() - 0.5) * 0.15,
       phase: Math.random() * Math.PI * 2,
-      hue: Math.random() < 0.7 ? '246,213,142' : '255,153,51',
+      tone: Math.random() < 0.7 ? 0 : 1,
     });
 
     const tick = (t) => {
@@ -45,8 +52,8 @@ export default function Particles({ className, density = 1 }) {
         }
         const alpha = 0.25 + 0.55 * (0.5 + 0.5 * Math.sin(t / 900 + p.phase));
         const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.r * 6);
-        g.addColorStop(0, `rgba(${p.hue},${alpha})`);
-        g.addColorStop(1, `rgba(${p.hue},0)`);
+        g.addColorStop(0, `rgba(${colors[p.tone]},${alpha})`);
+        g.addColorStop(1, `rgba(${colors[p.tone]},0)`);
         ctx.fillStyle = g;
         ctx.beginPath();
         ctx.arc(p.x, p.y, p.r * 6, 0, Math.PI * 2);
@@ -71,6 +78,7 @@ export default function Particles({ className, density = 1 }) {
       cancelAnimationFrame(raf);
       io.disconnect();
       ro.disconnect();
+      window.removeEventListener('themechange', readColors);
     };
   }, [density]);
 

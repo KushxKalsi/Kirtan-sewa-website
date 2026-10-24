@@ -72,7 +72,7 @@ export default function Calendar({ month, onMonthChange, selected, onSelect, get
               const key = toKey(d);
               const inMonth = isSameMonth(d, month);
               const info = getDay(key);
-              const disabled = !inMonth || ['past', 'blocked', 'full', 'closed'].includes(info.state);
+              const disabled = !inMonth || ['past', 'blocked', 'closed'].includes(info.state);
               const isSel = selected === key;
               return (
                 <motion.button

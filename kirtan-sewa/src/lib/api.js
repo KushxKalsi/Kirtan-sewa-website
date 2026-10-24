@@ -21,8 +21,9 @@ export const api = {
   site: () => request('/public'),
   availability: (from, to) => request(`/availability?from=${from}&to=${to}`),
   createBooking: (booking) => request('/bookings', { method: 'POST', body: booking }),
-  lookupBooking: (ref, phone) => request('/bookings/lookup', { method: 'POST', body: { ref, phone } }),
-  cancelBooking: (ref, phone, reason) => request('/bookings/cancel', { method: 'POST', body: { ref, phone, reason } }),
+  lookupBookings: (phone) => request('/bookings/lookup', { method: 'POST', body: { phone } }),
+  requestCancel: (ref, phone, reason) => request('/bookings/cancel-request', { method: 'POST', body: { ref, phone, reason } }),
+  withdrawCancel: (ref, phone) => request('/bookings/cancel-request/withdraw', { method: 'POST', body: { ref, phone } }),
   submitPayment: (ref, phone, utr) => request('/bookings/payment', { method: 'POST', body: { ref, phone, utr } }),
 };
 
@@ -37,6 +38,7 @@ export const adminApi = (token) => ({
   saveBlockedDates: (dates) => request('/admin/blocked-dates', { method: 'PUT', body: { dates }, token }),
   setStatus: (id, status, reason, amount) => request(`/admin/bookings/${id}`, { method: 'PATCH', body: { status, reason, amount }, token }),
   deleteBooking: (id) => request(`/admin/bookings/${id}`, { method: 'DELETE', token }),
+  resolveCancel: (id, action, note) => request(`/admin/bookings/${id}/cancel-request`, { method: 'PATCH', body: { action, note }, token }),
   setPayment: (id, payment) => request(`/admin/bookings/${id}/payment`, { method: 'PATCH', body: payment, token }),
   uploadQr: (dataUrl) => request('/admin/upi-qr', { method: 'POST', body: { dataUrl }, token }),
   removeQr: () => request('/admin/upi-qr', { method: 'DELETE', token }),

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { addDays, endOfMonth, format, startOfMonth } from 'date-fns';
-import { ArrowLeft, ArrowRight, CalendarDays, CalendarHeart, Clock, Loader2, CircleAlert } from 'lucide-react';
+import { ArrowLeft, ArrowRight, CalendarDays, CalendarHeart, Clock, Loader2, CircleAlert, MapPin, MousePointerClick } from 'lucide-react';
 import Calendar from '../components/Calendar';
 import SplitText from '../components/SplitText';
 import Reveal from '../components/Reveal';
@@ -46,11 +46,8 @@ export default function Booking({ preselect }) {
   const [result, setResult] = useState(null);
   const panelRef = useRef(null);
 
-  const service = services.find((s) => s.id === serviceId) || services[0];
-
-  useEffect(() => {
-    if (!serviceId && services[0]) setServiceId(services[0].id);
-  }, [services, serviceId]);
+  const service = services.find((s) => s.id === serviceId) || null;
+  const [nudge, setNudge] = useState(0); // bumps to shake the sewa picker when a sewa is still missing
 
   useEffect(() => {
     if (!preselect) return;
@@ -84,17 +81,17 @@ export default function Booking({ preselect }) {
     return () => document.removeEventListener('visibilitychange', onFocus);
   }, [loadAvailability]);
 
-  const bookedSet = useMemo(() => new Set(booked.map((b) => `${b.date}|${b.slotId}`)), [booked]);
+  const bookedMap = useMemo(() => new Map(booked.map((b) => [`${b.date}|${b.slotId}`, b])), [booked]);
   const isOffered = useCallback((slot) => !service?.allowedSlots?.length || service.allowedSlots.includes(slot.id), [service]);
 
   const slotState = useCallback(
     (key, slot) => {
-      if (bookedSet.has(`${key}|${slot.id}`)) return 'booked';
+      if (bookedMap.has(`${key}|${slot.id}`)) return 'booked';
       if (!isOffered(slot)) return 'not-offered';
       if (key === today && slot.start <= nowHHMM()) return 'passed';
       return 'free';
     },
-    [bookedSet, isOffered, today],
+    [bookedMap, isOffered, today],
   );
 
   const getDay = useCallback(
@@ -175,7 +172,24 @@ export default function Booking({ preselect }) {
 
         <Reveal className="booking-shell glass" y={60}>
           <div className="booking-left">
-            <div className="svc-picker" role="radiogroup" aria-label="Choose a sewa" data-lenis-prevent-touch>
+            <p className={`step-hint ${service ? 'done' : ''}`}>
+              <span className="step-num">1</span>
+              {service ? (
+                <>
+                  Booking for <strong style={{ color: service.color }}>{service.name}</strong>
+                </>
+              ) : (
+                'Choose the sewa you want to book'
+              )}
+            </p>
+            <motion.div
+              key={nudge}
+              className={`svc-picker ${service ? '' : 'needs-choice'}`}
+              role="radiogroup"
+              aria-label="Choose a sewa"
+              animate={nudge ? { x: [0, -10, 10, -6, 6, 0] } : undefined}
+              transition={{ duration: 0.5 }}
+            >
               {services.map((s) => {
                 const Icon = serviceIcon(s.icon);
                 const active = s.id === service?.id;
@@ -197,7 +211,7 @@ export default function Booking({ preselect }) {
                   </button>
                 );
               })}
-            </div>
+            </motion.div>
 
             <div className="cal-wrap">
               <AnimatePresence>
@@ -276,26 +290,39 @@ export default function Booking({ preselect }) {
                     {submitting ? <Loader2 size={18} className="spin" /> : <CalendarHeart size={18} />}
                     {submitting ? 'Booking…' : 'Confirm booking request'}
                   </button>
-                  <p className="fine-print">You’ll get a Booking ID to manage or cancel anytime. The jatha will call you to confirm.</p>
+                  <p className="fine-print">
+                    The sewa and venue address will be shown on the public calendar so the sangat knows where the jatha is. Manage your booking anytime with your phone number — the jatha will call you to confirm.
+                  </p>
                 </motion.form>
               ) : date ? (
                 <motion.div key={`slots-${date}`} {...panelAnim}>
                   <p className="panel-kicker">{format(fromKey(date), 'EEEE')}</p>
                   <h3 className="panel-title">{prettyDate(date, 'd MMMM yyyy')}</h3>
                   <p className="panel-sub">
-                    Choose a time for <strong style={{ color: service?.color }}>{service?.name}</strong>
+                    {service ? (
+                      <>
+                        Choose a time for <strong style={{ color: service.color }}>{service.name}</strong>
+                      </>
+                    ) : (
+                      'See what is booked below. To book a free slot, first choose your sewa (step 1).'
+                    )}
                   </p>
                   <motion.div className="slot-list" initial="hidden" animate="show" variants={{ hidden: {}, show: { transition: { staggerChildren: 0.07 } } }}>
                     {slots.map((sl) => {
                       const st = slotState(date, sl);
                       const selected = slotId === sl.id;
+                      const info = bookedMap.get(`${date}|${sl.id}`);
                       return (
                         <motion.button
                           key={sl.id}
                           type="button"
                           className={`slot s-${st} ${selected ? 'selected' : ''}`}
                           disabled={st !== 'free'}
-                          onClick={() => setSlotId(sl.id)}
+                          onClick={() => {
+                            if (service) return setSlotId(sl.id);
+                            setNudge((n) => n + 1);
+                            if (window.innerWidth < 960) scrollToId('book', -20);
+                          }}
                           variants={{ hidden: { opacity: 0, y: 18 }, show: { opacity: 1, y: 0, transition: { duration: 0.45, ease } } }}
                           whileTap={st === 'free' ? { scale: 0.97 } : undefined}
                         >
@@ -303,9 +330,19 @@ export default function Booking({ preselect }) {
                           <span className="slot-main">
                             <strong>{sl.label}</strong>
                             <span>{slotTime(sl)}</span>
+                            {info && (
+                              <span className="slot-booked-info">
+                                <em>{info.serviceName}</em>
+                                {info.location && (
+                                  <span>
+                                    <MapPin size={12} /> {info.location}
+                                  </span>
+                                )}
+                              </span>
+                            )}
                           </span>
                           <span className="slot-status">
-                            {st === 'free' ? (selected ? 'Selected' : 'Available') : st === 'booked' ? 'Booked' : st === 'passed' ? 'Time passed' : 'Not offered'}
+                            {st === 'free' ? (selected ? 'Selected' : service ? 'Available' : 'Free') : st === 'booked' ? 'Booked' : st === 'passed' ? 'Time passed' : 'Not offered'}
                           </span>
                         </motion.button>
                       );
@@ -324,10 +361,14 @@ export default function Booking({ preselect }) {
               ) : (
                 <motion.div key="empty" className="panel-empty" {...panelAnim}>
                   <motion.div className="empty-icon" animate={{ y: [0, -10, 0] }} transition={{ duration: 3.2, repeat: Infinity, ease: 'easeInOut' }}>
-                    <CalendarDays size={34} />
+                    {service ? <CalendarDays size={34} /> : <MousePointerClick size={34} />}
                   </motion.div>
-                  <h3 className="panel-title">Pick a date</h3>
-                  <p className="panel-sub">Tap any available day on the calendar to see open time slots. Dots under each date show how many slots are already booked.</p>
+                  <h3 className="panel-title">{service ? 'Pick a date' : 'Choose your sewa'}</h3>
+                  <p className="panel-sub">
+                    {service
+                      ? 'Tap a day on the calendar to see its time slots. Dots under each date show which slots are already booked.'
+                      : 'Start by choosing which sewa you want to book. You can also tap any day to see what is already booked there and where.'}
+                  </p>
                 </motion.div>
               )}
             </AnimatePresence>

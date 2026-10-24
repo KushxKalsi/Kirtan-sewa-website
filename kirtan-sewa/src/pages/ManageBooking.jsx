@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Ban, CalendarDays, CircleAlert, Clock, Loader2, MapPin, Search, User } from 'lucide-react';
+import { Ban, CalendarDays, CircleAlert, Clock, Hourglass, Loader2, MapPin, Search, Undo2, User } from 'lucide-react';
 import Modal from '../components/Modal';
 import PaymentBox from '../components/PaymentBox';
 import SplitText from '../components/SplitText';
@@ -9,34 +9,124 @@ import Particles from '../components/Particles';
 import { useToast } from '../components/Toast';
 import { api } from '../lib/api';
 import { prettyDate, rangeTo12, toKey } from '../lib/date';
-import { getMyBookings } from '../lib/storage';
+import { getMyPhones } from '../lib/storage';
 import { ease } from '../lib/motion';
 
 const REASONS = ['Event date changed', 'Event postponed or called off', 'Booked another jatha', 'Booked by mistake', 'Other'];
 
+function BookingCard({ booking, phone, index, onChange, onRequestCancel }) {
+  const toast = useToast();
+  const [withdrawing, setWithdrawing] = useState(false);
+  const request = booking.cancelRequest;
+  const upcoming = booking.date >= toKey(new Date());
+  const canRequest = ['pending', 'confirmed'].includes(booking.status) && upcoming && request?.status !== 'pending';
+
+  const withdraw = async () => {
+    setWithdrawing(true);
+    try {
+      const data = await api.withdrawCancel(booking.ref, phone);
+      onChange(data.booking);
+      toast('Cancellation request withdrawn.');
+    } catch (e) {
+      toast(e.message, 'error');
+    } finally {
+      setWithdrawing(false);
+    }
+  };
+
+  return (
+    <motion.article
+      layout
+      className={`booking-card glass st-${booking.status}`}
+      initial={{ opacity: 0, y: 40, scale: 0.97 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      exit={{ opacity: 0, y: -20 }}
+      transition={{ duration: 0.7, ease, delay: index * 0.08 }}
+    >
+      <header>
+        <div>
+          <span className="bc-ref">{booking.ref}</span>
+          <h2>{booking.serviceName}</h2>
+        </div>
+        <span className={`badge badge-${booking.status}`}>{booking.status}</span>
+      </header>
+      <ul className="bc-list">
+        <li>
+          <CalendarDays size={17} /> {prettyDate(booking.date)}
+        </li>
+        <li>
+          <Clock size={17} /> {booking.slotLabel} · {rangeTo12(booking.slotTime)}
+        </li>
+        <li>
+          <User size={17} /> {booking.name}
+        </li>
+        <li>
+          <MapPin size={17} /> {booking.address}
+        </li>
+      </ul>
+      {booking.notes && <p className="bc-notes">“{booking.notes}”</p>}
+
+      {booking.status === 'cancelled' && (
+        <div className="cancel-note">
+          <strong>Cancelled {booking.cancelledBy === 'admin' ? 'by the jatha' : 'on your request'}</strong>
+          <p>Reason: {booking.cancelReason}</p>
+        </div>
+      )}
+      {request?.status === 'pending' && (
+        <div className="request-note">
+          <Hourglass size={18} />
+          <div>
+            <strong>Cancellation requested — waiting for the jatha to approve</strong>
+            <p>Your reason: {request.reason}</p>
+            <button className="btn btn-ghost btn-sm" onClick={withdraw} disabled={withdrawing}>
+              {withdrawing ? <Loader2 size={15} className="spin" /> : <Undo2 size={15} />} Keep my booking (withdraw request)
+            </button>
+          </div>
+        </div>
+      )}
+      {request?.status === 'rejected' && booking.status !== 'cancelled' && (
+        <div className="cancel-note">
+          <strong>Your cancellation request was not accepted</strong>
+          {request.note && <p>Message from the jatha: {request.note}</p>}
+        </div>
+      )}
+      {booking.status === 'pending' && request?.status !== 'pending' && <p className="fine-print">Awaiting confirmation — the jatha will contact you soon.</p>}
+
+      <PaymentBox booking={booking} phone={phone} onUpdated={onChange} />
+
+      {canRequest && (
+        <button className="btn btn-ghost cancel-btn" onClick={() => onRequestCancel(booking)}>
+          <Ban size={17} /> Request cancellation
+        </button>
+      )}
+    </motion.article>
+  );
+}
+
 export default function ManageBooking() {
   const [params] = useSearchParams();
   const toast = useToast();
-  const [ref, setRef] = useState(params.get('ref') || '');
   const [phone, setPhone] = useState(params.get('phone') || '');
-  const [booking, setBooking] = useState(null);
+  const [searched, setSearched] = useState('');
+  const [bookings, setBookings] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [cancelOpen, setCancelOpen] = useState(false);
+  const [cancelFor, setCancelFor] = useState(null);
   const [reason, setReason] = useState('');
   const [details, setDetails] = useState('');
-  const [cancelling, setCancelling] = useState(false);
+  const [sending, setSending] = useState(false);
   const [cancelError, setCancelError] = useState('');
-  const recent = getMyBookings();
+  const recentPhones = getMyPhones();
 
-  const lookup = async (r = ref, p = phone) => {
+  const lookup = async (p = phone) => {
     setError('');
     setLoading(true);
     try {
-      const data = await api.lookupBooking(r.trim(), p.trim());
-      setBooking(data.booking);
+      const data = await api.lookupBookings(p.trim());
+      setBookings(data.bookings);
+      setSearched(p.trim());
     } catch (e) {
-      setBooking(null);
+      setBookings(null);
       setError(e.message);
     } finally {
       setLoading(false);
@@ -44,37 +134,37 @@ export default function ManageBooking() {
   };
 
   useEffect(() => {
-    if (params.get('ref') && params.get('phone')) lookup(params.get('ref'), params.get('phone'));
+    if (params.get('phone')) lookup(params.get('phone'));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const openCancel = () => {
+  const replace = (b) => setBookings((list) => list.map((x) => (x.ref === b.ref ? b : x)));
+
+  const openCancel = (b) => {
     setReason('');
     setDetails('');
     setCancelError('');
-    setCancelOpen(true);
+    setCancelFor(b);
   };
 
-  const confirmCancel = async (e) => {
+  const sendRequest = async (e) => {
     e.preventDefault();
     const full = reason === 'Other' ? details.trim() : [reason, details.trim()].filter(Boolean).join(' — ');
     if (!reason) return setCancelError('Please choose a reason.');
-    if (full.length < 3) return setCancelError('Please tell us a little about why you are cancelling.');
-    setCancelling(true);
+    if (full.length < 3) return setCancelError('Please tell us a little about why you want to cancel.');
+    setSending(true);
     setCancelError('');
     try {
-      const data = await api.cancelBooking(booking.ref, phone, full);
-      setBooking(data.booking);
-      setCancelOpen(false);
-      toast('Your booking has been cancelled.');
+      const data = await api.requestCancel(cancelFor.ref, searched, full);
+      replace(data.booking);
+      setCancelFor(null);
+      toast('Request sent. The jatha will review it shortly.');
     } catch (err) {
       setCancelError(err.message);
     } finally {
-      setCancelling(false);
+      setSending(false);
     }
   };
-
-  const canCancel = booking && ['pending', 'confirmed'].includes(booking.status) && booking.date >= toKey(new Date());
 
   return (
     <main className="page manage">
@@ -82,11 +172,11 @@ export default function ManageBooking() {
       <div className="container manage-inner">
         <div className="section-head">
           <motion.span className="eyebrow" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.8, ease }}>
-            Your booking
+            Your bookings
           </motion.span>
-          <SplitText as="h1" className="section-title" text="Manage or cancel a booking" highlight={[1, 2, 3]} play />
+          <SplitText as="h1" className="section-title" text="Manage your bookings" highlight={[1, 2]} play />
           <motion.p className="section-lead" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.5, duration: 0.8 }}>
-            Enter the Booking ID you received and the phone number used while booking.
+            Enter the phone number you used while booking to see all your bookings, bills and payments.
           </motion.p>
         </div>
 
@@ -101,31 +191,26 @@ export default function ManageBooking() {
           transition={{ duration: 0.9, ease, delay: 0.3 }}
         >
           <label className="field">
-            <input value={ref} onChange={(e) => setRef(e.target.value.toUpperCase())} placeholder=" " required autoCapitalize="characters" spellCheck="false" />
-            <span>Booking ID</span>
-          </label>
-          <label className="field">
             <input type="tel" inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder=" " required autoComplete="tel" />
             <span>Phone number</span>
           </label>
           <button className="btn btn-primary" disabled={loading}>
-            {loading ? <Loader2 size={18} className="spin" /> : <Search size={18} />} Find booking
+            {loading ? <Loader2 size={18} className="spin" /> : <Search size={18} />} Find my bookings
           </button>
-          {recent.length > 0 && (
+          {recentPhones.length > 0 && (
             <div className="recent">
-              <span>On this device:</span>
-              {recent.map((r) => (
+              <span>Used on this device:</span>
+              {recentPhones.map((p) => (
                 <button
                   type="button"
-                  key={r.ref}
+                  key={p}
                   className="chip"
                   onClick={() => {
-                    setRef(r.ref);
-                    setPhone(r.phone);
-                    lookup(r.ref, r.phone);
+                    setPhone(p);
+                    lookup(p);
                   }}
                 >
-                  {r.ref} · {r.serviceName}
+                  {p}
                 </button>
               ))}
             </div>
@@ -138,60 +223,27 @@ export default function ManageBooking() {
               <CircleAlert size={18} /> {error}
             </motion.div>
           )}
-          {booking && (
-            <motion.article
-              key={booking.ref + booking.status}
-              className={`booking-card glass st-${booking.status}`}
-              initial={{ opacity: 0, y: 40, scale: 0.97 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: -20 }}
-              transition={{ duration: 0.7, ease }}
-            >
-              <header>
-                <div>
-                  <span className="bc-ref">{booking.ref}</span>
-                  <h2>{booking.serviceName}</h2>
-                </div>
-                <span className={`badge badge-${booking.status}`}>{booking.status}</span>
-              </header>
-              <ul className="bc-list">
-                <li>
-                  <CalendarDays size={17} /> {prettyDate(booking.date)}
-                </li>
-                <li>
-                  <Clock size={17} /> {booking.slotLabel} · {rangeTo12(booking.slotTime)}
-                </li>
-                <li>
-                  <User size={17} /> {booking.name}
-                </li>
-                <li>
-                  <MapPin size={17} /> {booking.address}
-                </li>
-              </ul>
-              {booking.notes && <p className="bc-notes">“{booking.notes}”</p>}
+        </AnimatePresence>
 
-              {booking.status === 'cancelled' && (
-                <motion.div className="cancel-note" initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} transition={{ duration: 0.5, ease }}>
-                  <strong>Cancelled {booking.cancelledBy === 'admin' ? 'by the jatha' : 'by you'}</strong>
-                  <p>Reason: {booking.cancelReason}</p>
-                </motion.div>
-              )}
-              {booking.status === 'pending' && <p className="fine-print">Awaiting confirmation — the jatha will contact you soon.</p>}
-
-              <PaymentBox booking={booking} phone={phone} onUpdated={setBooking} />
-
-              {canCancel && (
-                <button className="btn btn-ghost cancel-btn" onClick={openCancel}>
-                  <Ban size={17} /> Cancel this booking
-                </button>
-              )}
-            </motion.article>
-          )}
+        {bookings && (
+          <motion.p className="results-count" key={searched} initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+            {bookings.length} booking{bookings.length === 1 ? '' : 's'} for {searched}
+          </motion.p>
+        )}
+        <AnimatePresence mode="popLayout">
+          {bookings?.map((b, i) => (
+            <BookingCard key={b.ref} booking={b} phone={searched} index={i} onChange={replace} onRequestCancel={openCancel} />
+          ))}
         </AnimatePresence>
       </div>
 
-      <Modal open={cancelOpen} onClose={() => !cancelling && setCancelOpen(false)} title="Cancel booking?" subtitle="Please let us know why — it helps the jatha plan its sewa.">
-        <form onSubmit={confirmCancel} className="cancel-form">
+      <Modal
+        open={!!cancelFor}
+        onClose={() => !sending && setCancelFor(null)}
+        title="Request cancellation"
+        subtitle={cancelFor && `${cancelFor.serviceName} on ${prettyDate(cancelFor.date, 'd MMM yyyy')}. The jatha will review your request — your booking stays active until they approve it.`}
+      >
+        <form onSubmit={sendRequest} className="cancel-form">
           <div className="reason-list" role="radiogroup">
             {REASONS.map((r) => (
               <button type="button" role="radio" aria-checked={reason === r} key={r} className={`reason ${reason === r ? 'active' : ''}`} onClick={() => setReason(r)}>
@@ -212,11 +264,11 @@ export default function ManageBooking() {
             )}
           </AnimatePresence>
           <div className="modal-actions">
-            <button type="button" className="btn btn-ghost" onClick={() => setCancelOpen(false)} disabled={cancelling}>
+            <button type="button" className="btn btn-ghost" onClick={() => setCancelFor(null)} disabled={sending}>
               Keep booking
             </button>
-            <button className="btn btn-danger" disabled={cancelling}>
-              {cancelling ? <Loader2 size={18} className="spin" /> : <Ban size={18} />} Cancel booking
+            <button className="btn btn-danger" disabled={sending}>
+              {sending ? <Loader2 size={18} className="spin" /> : <Ban size={18} />} Send request
             </button>
           </div>
         </form>
