@@ -93,6 +93,7 @@ const defaults = () => ({
   ],
   blockedDates: [],
   bookings: [],
+  pushSubs: {}, // phone (last 10 digits) -> browser push subscriptions
 });
 
 /* ---------------- storage ----------------

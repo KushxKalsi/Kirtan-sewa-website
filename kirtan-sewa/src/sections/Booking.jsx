@@ -14,9 +14,11 @@ import { rememberBooking } from '../lib/storage';
 import { serviceIcon } from '../lib/icons';
 import { scrollToId } from '../lib/scroll';
 import { ease } from '../lib/motion';
+import { PAY_OPTIONS } from '../lib/money';
 
 const nowHHMM = () => format(new Date(), 'HH:mm');
-const emptyForm = { name: '', phone: '', email: '', address: '', notes: '' };
+const emptyForm = { name: '', phone: '', email: '', address: '', notes: '', paymentMethod: '' };
+
 const MAX_ITEMS = 20;
 const keyOf = (date, slotId) => `${date}|${slotId}`;
 
@@ -49,6 +51,8 @@ export default function Booking({ preselect }) {
   const panelRef = useRef(null);
 
   const service = services.find((s) => s.id === serviceId) || null;
+  const settings = site?.settings || {};
+  const payMethods = [settings.upiEnabled && settings.upiId && 'upi', settings.cashEnabled && 'cash'].filter(Boolean);
   const [nudge, setNudge] = useState(0); // bumps to shake the sewa picker when a sewa is still missing
 
   useEffect(() => {
@@ -150,6 +154,7 @@ export default function Booking({ preselect }) {
   const submit = async (e) => {
     e.preventDefault();
     setError('');
+    if (payMethods.length && !payMethods.includes(form.paymentMethod)) return setError('Please choose how you would like to pay — UPI or cash.');
     setSubmitting(true);
     try {
       const { bookings } = await api.createBooking({ items: selection, ...form });
@@ -336,6 +341,29 @@ export default function Booking({ preselect }) {
                       <span>Occasion / special requests (optional)</span>
                     </motion.label>
                   </motion.div>
+
+                  {payMethods.length > 0 && (
+                    <div className="pay-choose">
+                      <span className="label">How would you like to pay? *</span>
+                      <div className="pay-options" role="radiogroup">
+                        {payMethods.map((m) => {
+                          const opt = PAY_OPTIONS[m];
+                          const on = form.paymentMethod === m;
+                          return (
+                            <button type="button" role="radio" aria-checked={on} key={m} className={`pay-option ${on ? 'active' : ''}`} onClick={() => setForm((f) => ({ ...f, paymentMethod: m }))}>
+                              {on && <motion.span layoutId="pay-option" className="pay-option-bg" transition={{ type: 'spring', stiffness: 420, damping: 34 }} />}
+                              <opt.icon size={20} />
+                              <span>
+                                <strong>{opt.label}</strong>
+                                <small>{opt.sub}</small>
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <p className="fine-print">You pay after the jatha confirms and sends your bill. You can change this later under “Manage booking”.</p>
+                    </div>
+                  )}
 
                   <AnimatePresence>
                     {error && (

@@ -4,6 +4,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { Ban, CalendarDays, CircleAlert, Clock, Hourglass, Loader2, MapPin, Search, Undo2, User } from 'lucide-react';
 import Modal from '../components/Modal';
 import PaymentBox from '../components/PaymentBox';
+import NotifyButton from '../components/NotifyButton';
 import SplitText from '../components/SplitText';
 import Particles from '../components/Particles';
 import { useToast } from '../components/Toast';
@@ -230,6 +231,7 @@ export default function ManageBooking() {
             {bookings.length} booking{bookings.length === 1 ? '' : 's'} for {searched}
           </motion.p>
         )}
+        {bookings && <NotifyButton phone={searched} key={`notify-${searched}`} compact />}
         <AnimatePresence mode="popLayout">
           {bookings?.map((b, i) => (
             <BookingCard key={b.ref} booking={b} phone={searched} index={i} onChange={replace} onRequestCancel={openCancel} />

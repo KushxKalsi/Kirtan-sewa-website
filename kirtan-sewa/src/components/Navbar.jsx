@@ -21,16 +21,12 @@ export default function Navbar() {
   const goTo = useGoTo();
   const { pathname } = useLocation();
   const { scrollY } = useScroll();
-  const [hidden, setHidden] = useState(false);
   const [solid, setSolid] = useState(false);
   const [open, setOpen] = useState(false);
   const [hovered, setHovered] = useState(null);
 
-  useMotionValueEvent(scrollY, 'change', (y) => {
-    const prev = scrollY.getPrevious() ?? 0;
-    setSolid(y > 40);
-    setHidden(y > 300 && y > prev && !open);
-  });
+  // The header always stays on screen (menu button included); it just turns solid once you scroll.
+  useMotionValueEvent(scrollY, 'change', (y) => setSolid(y > 40));
 
   useEffect(() => {
     if (!open) return;
@@ -51,11 +47,7 @@ export default function Navbar() {
 
   return (
     <>
-      <motion.header
-        className={`nav ${solid ? 'solid' : ''}`}
-        animate={{ y: hidden ? '-110%' : '0%' }}
-        transition={{ duration: 0.45, ease }}
-      >
+      <motion.header className={`nav ${solid ? 'solid' : ''}`} initial={{ y: '-100%' }} animate={{ y: '0%' }} transition={{ duration: 0.6, ease }}>
         <div className="nav-inner container">
           <button className="brand" onClick={() => go('top')} aria-label="Home">
             <span className="brand-mark gurmukhi">ੴ</span>

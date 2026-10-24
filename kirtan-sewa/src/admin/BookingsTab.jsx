@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { format } from 'date-fns';
-import { Ban, Banknote, Check, ChevronDown, CircleCheck, FileText, Loader2, Mail, MapPin, MessageCircle, Pencil, Phone, RotateCcw, Search, Smartphone, Trash2, Undo2, Wallet } from 'lucide-react';
+import { Ban, Banknote, BellRing, Check, ChevronDown, CircleCheck, FileText, Loader2, Mail, MapPin, MessageCircle, Pencil, Phone, RotateCcw, Search, Smartphone, Trash2, Undo2, Wallet } from 'lucide-react';
 import Modal from '../components/Modal';
 import { BillModal } from '../components/Bill';
 import { PAYMENT_LABEL, rupees } from '../lib/money';
@@ -38,6 +38,7 @@ export default function BookingsTab({ data, api, patch, toast }) {
   const [rejectFor, setRejectFor] = useState(null);
   const [rejectNote, setRejectNote] = useState('');
   const { bookings, today, settings } = data;
+  const notifyOn = (phone) => (data.notifyPhones || []).includes(String(phone).replace(/\D/g, '').slice(-10));
 
   const stats = useMemo(
     () => [
@@ -102,7 +103,7 @@ export default function BookingsTab({ data, api, patch, toast }) {
   };
 
   const openPayment = (b) => {
-    setPayForm({ method: b.paymentStatus === 'submitted' || b.utr ? 'upi' : 'cash', amount: String(b.amount || ''), utr: b.utr || '', note: '' });
+    setPayForm({ method: b.paymentStatus === 'submitted' || b.utr ? 'upi' : b.paymentMethod || 'cash', amount: String(b.amount || ''), utr: b.utr || '', note: '' });
     setPayFor(b);
   };
   const savePayment = async (b, payment) => {
@@ -281,6 +282,16 @@ export default function BookingsTab({ data, api, patch, toast }) {
                               <a href={`mailto:${b.email}`} className="chip">
                                 <Mail size={13} /> {b.email}
                               </a>
+                            )}
+                            {b.paymentMethod && b.paymentStatus !== 'paid' && (
+                              <span className="chip">
+                                {b.paymentMethod === 'upi' ? <Smartphone size={13} /> : <Banknote size={13} />} Wants to pay by {PAYMENT_LABEL[b.paymentMethod]}
+                              </span>
+                            )}
+                            {notifyOn(b.phone) && (
+                              <span className="chip" title="This customer gets a phone notification when you confirm, bill, mark paid or cancel">
+                                <BellRing size={13} /> Notifications on
+                              </span>
                             )}
                           </div>
                           <p className="ab-line">

@@ -25,6 +25,9 @@ export const api = {
   requestCancel: (ref, phone, reason) => request('/bookings/cancel-request', { method: 'POST', body: { ref, phone, reason } }),
   withdrawCancel: (ref, phone) => request('/bookings/cancel-request/withdraw', { method: 'POST', body: { ref, phone } }),
   submitPayment: (ref, phone, utr) => request('/bookings/payment', { method: 'POST', body: { ref, phone, utr } }),
+  setPaymentMethod: (ref, phone, method) => request('/bookings/payment-method', { method: 'POST', body: { ref, phone, method } }),
+  pushKey: () => request('/push/key'),
+  pushSubscribe: (phone, subscription) => request('/push/subscribe', { method: 'POST', body: { phone, subscription } }),
 };
 
 export const adminApi = (token) => ({

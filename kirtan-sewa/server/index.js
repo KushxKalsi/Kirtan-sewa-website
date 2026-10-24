@@ -4,8 +4,10 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { db, save, uid, makeRef, slugify, DATA_DIR, initDb, kv } from './db.js';
+import { initPush, pushPublicKey, addSubscription, notifyPhone } from './push.js';
 
 await initDb();
+await initPush();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT) || 5174;
@@ -172,6 +174,31 @@ const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', '
 const shortDate = (d) => `${Number(d.slice(8))} ${MONTHS[Number(d.slice(5, 7)) - 1]}`;
 const MAX_ITEMS = 20;
 
+const rupee = (n) => `₹${Number(n).toLocaleString('en-IN')}`;
+// Sends a phone notification about a booking (if the customer allowed notifications). Never blocks the request.
+function notifyBooking(b, kind) {
+  const when = `${b.serviceName} · ${shortDate(b.date)}, ${b.slotLabel}`;
+  const pay = b.paymentMethod === 'cash' ? 'pay in cash on the day.' : b.paymentMethod === 'upi' ? 'tap to pay by UPI.' : 'tap to see your bill.';
+  const messages = {
+    confirmed: { title: 'Booking confirmed 🙏', body: `${when}. Bill ${rupee(b.amount)} — ${pay}` },
+    billUpdated: { title: 'Bill updated', body: `${when}: the amount is now ${rupee(b.amount)}.` },
+    paid: { title: 'Payment received ✅', body: `${rupee(b.amount)} for ${when}. Waheguru Ji, thank you!` },
+    cancelled: { title: 'Booking cancelled', body: `${when} was cancelled. Reason: ${b.cancelReason}` },
+    requestApproved: { title: 'Cancellation approved', body: `${when} is now cancelled.` },
+    requestRejected: { title: 'Cancellation not accepted', body: `${when} is still booked.${b.cancelRequest?.note ? ` “${b.cancelRequest.note}”` : ''}` },
+  };
+  notifyPhone(b.phone, { ...messages[kind], url: `/manage?phone=${encodeURIComponent(b.phone)}`, tag: `${b.ref}-${kind}` }).catch(() => {});
+}
+
+const enabledPaymentMethods = () => [db.settings.upiEnabled && db.settings.upiId && 'upi', db.settings.cashEnabled && 'cash'].filter(Boolean);
+// Customers pick UPI or cash; when no payment option is switched on, nothing is asked.
+function readPaymentChoice(value) {
+  const methods = enabledPaymentMethods();
+  if (!methods.length) return '';
+  if (!methods.includes(value)) fail(400, `Please choose how you would like to pay (${methods.map((m) => (m === 'upi' ? 'UPI' : 'cash')).join(' or ')}).`);
+  return value;
+}
+
 // Checks one requested sewa/date/slot and returns what is needed to create it.
 function readItem(item) {
   const service = db.services.find((s) => s.id === item?.serviceId && s.active);
@@ -211,6 +238,7 @@ app.post('/api/bookings', async (req, res) => {
   const email = str(body.email, 120);
   const address = str(body.address, 300);
   const notes = str(body.notes, 600);
+  const paymentMethod = readPaymentChoice(body.paymentMethod);
   if (name.length < 2) fail(400, 'Please enter your name.');
   if (digits(phone).length < 10 || digits(phone).length > 15) fail(400, 'Please enter a valid phone number.');
   if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) fail(400, 'Please enter a valid email or leave it empty.');
@@ -235,7 +263,7 @@ app.post('/api/bookings', async (req, res) => {
       email,
       address,
       notes,
-      paymentMethod: '',
+      paymentMethod, // the customer's choice; replaced by the actual method when payment is recorded
       paymentStatus: 'unpaid',
       amount: null,
       billNo: '',
@@ -285,6 +313,16 @@ app.post('/api/bookings/lookup', async (req, res) => {
   res.json({ bookings: mine.map(customerView) });
 });
 
+app.post('/api/bookings/payment-method', async (req, res) => {
+  const booking = findOwnBooking(req.body);
+  if (booking.status === 'cancelled') fail(400, 'This booking is cancelled.');
+  if (booking.paymentStatus === 'paid') fail(400, 'Payment for this booking is already received.');
+  if (booking.paymentStatus === 'submitted') fail(400, 'Your UPI payment is already waiting for verification.');
+  booking.paymentMethod = readPaymentChoice(req.body.method);
+  await save();
+  res.json({ booking: customerView(booking) });
+});
+
 app.post('/api/bookings/payment', async (req, res) => {
   const booking = findOwnBooking(req.body);
   if (booking.status !== 'confirmed' && booking.status !== 'completed') fail(400, 'Payment opens once the jatha confirms your booking.');
@@ -304,6 +342,21 @@ app.get('/api/upi-qr', async (_req, res) => {
   const qr = await loadQr();
   if (!qr) fail(404, 'No QR uploaded.');
   res.set('Cache-Control', 'public, max-age=86400').type(qr.type).send(Buffer.from(qr.data, 'base64'));
+});
+
+app.get('/api/push/key', async (_req, res) => {
+  res.json({ publicKey: pushPublicKey() });
+});
+
+app.post('/api/push/subscribe', async (req, res) => {
+  throttle(`push:${req.ip}`, 30);
+  const phone = str(req.body?.phone, 20);
+  const sub = req.body?.subscription;
+  if (!db.bookings.some((b) => samePhone(b.phone, phone))) fail(404, 'No bookings found for that phone number.');
+  const valid = typeof sub?.endpoint === 'string' && sub.endpoint.startsWith('https://') && sub.endpoint.length < 1000 && typeof sub.keys?.p256dh === 'string' && typeof sub.keys?.auth === 'string';
+  if (!valid) fail(400, 'This browser sent an invalid notification subscription.');
+  await addSubscription(phone, sub);
+  res.json({ ok: true });
 });
 
 app.get('/api/health', async (_req, res) => {
@@ -351,6 +404,7 @@ app.get('/api/admin/data', async (_req, res) => {
     slots: db.slots,
     blockedDates: db.blockedDates,
     bookings: db.bookings,
+    notifyPhones: Object.keys(db.pushSubs || {}),
     today: todayKey(),
   });
 });
@@ -468,6 +522,8 @@ app.patch('/api/admin/bookings/:id', async (req, res) => {
   if (!booking) fail(404, 'Booking not found.');
   const status = req.body?.status;
   if (!['pending', 'confirmed', 'completed', 'cancelled'].includes(status)) fail(400, 'Invalid status.');
+  const prevStatus = booking.status;
+  const prevAmount = booking.amount;
   // Validate everything before changing the booking.
   const restoring = status !== 'cancelled' && booking.status === 'cancelled';
   if (restoring && slotTaken(booking.date, booking.slotId, booking.id)) fail(409, 'That slot has been booked by someone else since.');
@@ -490,6 +546,9 @@ app.patch('/api/admin/bookings/:id', async (req, res) => {
   booking.status = status;
   booking.updatedAt = new Date().toISOString();
   await save();
+  if (status === 'confirmed' && prevStatus !== 'confirmed') notifyBooking(booking, 'confirmed');
+  else if (status === 'confirmed' && prevAmount !== booking.amount) notifyBooking(booking, 'billUpdated');
+  if (status === 'cancelled' && prevStatus !== 'cancelled') notifyBooking(booking, 'cancelled');
   res.json({ booking });
 });
 
@@ -513,6 +572,7 @@ app.patch('/api/admin/bookings/:id/cancel-request', async (req, res) => {
   }
   booking.updatedAt = new Date().toISOString();
   await save();
+  notifyBooking(booking, req.body.action === 'approve' ? 'requestApproved' : 'requestRejected');
   res.json({ booking });
 });
 
@@ -537,6 +597,7 @@ app.patch('/api/admin/bookings/:id/payment', async (req, res) => {
     fail(400, 'Invalid payment status.');
   }
   await save();
+  if (b.status === 'paid') notifyBooking(booking, 'paid');
   res.json({ booking });
 });
 
@@ -573,6 +634,10 @@ app.use('/api', (_req, _res, next) => next(new HttpError(404, 'Not found.')));
 
 const dist = path.resolve(__dirname, '../dist');
 if (fs.existsSync(dist)) {
+  app.get(['/sw.js', '/manifest.webmanifest'], (req, res) => {
+    res.set('Cache-Control', 'no-cache');
+    res.sendFile(path.join(dist, req.path));
+  });
   app.use(express.static(dist, { maxAge: '7d', index: false }));
   app.use((req, res, next) => {
     if (req.method !== 'GET' || req.path.startsWith('/api')) return next();

@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Check, Copy, MessageCircle, Plus, Settings2 } from 'lucide-react';
 import { useSite } from './SiteContext';
+import NotifyButton from './NotifyButton';
 import { prettyDate, rangeTo12 } from '../lib/date';
 import { ease } from '../lib/motion';
 
@@ -104,6 +105,8 @@ export default function BookingSuccess({ bookings, phone, onAgain }) {
         <p className="fine-print">
           You can view {many ? 'these bookings' : 'this booking'} anytime under “Manage booking” using just your phone number. Once the jatha confirms, bills and payment details appear there too.
         </p>
+
+        <NotifyButton phone={phone} />
 
         <div className="success-actions">
           {wa && (
