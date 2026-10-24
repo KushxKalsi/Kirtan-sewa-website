@@ -1,6 +1,7 @@
 import { useRef } from 'react';
 import { motion, useScroll, useTransform } from 'framer-motion';
-import { ArrowRight, CalendarDays } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { ArrowRight, CalendarDays, ClipboardList } from 'lucide-react';
 import Mandala from '../components/Mandala';
 import Particles from '../components/Particles';
 import SplitText from '../components/SplitText';
@@ -72,6 +73,11 @@ export default function Hero({ ready }) {
             <button className="btn btn-ghost" onClick={() => scrollToId('sewa')}>
               Explore sewa <ArrowRight size={18} />
             </button>
+          </Magnetic>
+          <Magnetic>
+            <Link className="btn btn-ghost" to="/manage">
+              <ClipboardList size={18} /> Manage booking
+            </Link>
           </Magnetic>
         </motion.div>
       </motion.div>

@@ -76,10 +76,19 @@ Each time slot takes one booking per day, across all sewas, because there is one
 The site follows the visitor's phone or browser theme by default. The button in the navbar cycles through
 Auto → Light → Dark, and the choice is remembered on that device.
 
+## Notifications
+
+After booking, and on the Manage booking page, customers can tap **Turn on notifications**. Their phone or
+computer is then notified when you confirm (with the bill amount and a "tap to pay" link), change the bill,
+mark it paid, cancel, or answer a cancellation request. It uses standard Web Push, with no outside service: the
+signing keys are created on first start and kept in the database. iPhone users must first add the site to their
+Home Screen (Share → Add to Home Screen) and open it from there. The admin panel shows "Notifications on" for
+customers who turned them on.
+
 ## Payments & bills
 
 1. **Site settings → Payments**: turn on UPI (enter your UPI ID, upload your QR image) and/or Cash.
-2. A customer books. No payment is asked at this point.
+2. A customer books and chooses **UPI** or **Cash**. They can switch under Manage booking until they have paid.
 3. In **Bookings**, click **Confirm & create bill** and enter the amount. This creates a numbered bill (2026-0001, 2026-0002…).
    Use **Send bill** to WhatsApp the customer the amount and a link to their bill.
 4. The customer opens **Manage booking**, views or downloads the bill, and pays by UPI. They scan the QR or tap

@@ -1,0 +1,15 @@
+{
+  "name": "Kirtan Sewa — Book Gurbani Kirtan",
+  "short_name": "Kirtan Sewa",
+  "description": "Book Kirtan Diwan, Asa Di Vaar, So Dar Di Chaunki and Aarti.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#070A14",
+  "theme_color": "#070A14",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

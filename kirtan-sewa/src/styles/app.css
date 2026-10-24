@@ -1807,6 +1807,89 @@
   padding-block: 8px;
   text-align: left;
 }
+.pay-head-side {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+}
+.pay-head-side .pay-tag {
+  margin-left: 0;
+  font-size: 12.5px;
+  padding: 3px 10px;
+}
+.pay-amount.small {
+  font-size: 22px;
+  color: var(--muted);
+}
+.pay-choose {
+  display: grid;
+  gap: 8px;
+}
+.pay-option:disabled {
+  cursor: progress;
+}
+.pay-option small {
+  display: block;
+  font-size: 12px;
+  opacity: 0.75;
+}
+.notify-card {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  margin-top: 18px;
+  padding: 16px 18px;
+  border-radius: 18px;
+  border: 1px solid color-mix(in srgb, var(--blue) 40%, transparent);
+  background: color-mix(in srgb, var(--blue) 8%, transparent);
+  text-align: left;
+}
+.notify-card.on {
+  border-color: color-mix(in srgb, var(--success) 40%, transparent);
+  background: color-mix(in srgb, var(--success) 7%, transparent);
+}
+.notify-card.compact {
+  margin: 14px 0 0;
+}
+.notify-icon {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  color: var(--blue);
+  background: color-mix(in srgb, var(--blue) 14%, transparent);
+  transform-origin: 50% 10%;
+}
+.notify-card.on .notify-icon {
+  color: var(--success);
+  background: color-mix(in srgb, var(--success) 14%, transparent);
+}
+.notify-card strong {
+  display: block;
+  font-size: 15px;
+}
+.notify-card p {
+  margin: 4px 0 10px;
+  font-size: 13.5px;
+  color: var(--muted);
+}
+.notify-card.on p {
+  margin-bottom: 0;
+}
+.notify-error {
+  display: flex;
+  gap: 6px;
+  align-items: flex-start;
+  margin: 10px 0 0 !important;
+  color: var(--danger-text) !important;
+}
+.notify-error svg {
+  flex-shrink: 0;
+  margin-top: 3px;
+}
 .pay-tag.group-tag {
   color: var(--blue);
   background: color-mix(in srgb, var(--blue) 14%, transparent);
@@ -2833,6 +2916,9 @@
   .hero-ctas > div,
   .hero-ctas .btn {
     width: 100%;
+  }
+  .scroll-cue {
+    display: none; /* would overlap the stacked buttons on phones */
   }
   .stats {
     gap: 10px;
