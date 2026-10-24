@@ -41,6 +41,7 @@ export const adminApi = (token) => ({
   saveBlockedDates: (dates) => request('/admin/blocked-dates', { method: 'PUT', body: { dates }, token }),
   setStatus: (id, status, reason, amount) => request(`/admin/bookings/${id}`, { method: 'PATCH', body: { status, reason, amount }, token }),
   deleteBooking: (id) => request(`/admin/bookings/${id}`, { method: 'DELETE', token }),
+  deleteBookings: (ids) => request('/admin/bookings/delete', { method: 'POST', body: { ids }, token }),
   resolveCancel: (id, action, note) => request(`/admin/bookings/${id}/cancel-request`, { method: 'PATCH', body: { action, note }, token }),
   setPayment: (id, payment) => request(`/admin/bookings/${id}/payment`, { method: 'PATCH', body: payment, token }),
   uploadQr: (dataUrl) => request('/admin/upi-qr', { method: 'POST', body: { dataUrl }, token }),

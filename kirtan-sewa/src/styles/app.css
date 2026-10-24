@@ -2245,6 +2245,106 @@
 .admin-booking.st-completed {
   border-left-color: var(--blue);
 }
+.ab-top {
+  display: flex;
+  align-items: center;
+}
+.ab-top .ab-row {
+  flex: 1;
+  min-width: 0;
+  padding-left: 10px;
+}
+.ab-check,
+.select-all {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+}
+.ab-check {
+  align-self: stretch;
+  padding: 0 4px 0 16px;
+}
+.ab-check input,
+.select-all input {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+}
+.tick {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  border-radius: 7px;
+  border: 1.5px solid var(--border-strong);
+  background: var(--tint);
+  transition: background 0.2s, border-color 0.2s;
+}
+.tick::after {
+  content: '';
+  width: 6px;
+  height: 11px;
+  margin-top: -2px;
+  border: solid #1a1206;
+  border-width: 0 2.5px 2.5px 0;
+  transform: rotate(45deg) scale(0);
+  transition: transform 0.2s var(--ease);
+}
+input:checked + .tick {
+  background: var(--grad-gold);
+  border-color: transparent;
+}
+input:checked + .tick::after {
+  transform: rotate(45deg) scale(1);
+}
+input:focus-visible + .tick {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+}
+.select-all {
+  justify-self: start;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--muted);
+  padding-left: 16px;
+}
+.bulk-bar {
+  position: sticky;
+  bottom: max(16px, env(safe-area-inset-bottom));
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px 12px 20px;
+  border-radius: 18px;
+  border-color: color-mix(in srgb, var(--danger) 40%, transparent);
+}
+.bulk-bar strong {
+  flex: 1;
+  white-space: nowrap;
+}
+.bulk-list {
+  list-style: none;
+  margin: 0 0 18px;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+  font-size: 14px;
+}
+.bulk-list li {
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: var(--tint);
+  border: 1px solid var(--border);
+}
+.bulk-list code {
+  color: var(--gold-2);
+  margin-right: 6px;
+}
 .ab-row {
   display: grid;
   grid-template-columns: auto 1fr auto auto;
@@ -3006,6 +3106,12 @@
     grid-template-columns: auto 1fr auto;
     gap: 12px;
     padding: 12px 14px;
+  }
+  .ab-check {
+    padding-left: 12px;
+  }
+  .ab-top .ab-row {
+    padding-left: 8px;
   }
   .ab-row .badge {
     grid-column: 2;

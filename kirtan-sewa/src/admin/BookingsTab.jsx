@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { format } from 'date-fns';
 import { Ban, Banknote, BellRing, Check, ChevronDown, CircleCheck, FileText, Loader2, Mail, MapPin, MessageCircle, Pencil, Phone, RotateCcw, Search, Smartphone, Trash2, Undo2, Wallet } from 'lucide-react';
@@ -30,6 +30,8 @@ export default function BookingsTab({ data, api, patch, toast }) {
   const [cancelFor, setCancelFor] = useState(null);
   const [reason, setReason] = useState('');
   const [deleteFor, setDeleteFor] = useState(null);
+  const [picked, setPicked] = useState(() => new Set()); // bookings ticked for bulk delete
+  const [bulkOpen, setBulkOpen] = useState(false);
   const [confirmFor, setConfirmFor] = useState(null);
   const [amount, setAmount] = useState('');
   const [payFor, setPayFor] = useState(null);
@@ -164,6 +166,33 @@ export default function BookingsTab({ data, api, patch, toast }) {
     if (await setStatus(cancelFor, 'cancelled', reason)) setCancelFor(null);
   };
 
+  // Ticks only apply to what is on screen, so start fresh when the filter or search changes.
+  useEffect(() => setPicked(new Set()), [filter, query]);
+  const togglePick = (id) =>
+    setPicked((set) => {
+      const next = new Set(set);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  const allShownPicked = list.length > 0 && list.every((b) => picked.has(b.id));
+  const toggleAllShown = () => setPicked(allShownPicked ? new Set() : new Set(list.map((b) => b.id)));
+  const pickedBookings = bookings.filter((b) => picked.has(b.id));
+
+  const confirmBulkDelete = async () => {
+    setBusy('bulk');
+    try {
+      const { deleted } = await api.deleteBookings([...picked]);
+      patch({ bookings: bookings.filter((b) => !picked.has(b.id)) });
+      toast(`${deleted} booking${deleted === 1 ? '' : 's'} deleted.`);
+      setPicked(new Set());
+      setBulkOpen(false);
+    } catch (e) {
+      toast(e.message, 'error');
+    } finally {
+      setBusy('');
+    }
+  };
+
   const confirmDelete = async () => {
     setBusy('delete');
     try {
@@ -209,6 +238,14 @@ export default function BookingsTab({ data, api, patch, toast }) {
         </label>
       </div>
 
+      {list.length > 0 && (
+        <label className="select-all">
+          <input type="checkbox" checked={allShownPicked} onChange={toggleAllShown} />
+          <span className="tick" />
+          Select all shown ({list.length})
+        </label>
+      )}
+
       {list.length === 0 ? (
         <div className="admin-empty glass">No bookings here yet.</div>
       ) : (
@@ -227,6 +264,11 @@ export default function BookingsTab({ data, api, patch, toast }) {
                   exit={{ opacity: 0, x: -30, transition: { duration: 0.25 } }}
                   transition={{ duration: 0.4, ease }}
                 >
+                  <div className="ab-top">
+                  <label className="ab-check" title="Select for bulk delete">
+                    <input type="checkbox" checked={picked.has(b.id)} onChange={() => togglePick(b.id)} aria-label={`Select booking ${b.ref}`} />
+                    <span className="tick" />
+                  </label>
                   <button className="ab-row" onClick={() => setOpenId(open ? null : b.id)} aria-expanded={open}>
                     <span className="ab-date">
                       <strong>{format(fromKey(b.date), 'd')}</strong>
@@ -266,6 +308,7 @@ export default function BookingsTab({ data, api, patch, toast }) {
                       <ChevronDown size={18} />
                     </motion.span>
                   </button>
+                  </div>
 
                   <AnimatePresence initial={false}>
                     {open && (
@@ -525,6 +568,44 @@ export default function BookingsTab({ data, api, patch, toast }) {
             </button>
           </div>
         </form>
+      </Modal>
+
+      <AnimatePresence>
+        {picked.size > 0 && (
+          <motion.div className="bulk-bar glass" initial={{ y: 40, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 40, opacity: 0 }} transition={{ type: 'spring', stiffness: 380, damping: 32 }}>
+            <strong>{picked.size} selected</strong>
+            <button className="btn btn-ghost btn-sm" onClick={() => setPicked(new Set())}>
+              Clear
+            </button>
+            <button className="btn btn-danger btn-sm" onClick={() => setBulkOpen(true)}>
+              <Trash2 size={15} /> Delete selected
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <Modal
+        open={bulkOpen}
+        onClose={() => busy !== 'bulk' && setBulkOpen(false)}
+        title={`Delete ${picked.size} booking${picked.size === 1 ? '' : 's'}?`}
+        subtitle="These records are removed permanently, including their bills and payments. This cannot be undone."
+      >
+        <ul className="bulk-list">
+          {pickedBookings.slice(0, 8).map((b) => (
+            <li key={b.id}>
+              <code>{b.ref}</code> {b.name} · {b.serviceName} · {format(fromKey(b.date), 'd MMM')}
+            </li>
+          ))}
+          {pickedBookings.length > 8 && <li className="muted">…and {pickedBookings.length - 8} more</li>}
+        </ul>
+        <div className="modal-actions">
+          <button className="btn btn-ghost" onClick={() => setBulkOpen(false)} disabled={busy === 'bulk'}>
+            Keep them
+          </button>
+          <button className="btn btn-danger" onClick={confirmBulkDelete} disabled={busy === 'bulk'}>
+            {busy === 'bulk' ? <Loader2 size={17} className="spin" /> : <Trash2 size={17} />} Delete {picked.size}
+          </button>
+        </div>
       </Modal>
 
       <Modal open={!!deleteFor} onClose={() => setDeleteFor(null)} title="Delete booking?" subtitle="This removes the record permanently. To keep a history, cancel it instead.">
