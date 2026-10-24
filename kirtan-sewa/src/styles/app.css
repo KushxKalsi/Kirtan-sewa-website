@@ -565,6 +565,21 @@
   grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
   gap: 20px;
 }
+.service-grid.few {
+  grid-template-columns: repeat(auto-fit, minmax(260px, 380px));
+  justify-content: center;
+}
+.service-grid.in-modal {
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 16px;
+  margin-top: 6px;
+}
+.modal.xl {
+  width: min(1100px, 100%);
+}
+.category-card h3 {
+  font-size: 34px;
+}
 .service-card {
   position: relative;
   height: 100%;

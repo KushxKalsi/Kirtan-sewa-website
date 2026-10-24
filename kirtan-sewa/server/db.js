@@ -93,6 +93,8 @@ const defaults = () => ({
       gurmukhi: 'ਰਾਗੀ ਜਥਾ',
       description: 'Gurbani Kirtan in traditional raags with harmonium and tabla. All sewas are available.',
       serviceIds: ['kirtan-diwan', 'asa-di-vaar', 'so-dar-di-chaunki', 'aarti'],
+      icon: 'music',
+      color: '#F6C453',
       active: true,
     },
     {
@@ -101,6 +103,8 @@ const defaults = () => ({
       gurmukhi: 'ਕਵੀਸ਼ਰੀ ਜਥਾ',
       description: 'A kavishri jatha presenting Gurbani and Sikh history in the traditional kavishri style.',
       serviceIds: ['kirtan-diwan'],
+      icon: 'mic',
+      color: '#C084FC',
       active: true,
     },
   ],

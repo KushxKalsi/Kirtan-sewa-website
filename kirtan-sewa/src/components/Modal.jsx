@@ -4,7 +4,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { X } from 'lucide-react';
 import { lockScroll, unlockScroll } from '../lib/scroll';
 
-export default function Modal({ open, onClose, title, subtitle, wide, children }) {
+export default function Modal({ open, onClose, title, subtitle, wide, size, children }) {
   useEffect(() => {
     if (!open) return;
     lockScroll();
@@ -36,7 +36,7 @@ export default function Modal({ open, onClose, title, subtitle, wide, children }
             role="dialog"
             aria-modal="true"
             aria-label={title}
-            className={`modal ${wide ? 'wide' : ''}`}
+            className={`modal ${wide ? 'wide' : ''} ${size || ''}`}
             data-lenis-prevent
             initial={mobile ? { y: '100%' } : { opacity: 0, y: 40, scale: 0.94 }}
             animate={mobile ? { y: 0 } : { opacity: 1, y: 0, scale: 1 }}
