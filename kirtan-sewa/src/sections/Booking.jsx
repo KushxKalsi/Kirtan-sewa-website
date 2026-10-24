@@ -21,8 +21,8 @@ const emptyForm = { name: '', phone: '', email: '', address: '', notes: '', paym
 
 const MAX_ITEMS = 20;
 const CUSTOM = 'custom';
-const keyOf = (date, slotId) => `${date}|${slotId}`;
-const itemKey = (it) => (it.slotId === CUSTOM ? `${it.date}|${CUSTOM}|${it.start}|${it.end}` : keyOf(it.date, it.slotId));
+// One picked sewa at one time; two different sewas may share a time.
+const itemKey = (it) => [it.date, it.slotId, it.start, it.end, it.serviceId, it.categoryId].join('|');
 const overlaps = (s1, e1, s2, e2) => s1 < e2 && s2 < e1; // HH:MM strings compare correctly
 const rangeOf = (time) => (time || '').split('–').map((t) => t.trim());
 const minutes = (t) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3));
@@ -52,6 +52,7 @@ export default function Booking({ preselect }) {
   const [step, setStep] = useState('pick');
   const [booked, setBooked] = useState([]);
   const [blocked, setBlocked] = useState([]);
+  const [blockedTimes, setBlockedTimes] = useState([]); // only the admin makes a time unavailable
   const [loadingAvail, setLoadingAvail] = useState(false);
   const [form, setForm] = useState(emptyForm);
   const [submitting, setSubmitting] = useState(false);
@@ -110,6 +111,7 @@ export default function Booking({ preselect }) {
       const data = await api.availability(toKey(startOfMonth(month)), toKey(endOfMonth(month)));
       setBooked(data.booked);
       setBlocked(data.blockedDates);
+      setBlockedTimes(data.blockedTimes || []);
     } catch (e) {
       toast(e.message, 'error');
     } finally {
@@ -130,7 +132,7 @@ export default function Booking({ preselect }) {
 
   const serviceById = useCallback((id) => services.find((x) => x.id === id), [services]);
   const slotById = useCallback((id) => slots.find((x) => x.id === id), [slots]);
-  // Every booked time per date (fixed slots and custom times alike), so overlaps can be checked.
+  // Confirmed bookings per date — shown for information only; they never stop anyone requesting a time.
   const bookedByDate = useMemo(() => {
     const map = new Map();
     for (const b of booked) {
@@ -141,24 +143,20 @@ export default function Booking({ preselect }) {
     return map;
   }, [booked, slotById]);
   const bookingAt = useCallback((date, start, end) => (bookedByDate.get(date) || []).find((b) => overlaps(start, end, b.start, b.end)), [bookedByDate]);
-  const pickedMap = useMemo(() => new Map(selection.map((it) => [itemKey(it), it])), [selection]);
+  const blockAt = useCallback((date, start, end) => blockedTimes.find((t) => t.date === date && overlaps(start, end, t.start, t.end)), [blockedTimes]);
+  const picksAt = useCallback((date, slotId) => selection.filter((it) => it.date === date && it.slotId === slotId), [selection]);
   const timesOf = useCallback((it) => (it.slotId === CUSTOM ? [it.start, it.end] : [slotById(it.slotId)?.start, slotById(it.slotId)?.end]), [slotById]);
   const sortedSelection = useMemo(() => [...selection].sort((a, b) => (a.date + timesOf(a)[0]).localeCompare(b.date + timesOf(b)[0])), [selection, timesOf]);
-  // A picked time on this date that overlaps start–end (other than the item itself).
-  const pickedAt = useCallback(
-    (date, start, end, except) => selection.find((it) => it !== except && it.date === date && overlaps(start, end, ...timesOf(it))),
-    [selection, timesOf],
-  );
   const isOffered = useCallback((slot) => !service?.allowedSlots?.length || service.allowedSlots.includes(slot.id), [service]);
 
   const slotState = useCallback(
     (key, slot) => {
-      if (bookingAt(key, slot.start, slot.end)) return 'booked';
+      if (blockAt(key, slot.start, slot.end)) return 'booked';
       if (!isOffered(slot)) return 'not-offered';
       if (key === today && slot.start <= nowHHMM()) return 'passed';
       return 'free';
     },
-    [bookingAt, isOffered, today],
+    [blockAt, isOffered, today],
   );
 
   const getDay = useCallback(
@@ -167,7 +165,7 @@ export default function Booking({ preselect }) {
       if (key > maxDate) return { state: 'closed' };
       if (blocked.includes(key)) return { state: 'blocked' };
       const states = slots.map((sl) => slotState(key, sl));
-      const daySlots = states.map((st, i) => ({ booked: st === 'booked', offered: st === 'free', picked: pickedMap.has(keyOf(key, slots[i].id)) }));
+      const daySlots = states.map((st, i) => ({ booked: st === 'booked', offered: st === 'free', picked: picksAt(key, slots[i].id).length > 0 }));
       const picked = selection.filter((it) => it.date === key).length;
       const offered = slots.filter((sl, i) => isOffered(sl) && states[i] !== 'passed').length;
       const free = states.filter((st) => st === 'free').length;
@@ -176,23 +174,25 @@ export default function Booking({ preselect }) {
       if (free < offered) return { state: 'partial', slots: daySlots, picked };
       return { state: 'free', slots: daySlots, picked };
     },
-    [today, maxDate, blocked, slots, slotState, isOffered, pickedMap, selection],
+    [today, maxDate, blocked, slots, slotState, isOffered, picksAt, selection],
   );
 
-  // Drop picked slots that someone else booked (or that got blocked) since they were picked.
+  // Drop picked times that the jatha has since marked unavailable.
   useEffect(() => {
-    const keep = selection.filter((it) => !bookingAt(it.date, ...timesOf(it)) && !blocked.includes(it.date));
+    const keep = selection.filter((it) => !blockAt(it.date, ...timesOf(it)) && !blocked.includes(it.date));
     if (keep.length === selection.length) return;
     setSelection(keep);
-    toast('A time you picked was just booked by someone else, so it was removed.', 'error');
-  }, [selection, bookingAt, timesOf, blocked, toast]);
+    toast('A time you picked is no longer available, so it was removed.', 'error');
+  }, [selection, blockAt, timesOf, blocked, toast]);
 
+  // Tapping a slot adds the current sewa; tapping again removes it. A different sewa can be added to the same slot.
   const toggleSlot = (sl) => {
-    const key = keyOf(date, sl.id);
-    if (pickedMap.has(key)) return setSelection((list) => list.filter((it) => keyOf(it.date, it.slotId) !== key));
+    const picks = picksAt(date, sl.id);
+    if (picks.length && (!service || (hasCats && !category))) return setSelection((list) => list.filter((it) => !picks.includes(it)));
     if (needsSewa()) return;
+    const mine = picks.find((it) => it.serviceId === service.id && it.categoryId === (category?.id || ''));
+    if (mine) return setSelection((list) => list.filter((it) => it !== mine));
     if (selection.length >= MAX_ITEMS) return toast(`You can book up to ${MAX_ITEMS} slots at once.`, 'error');
-    if (pickedAt(date, sl.start, sl.end)) return toast('That overlaps a custom time you already picked for this day.', 'error');
     setSelection((list) => [...list, { categoryId: category?.id || '', serviceId: service.id, date, slotId: sl.id }]);
   };
   // Shakes the category/sewa picker when one is still missing.
@@ -210,9 +210,9 @@ export default function Booking({ preselect }) {
     if (!start || !end) return setCustomError('Enter both a start and an end time.');
     if (minutes(end) - minutes(start) < 30) return setCustomError('The end time must be at least 30 minutes after the start.');
     if (date === today && start <= nowHHMM()) return setCustomError('That time has already passed today.');
-    const clash = bookingAt(date, start, end);
-    if (clash) return setCustomError(`Already booked ${rangeTo12(`${clash.start} – ${clash.end}`)} — please choose a time outside it.`);
-    if (pickedAt(date, start, end)) return setCustomError('That overlaps a time you already picked for this day.');
+    const block = blockAt(date, start, end);
+    if (block) return setCustomError(`The jatha is not available ${rangeTo12(`${block.start} – ${block.end}`)} — please choose a time outside it.`);
+    if (selection.some((it) => it.slotId === CUSTOM && it.date === date && it.start === start && it.end === end && it.serviceId === service.id)) return setCustomError('You already picked this time for this sewa.');
     if (selection.length >= MAX_ITEMS) return setCustomError(`You can book up to ${MAX_ITEMS} slots at once.`);
     setSelection((list) => [...list, { categoryId: category?.id || '', serviceId: service.id, date, slotId: CUSTOM, start, end }]);
     setCustom({ start: '', end: '' });
@@ -521,8 +521,8 @@ export default function Booking({ preselect }) {
                   <motion.div className="slot-list" initial="hidden" animate="show" variants={{ hidden: {}, show: { transition: { staggerChildren: 0.07 } } }}>
                     {slots.map((sl) => {
                       const st = slotState(date, sl);
-                      const pickedItem = pickedMap.get(keyOf(date, sl.id));
-                      const selected = !!pickedItem;
+                      const picks = picksAt(date, sl.id);
+                      const selected = picks.length > 0;
                       const info = bookingAt(date, sl.start, sl.end);
                       return (
                         <motion.button
@@ -530,6 +530,7 @@ export default function Booking({ preselect }) {
                           type="button"
                           className={`slot s-${st} ${selected ? 'selected' : ''}`}
                           disabled={st !== 'free' && !selected}
+                          title={selected && service && !picks.some((it) => it.serviceId === service.id) ? `Tap to also add ${service.name}` : undefined}
                           aria-pressed={selected}
                           onClick={() => toggleSlot(sl)}
                           variants={{ hidden: { opacity: 0, y: 18 }, show: { opacity: 1, y: 0, transition: { duration: 0.45, ease } } }}
@@ -541,6 +542,7 @@ export default function Booking({ preselect }) {
                             <span>{slotTime(sl)}</span>
                             {info && (
                               <span className="slot-booked-info">
+                                <small>Already booked{st === 'free' ? ' — you can still request it' : ''}:</small>
                                 <em>
                                   {info.serviceName || services.find((x) => x.id === info.serviceId)?.name || 'Booked'}
                                   {info.slotId === CUSTOM && ` · ${rangeTo12(`${info.start} – ${info.end}`)}`}
@@ -556,12 +558,12 @@ export default function Booking({ preselect }) {
                           <span className="slot-status">
                             {selected ? (
                               <>
-                                <Check size={14} /> {serviceById(pickedItem.serviceId)?.name}
+                                <Check size={14} /> {picks.map((it) => serviceById(it.serviceId)?.name).join(' + ')}
                               </>
                             ) : st === 'free' ? (
                               service ? 'Tap to add' : 'Free'
                             ) : st === 'booked' ? (
-                              'Booked'
+                              'Not available'
                             ) : st === 'passed' ? (
                               'Time passed'
                             ) : (
@@ -571,14 +573,26 @@ export default function Booking({ preselect }) {
                         </motion.button>
                       );
                     })}
+                    {blockedTimes
+                      .filter((t) => t.date === date && !slots.some((sl) => sl.start === t.start && sl.end === t.end))
+                      .map((t) => (
+                        <motion.div key={`blk-${t.start}-${t.end}`} className="slot s-booked" variants={{ hidden: { opacity: 0, y: 18 }, show: { opacity: 1, y: 0, transition: { duration: 0.45, ease } } }}>
+                          <span className="slot-main">
+                            <strong>{t.label || 'Not available'}</strong>
+                            <span>{rangeTo12(`${t.start} – ${t.end}`)}</span>
+                          </span>
+                          <span className="slot-status">Not available</span>
+                        </motion.div>
+                      ))}
                     {(bookedByDate.get(date) || [])
                       .filter((b) => b.slotId === CUSTOM)
                       .map((b) => (
-                        <motion.div key={`${b.start}-${b.end}`} className="slot s-booked custom-booked" variants={{ hidden: { opacity: 0, y: 18 }, show: { opacity: 1, y: 0, transition: { duration: 0.45, ease } } }}>
+                        <motion.div key={`${b.start}-${b.end}`} className="slot s-info" variants={{ hidden: { opacity: 0, y: 18 }, show: { opacity: 1, y: 0, transition: { duration: 0.45, ease } } }}>
                           <span className="slot-main">
                             <strong>Custom time</strong>
                             <span>{rangeTo12(`${b.start} – ${b.end}`)}</span>
                             <span className="slot-booked-info">
+                              <small>Already booked — you can still request this time:</small>
                               <em>{b.serviceName || 'Booked'}</em>
                               {b.location && (
                                 <span>

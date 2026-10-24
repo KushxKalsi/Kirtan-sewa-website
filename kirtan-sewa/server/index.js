@@ -74,10 +74,9 @@ const samePhone = (a, b) => {
   return x.length >= 7 && y.length >= 7 && x.slice(-10) === y.slice(-10);
 };
 const isActive = (b) => b.status === 'pending' || b.status === 'confirmed';
-// Only the admin books a time (by confirming a request). Pending requests never block anyone,
-// so several people can ask for the same time and the admin picks.
-const BOOKED = ['confirmed', 'completed'];
-const isBooked = (b) => BOOKED.includes(b.status);
+// Bookings never block a time: several requests (and bookings) may share one. A time is only
+// unavailable when the admin blocks it on purpose (blockedTimes) or blocks the whole date.
+const isBooked = (b) => b.status === 'confirmed' || b.status === 'completed';
 
 const publicSettings = () => {
   const { ...s } = db.settings;
@@ -114,13 +113,11 @@ const throttle = (key, max = 10) => {
   attempts.set(key, list);
 };
 
-// Bookings are fixed slots or a customer's own time ("custom"); either way a time can only be booked once.
+// Bookings are fixed slots or a customer's own time ("custom").
 const CUSTOM = 'custom';
 const rangeOf = (b) => (b.slotTime || '').split('–').map((t) => t.trim());
 const overlaps = (s1, e1, s2, e2) => s1 < e2 && s2 < e1; // HH:MM strings compare correctly
-const bookingAt = (date, start, end, exceptId) =>
-  db.bookings.find((b) => b.date === date && isBooked(b) && b.id !== exceptId && overlaps(start, end, ...rangeOf(b)));
-const timeTaken = (...args) => !!bookingAt(...args);
+const blockedAt = (date, start, end) => (db.blockedTimes || []).find((t) => t.date === date && overlaps(start, end, t.start, t.end));
 
 const customerView = (b) => ({
   ref: b.ref,
@@ -213,7 +210,8 @@ app.get('/api/availability', async (req, res) => {
     .filter((b) => isBooked(b) && b.date >= from && b.date <= to)
     // Public on purpose: visitors can see what each slot is booked for and where.
     .map((b) => ({ date: b.date, slotId: b.slotId, time: b.slotTime, serviceId: b.serviceId, serviceName: b.serviceName, location: b.address }));
-  res.json({ booked, blockedDates: db.blockedDates, today: todayKey(), now: nowHHMM() });
+  const blockedTimes = (db.blockedTimes || []).filter((t) => t.date >= from && t.date <= to).map(({ date, start, end, label }) => ({ date, start, end, label }));
+  res.json({ booked, blockedDates: db.blockedDates, blockedTimes, today: todayKey(), now: nowHHMM() });
 });
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -388,7 +386,7 @@ function readItem(item) {
   if (db.blockedDates.includes(date)) fail(409, `${shortDate(date)}: the jatha is not available on that date.`);
   if (!custom && service.allowedSlots?.length && !service.allowedSlots.includes(slot.id)) fail(400, `${label}: ${service.name} is not offered in this slot.`);
   if (date === todayKey() && slot.start <= nowHHMM()) fail(400, `${label}: that time slot has already started.`);
-  if (timeTaken(date, slot.start, slot.end)) fail(409, `${label} is already booked (or overlaps a booking). Please remove it and pick another time.`);
+  if (blockedAt(date, slot.start, slot.end)) fail(409, `${label}: the jatha is not available at that time. Please remove it and pick another time.`);
   let category = null;
   const categories = publicCategories();
   if (categories.length) {
@@ -408,11 +406,13 @@ app.post('/api/bookings', async (req, res) => {
 
   // Validate everything first so either all slots are booked or none are.
   const items = requested.map(readItem);
-  items.forEach((a, i) =>
-    items.slice(i + 1).forEach((b) => {
-      if (a.date === b.date && overlaps(a.slot.start, a.slot.end, b.slot.start, b.slot.end)) fail(400, `${shortDate(a.date)}: two of your selected times overlap.`);
-    }),
-  );
+  // Different sewas may share a time (e.g. Kirtan Diwan and Aarti in one evening); the same one twice is a mistake.
+  const seen = new Set();
+  for (const it of items) {
+    const key = [it.date, it.slot.start, it.slot.end, it.service.id, it.category?.id].join('|');
+    if (seen.has(key)) fail(400, `${shortDate(it.date)}: ${it.service.name} is selected twice for the same time.`);
+    seen.add(key);
+  }
 
   const name = str(body.name, 80);
   const phone = str(body.phone, 20);
@@ -614,6 +614,7 @@ app.get('/api/admin/data', async (_req, res) => {
     people: db.people || [],
     slots: db.slots,
     blockedDates: db.blockedDates,
+    blockedTimes: db.blockedTimes || [],
     bookings: db.bookings,
     notifyPhones: Object.keys(db.pushSubs || {}),
     adminDevices: adminDeviceCount(),
@@ -841,6 +842,40 @@ app.put('/api/admin/blocked-dates', async (req, res) => {
   res.json({ blockedDates: db.blockedDates });
 });
 
+// Block one or more times on a date: fixed slots ({ slotIds }) and/or a range ({ start, end }).
+app.post('/api/admin/blocked-times', async (req, res) => {
+  const b = req.body || {};
+  const date = str(b.date, 10);
+  if (!DATE_RE.test(date)) fail(400, 'Choose a date.');
+  const note = str(b.note, 200);
+  const ranges = (Array.isArray(b.slotIds) ? b.slotIds : []).map((id) => {
+    const slot = db.slots.find((s) => s.id === id);
+    if (!slot) fail(400, 'That time slot no longer exists.');
+    return { start: slot.start, end: slot.end, label: slot.label };
+  });
+  if (b.start || b.end) {
+    const start = str(b.start, 5);
+    const end = str(b.end, 5);
+    if (!TIME_RE.test(start) || !TIME_RE.test(end) || end <= start) fail(400, 'Enter a start and an end time (end after start).');
+    ranges.push({ start, end, label: str(b.label, 60) });
+  }
+  if (!ranges.length) fail(400, 'Choose at least one time slot, or enter a time.');
+  db.blockedTimes ||= [];
+  for (const r of ranges) {
+    if (db.blockedTimes.some((t) => t.date === date && t.start === r.start && t.end === r.end)) continue;
+    db.blockedTimes.push({ id: uid(), date, ...r, note, createdAt: new Date().toISOString() });
+  }
+  db.blockedTimes.sort((x, y) => (x.date + x.start).localeCompare(y.date + y.start));
+  await save();
+  res.status(201).json({ blockedTimes: db.blockedTimes });
+});
+
+app.delete('/api/admin/blocked-times/:id', async (req, res) => {
+  db.blockedTimes = (db.blockedTimes || []).filter((t) => t.id !== req.params.id);
+  await save();
+  res.json({ blockedTimes: db.blockedTimes });
+});
+
 app.patch('/api/admin/bookings/:id', async (req, res) => {
   const booking = db.bookings.find((b) => b.id === req.params.id);
   if (!booking) fail(404, 'Booking not found.');
@@ -850,10 +885,6 @@ app.patch('/api/admin/bookings/:id', async (req, res) => {
   const prevAmount = booking.amount;
   // Validate everything before changing the booking.
   const restoring = status !== 'cancelled' && booking.status === 'cancelled';
-  if (BOOKED.includes(status) && !BOOKED.includes(prevStatus)) {
-    const clash = bookingAt(booking.date, ...rangeOf(booking), booking.id);
-    if (clash) fail(409, `That time is already booked for ${clash.name} (${clash.ref}, ${slotName(clash)}). Cancel that one first, or cancel this request.`);
-  }
   const amount = status === 'confirmed' ? readAmount(req.body.amount) : null;
   const reason = str(req.body.reason, 500);
   if (status === 'cancelled' && reason.length < 3) fail(400, 'Please give a reason for cancelling.');

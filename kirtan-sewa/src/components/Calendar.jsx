@@ -119,10 +119,10 @@ export default function Calendar({ month, onMonthChange, selected, onSelect, get
           <i className="lg-picked" /> Your pick
         </span>
         <span>
-          <i className="lg-partial" /> Few slots left
+          <i className="lg-partial" /> Some times unavailable
         </span>
         <span>
-          <i className="lg-full" /> Fully booked
+          <i className="lg-full" /> Not available
         </span>
         <span>
           <i className="lg-blocked" /> Unavailable

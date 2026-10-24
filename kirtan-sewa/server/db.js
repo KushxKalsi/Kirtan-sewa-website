@@ -118,6 +118,7 @@ const defaults = () => ({
     { id: 'evening', label: 'Evening', start: '18:00', end: '21:00' },
   ],
   blockedDates: [],
+  blockedTimes: [], // [{ id, date, start, end, label, note }] — set by the admin; nothing else blocks a time
   bookings: [],
   pushSubs: {}, // phone (last 10 digits) -> browser push subscriptions
   adminPushSubs: [], // admin devices that get a notification for every customer action

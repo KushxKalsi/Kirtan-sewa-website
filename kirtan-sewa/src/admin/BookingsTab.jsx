@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { format } from 'date-fns';
-import { Ban, Banknote, BellRing, Check, UserRound, Users, ChevronDown, CircleCheck, FileText, Loader2, Mail, MapPin, MessageCircle, Pencil, Phone, RotateCcw, Search, Smartphone, Trash2, Undo2, Wallet } from 'lucide-react';
+import { Ban, Banknote, BellRing, Check, Lock, LockOpen, UserRound, Users, ChevronDown, CircleCheck, FileText, Loader2, Mail, MapPin, MessageCircle, Pencil, Phone, RotateCcw, Search, Smartphone, Trash2, Undo2, Wallet } from 'lucide-react';
 import Modal from '../components/Modal';
 import { BillModal } from '../components/Bill';
 import { PAYMENT_LABEL, rupees } from '../lib/money';
@@ -23,7 +23,6 @@ const active = (b) => b.status === 'pending' || b.status === 'confirmed';
 const hasRequest = (b) => b.cancelRequest?.status === 'pending' && active(b);
 // Same rule as the server: active, with this sewa in this category among their skills.
 const canDo = (p, b) => p.active && (p.skills || []).some((k) => k.serviceId === b.serviceId && (!b.categoryId || k.categoryId === b.categoryId));
-const isBooked = (b) => b.status === 'confirmed' || b.status === 'completed';
 const rangeOf = (b) => (b.slotTime || '').split('–').map((t) => t.trim());
 const overlap = (a, b) => {
   const [s1, e1] = rangeOf(a);
@@ -104,17 +103,44 @@ export default function BookingsTab({ data, api, patch, toast }) {
     return count;
   }, [bookings]);
 
-  // Requests don't block a time; only confirming does. Show which requests compete for the same time.
+  // Bookings never block each other; just show which ones share a time so you can decide.
   const clashes = useMemo(() => {
     const map = {};
     const live = bookings.filter((b) => active(b) || b.status === 'completed');
     for (const b of live) {
       if (!active(b)) continue;
       const others = live.filter((o) => o.id !== b.id && overlap(b, o));
-      if (others.length) map[b.id] = { booked: others.find(isBooked), requests: others.filter((o) => o.status === 'pending') };
+      if (others.length) map[b.id] = others;
     }
     return map;
   }, [bookings]);
+
+  // Blocking a time is the only thing that stops customers requesting it.
+  const blockedTimes = data.blockedTimes || [];
+  const blockOf = (b) => {
+    const [start, end] = rangeOf(b);
+    return blockedTimes.find((t) => t.date === b.date && t.start === start && t.end === end);
+  };
+  const toggleBlock = async (b) => {
+    const existing = blockOf(b);
+    setBusy(b.id + 'block');
+    try {
+      if (existing) {
+        const res = await api.unblockTime(existing.id);
+        patch({ blockedTimes: res.blockedTimes });
+        toast('Time unblocked — customers can request it again.');
+      } else {
+        const [start, end] = rangeOf(b);
+        const res = await api.blockTimes({ date: b.date, start, end, label: b.slotId === 'custom' ? '' : b.slotLabel, note: `${b.name} · ${b.ref}` });
+        patch({ blockedTimes: res.blockedTimes });
+        toast('Time blocked — it now shows as not available.');
+      }
+    } catch (e) {
+      toast(e.message, 'error');
+    } finally {
+      setBusy('');
+    }
+  };
 
   const replace = (booking) => patch({ bookings: bookings.map((b) => (b.id === booking.id ? booking : b)) });
 
@@ -328,10 +354,14 @@ export default function BookingsTab({ data, api, patch, toast }) {
                           </span>
                         )}
                         {hasRequest(b) && <span className="pay-tag req-tag">Cancel requested</span>}
-                        {b.status === 'pending' && clashes[b.id]?.booked && <span className="pay-tag req-tag">Time already booked</span>}
-                        {clashes[b.id]?.requests.length > 0 && !(b.status === 'pending' && clashes[b.id].booked) && (
-                          <span className="pay-tag clash-tag" title={clashes[b.id].requests.map((o) => `${o.name} (${o.ref})`).join(', ')}>
-                            {clashes[b.id].requests.length} other request{clashes[b.id].requests.length > 1 ? 's' : ''} for this time
+                        {clashes[b.id] && (
+                          <span className="pay-tag clash-tag" title={clashes[b.id].map((o) => `${o.name} (${o.ref})`).join(', ')}>
+                            {clashes[b.id].length} other booking{clashes[b.id].length > 1 ? 's' : ''} at this time
+                          </span>
+                        )}
+                        {active(b) && blockOf(b) && (
+                          <span className="pay-tag blocked-tag">
+                            <Lock size={11} /> Time blocked
                           </span>
                         )}
                         {b.groupId && groupSize[b.groupId] > 1 && (
@@ -523,26 +553,24 @@ export default function BookingsTab({ data, api, patch, toast }) {
                             </div>
                           )}
                           {clashes[b.id] && (
-                            <div className={`clash-box ${b.status === 'pending' && clashes[b.id].booked ? 'taken' : ''}`}>
-                              {b.status === 'pending' && clashes[b.id].booked ? (
-                                <p>
-                                  <strong>This time is already booked</strong> for {clashes[b.id].booked.name} ({clashes[b.id].booked.ref}, {rangeTo12(clashes[b.id].booked.slotTime)}). Cancel one of them to confirm this request.
-                                </p>
-                              ) : (
-                                <p>
-                                  <strong>Other requests for this time:</strong>{' '}
-                                  {clashes[b.id].requests.map((o) => `${o.name} (${o.ref}, ${rangeTo12(o.slotTime)})`).join(', ')}.{' '}
-                                  {b.status === 'pending' ? 'Confirming this one books the time — the others can then no longer be confirmed.' : 'They can no longer be confirmed — you may want to cancel them.'}
-                                </p>
-                              )}
+                            <div className="clash-box">
+                              <p>
+                                <strong>Also at this time:</strong> {clashes[b.id].map((o) => `${o.name} (${o.ref}, ${rangeTo12(o.slotTime)}, ${o.status})`).join(', ')}.
+                              </p>
                             </div>
                           )}
                           <p className="ab-meta">Requested {format(new Date(b.createdAt), 'd MMM yyyy, h:mm a')}</p>
 
                           <div className="ab-actions">
                             {b.status === 'pending' && (
-                              <button className="btn btn-primary btn-sm" onClick={() => openConfirm(b)} disabled={!!busy || !!clashes[b.id]?.booked}>
-                                <Check size={15} /> Confirm, book the time &amp; create bill
+                              <button className="btn btn-primary btn-sm" onClick={() => openConfirm(b)} disabled={!!busy}>
+                                <Check size={15} /> Confirm &amp; create bill
+                              </button>
+                            )}
+                            {active(b) && b.date >= today && (
+                              <button className="btn btn-ghost btn-sm" onClick={() => toggleBlock(b)} disabled={!!busy} title="Blocked times show as not available to customers">
+                                {busy === b.id + 'block' ? <Loader2 size={15} className="spin" /> : blockOf(b) ? <LockOpen size={15} /> : <Lock size={15} />}
+                                {blockOf(b) ? 'Unblock this time' : 'Block this time on the calendar'}
                               </button>
                             )}
                             {b.status === 'confirmed' && !b.amount && (
