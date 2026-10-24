@@ -22,7 +22,7 @@ function configure() {
 
 export async function addSubscription(phone, sub) {
   const key = phoneKey(phone);
-  const clean = { endpoint: sub.endpoint, keys: { p256dh: sub.keys.p256dh, auth: sub.keys.auth }, at: new Date().toISOString() };
+  const clean = cleanSub(sub);
   const list = (db.pushSubs[key] || []).filter((s) => s.endpoint !== clean.endpoint);
   list.push(clean);
   db.pushSubs[key] = list.slice(-MAX_PER_PHONE);
@@ -31,23 +31,17 @@ export async function addSubscription(phone, sub) {
 
 export const hasSubscription = (phone) => (db.pushSubs[phoneKey(phone)] || []).length > 0;
 
-/**
- * Sends a notification to every device that subscribed with this phone number.
- * Never throws: a failed notification must not break the admin action that triggered it.
- */
-export async function notifyPhone(phone, { title, body, url, tag }) {
-  const key = phoneKey(phone);
-  const subs = db.pushSubs[key] || [];
-  if (!subs.length) return 0;
+const cleanSub = (sub) => ({ endpoint: sub.endpoint, keys: { p256dh: sub.keys.p256dh, auth: sub.keys.auth }, at: new Date().toISOString() });
+
+// Sends one payload to a list of subscriptions; returns the endpoints that no longer exist.
+async function sendAll(subs, message) {
   configure();
-  const payload = JSON.stringify({ title, body, url, tag });
+  const payload = JSON.stringify(message);
   const dead = new Set();
-  let sent = 0;
   await Promise.all(
     subs.map(async (s) => {
       try {
         await webpush.sendNotification(s, payload, { TTL: 60 * 60 * 24 * 3, urgency: 'high' });
-        sent++;
       } catch (e) {
         // 404/410: the browser unsubscribed or the subscription expired.
         if (e.statusCode === 404 || e.statusCode === 410) dead.add(s.endpoint);
@@ -55,10 +49,50 @@ export async function notifyPhone(phone, { title, body, url, tag }) {
       }
     }),
   );
+  return dead;
+}
+
+/**
+ * Sends a notification to every device that subscribed with this phone number.
+ * Never throws: a failed notification must not break the action that triggered it.
+ */
+export async function notifyPhone(phone, message) {
+  const key = phoneKey(phone);
+  const subs = db.pushSubs[key] || [];
+  if (!subs.length) return;
+  const dead = await sendAll(subs, message);
   if (dead.size) {
     db.pushSubs[key] = (db.pushSubs[key] || []).filter((s) => !dead.has(s.endpoint));
     if (!db.pushSubs[key].length) delete db.pushSubs[key];
     await save().catch(() => {});
   }
-  return sent;
+}
+
+/* ---------- admin devices ---------- */
+
+const MAX_ADMIN_DEVICES = 10;
+
+export async function addAdminSubscription(sub) {
+  const list = (db.adminPushSubs || []).filter((s) => s.endpoint !== sub.endpoint);
+  list.push(cleanSub(sub));
+  db.adminPushSubs = list.slice(-MAX_ADMIN_DEVICES);
+  await save();
+}
+
+export async function removeAdminSubscription(endpoint) {
+  db.adminPushSubs = (db.adminPushSubs || []).filter((s) => s.endpoint !== endpoint);
+  await save();
+}
+
+export const adminDeviceCount = () => (db.adminPushSubs || []).length;
+
+/** Tells every subscribed admin device about a customer action. Never throws. */
+export async function notifyAdmins(message) {
+  const subs = db.adminPushSubs || [];
+  if (!subs.length) return;
+  const dead = await sendAll(subs, message);
+  if (dead.size) {
+    db.adminPushSubs = (db.adminPushSubs || []).filter((s) => !dead.has(s.endpoint));
+    await save().catch(() => {});
+  }
 }

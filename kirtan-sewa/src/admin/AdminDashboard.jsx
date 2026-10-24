@@ -6,6 +6,7 @@ import BookingsTab from './BookingsTab';
 import ServicesTab from './ServicesTab';
 import ScheduleTab from './ScheduleTab';
 import SettingsTab from './SettingsTab';
+import AdminNotify from './AdminNotify';
 import { adminApi } from '../lib/api';
 import { useSite } from '../components/SiteContext';
 import { useToast } from '../components/Toast';
@@ -73,6 +74,7 @@ export default function AdminDashboard({ token, onLogout }) {
             <h1>Sewa dashboard</h1>
           </div>
           <div className="admin-head-actions">
+            <AdminNotify api={api} devices={data?.adminDevices || 0} toast={toast} onChange={load} />
             <Link to="/" className="btn btn-ghost btn-sm">
               <ExternalLink size={15} /> View site
             </Link>

@@ -17,8 +17,8 @@ const toKey = (base64) => {
   return Uint8Array.from(raw, (c) => c.charCodeAt(0));
 };
 
-/** Must be called from a tap/click: asks permission, subscribes this browser, and links it to the phone number. */
-export async function enableNotifications(phone) {
+/** Must be called from a tap/click: asks permission and returns this browser's push subscription. */
+async function subscribeBrowser() {
   if (!pushSupported()) {
     throw new Error(
       isIos() && !isStandalone()
@@ -50,7 +50,32 @@ export async function enableNotifications(phone) {
       throw new Error('Your browser could not turn on notifications. If this is a private/incognito window, open the site in a normal window; otherwise check your internet connection and try again.');
     }
   }
+  return sub;
+}
+
+/** Customer: link this browser to their phone number so they hear about their bookings. */
+export async function enableNotifications(phone) {
+  const sub = await subscribeBrowser();
   await api.pushSubscribe(phone, sub.toJSON());
   const digits = String(phone).replace(/\D/g, '').slice(-10);
   writeStore(KEY, [...new Set([...readStore(KEY, []), digits])]);
+}
+
+/* ---------- admin ---------- */
+const ADMIN_KEY = 'sewa.adminPush';
+export const adminPushOn = () => permission() === 'granted' && readStore(ADMIN_KEY, false) === true;
+
+/** Admin: get a notification on this device for every customer action. */
+export async function enableAdminNotifications(adminApi) {
+  const sub = await subscribeBrowser();
+  await adminApi.pushSubscribe(sub.toJSON());
+  writeStore(ADMIN_KEY, true);
+}
+
+export async function disableAdminNotifications(adminApi) {
+  const reg = await navigator.serviceWorker?.getRegistration();
+  const sub = await reg?.pushManager.getSubscription();
+  if (sub) await adminApi.pushUnsubscribe(sub.endpoint);
+  // Keep the browser subscription itself: the same device may still want customer notifications.
+  writeStore(ADMIN_KEY, null);
 }

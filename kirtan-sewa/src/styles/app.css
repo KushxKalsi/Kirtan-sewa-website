@@ -1834,6 +1834,27 @@
   font-size: 12px;
   opacity: 0.75;
 }
+.notify-on {
+  color: var(--success);
+  border-color: color-mix(in srgb, var(--success) 45%, transparent);
+}
+.notify-list {
+  margin: 0 0 14px;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 8px;
+}
+.notify-list li {
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: var(--tint);
+  border: 1px solid var(--border);
+  font-size: 14.5px;
+}
+.admin-head-actions {
+  flex-wrap: wrap;
+}
 .notify-card {
   display: flex;
   gap: 14px;
@@ -3094,6 +3115,9 @@ input:focus-visible + .tick {
   }
   .admin-head-actions .btn {
     flex: 1;
+  }
+  .admin-head-actions > .btn:first-child {
+    flex-basis: 100%; /* notifications switch gets its own row on phones */
   }
   .admin-tabs {
     border-radius: 18px;
