@@ -7,9 +7,15 @@ const NEXT = { system: 'light', light: 'dark', dark: 'system' };
 const ICON = { system: Monitor, light: Sun, dark: Moon };
 const LABEL = { system: 'Theme: auto (follows device)', light: 'Theme: light', dark: 'Theme: dark' };
 
-export default function ThemeToggle({ className = '' }) {
+export default function ThemeToggle({ className = '', showLabel = false }) {
   const [pref, setPref] = useState(getThemePref);
   useEffect(() => watchSystemTheme(), []);
+  // Stay in sync with the other toggle (header vs. mobile menu).
+  useEffect(() => {
+    const sync = () => setPref(getThemePref());
+    window.addEventListener('themechange', sync);
+    return () => window.removeEventListener('themechange', sync);
+  }, []);
   const Icon = ICON[pref];
 
   const cycle = () => {
@@ -19,7 +25,12 @@ export default function ThemeToggle({ className = '' }) {
   };
 
   return (
-    <button className={`icon-btn theme-toggle ${className}`} onClick={cycle} aria-label={`${LABEL[pref]}. Click to change.`} title={LABEL[pref]}>
+    <button
+      className={`theme-toggle ${showLabel ? 'btn btn-ghost btn-block' : 'icon-btn'} ${className}`}
+      onClick={cycle}
+      aria-label={`${LABEL[pref]}. Click to change.`}
+      title={LABEL[pref]}
+    >
       <AnimatePresence mode="wait" initial={false}>
         <motion.span
           key={pref}
@@ -32,6 +43,7 @@ export default function ThemeToggle({ className = '' }) {
           <Icon size={18} />
         </motion.span>
       </AnimatePresence>
+      {showLabel && <span>{LABEL[pref]}</span>}
     </button>
   );
 }

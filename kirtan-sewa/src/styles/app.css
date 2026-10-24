@@ -189,8 +189,24 @@
   padding: 8px 12px;
   transition: color 0.2s;
 }
-.nav-manage:hover {
+.nav-manage {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border-radius: 999px;
+}
+.nav-manage:hover,
+.nav-manage.active {
   color: var(--gold-2);
+}
+.nav-manage.active {
+  background: var(--surface-2);
+}
+.nm-short {
+  display: none;
+}
+.menu-theme {
+  display: none;
 }
 .nav-burger {
   display: none;
@@ -204,6 +220,11 @@
   justify-content: space-between;
   padding: calc(var(--nav-h) + 30px) var(--gutter) max(28px, env(safe-area-inset-bottom));
   background: var(--menu-bg);
+}
+.mobile-menu {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  gap: 24px;
 }
 .mobile-menu ul {
   list-style: none;
@@ -234,6 +255,13 @@
 .mobile-menu-foot {
   display: grid;
   gap: 10px;
+}
+/* Short phones: tighter menu so the buttons at the bottom stay on screen. */
+@media (max-height: 780px) {
+  .mobile-menu li button {
+    padding: 8px 0;
+    font-size: 30px;
+  }
 }
 
 /* =========================================================
@@ -2765,9 +2793,29 @@
   .pay-utr {
     grid-template-columns: 1fr;
   }
-  .nav-manage,
-  .nav-cta {
+  .nav-cta,
+  .nav-theme {
     display: none;
+  }
+  /* Phones: compact "Manage" pill in the header; the theme switch moves into the menu. */
+  .nav-manage {
+    padding: 8px 12px;
+    border: 1px solid var(--border-strong);
+    background: var(--tint);
+    color: var(--text);
+    font-size: 13.5px;
+  }
+  .nm-full {
+    display: none;
+  }
+  .nm-short {
+    display: inline;
+  }
+  .nav-actions {
+    gap: 8px;
+  }
+  .menu-theme {
+    display: inline-flex;
   }
   .brand-mark {
     width: 36px;
@@ -2919,6 +2967,20 @@
   }
 }
 
+@media (max-width: 420px) {
+  .nav-manage svg {
+    display: none;
+  }
+  .nav-manage {
+    padding: 7px 11px;
+  }
+  .brand {
+    gap: 9px;
+  }
+  .brand-name {
+    font-size: 17px;
+  }
+}
 @media (max-width: 380px) {
   .stats {
     grid-template-columns: 1fr;
