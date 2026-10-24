@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { AnimatePresence, motion, useMotionValueEvent, useScroll } from 'framer-motion';
-import { CalendarDays, Menu, X } from 'lucide-react';
+import { CalendarDays, ClipboardList, Menu, X } from 'lucide-react';
 import { useSite } from './SiteContext';
 import { useGoTo } from './useGoTo';
 import ThemeToggle from './ThemeToggle';
@@ -72,10 +72,12 @@ export default function Navbar() {
           </nav>
 
           <div className="nav-actions">
-            <Link to="/manage" className="nav-manage">
-              Manage booking
+            <Link to="/manage" className={`nav-manage ${pathname === '/manage' ? 'active' : ''}`} aria-current={pathname === '/manage' ? 'page' : undefined}>
+              <ClipboardList size={16} />
+              <span className="nm-full">Manage booking</span>
+              <span className="nm-short">Manage</span>
             </Link>
-            <ThemeToggle />
+            <ThemeToggle className="nav-theme" />
             <button className="btn btn-primary btn-sm nav-cta" onClick={() => go('book')}>
               <CalendarDays size={16} /> Book now
             </button>
@@ -101,6 +103,7 @@ export default function Navbar() {
         {open && (
           <motion.div
             className="mobile-menu"
+            data-lenis-prevent
             initial={{ clipPath: 'circle(0% at calc(100% - 40px) 36px)' }}
             animate={{ clipPath: 'circle(150% at calc(100% - 40px) 36px)' }}
             exit={{ clipPath: 'circle(0% at calc(100% - 40px) 36px)' }}
@@ -121,8 +124,9 @@ export default function Navbar() {
                 <CalendarDays size={18} /> Book a Sewa
               </button>
               <Link to="/manage" className="btn btn-ghost btn-block">
-                Manage / cancel booking
+                <ClipboardList size={18} /> Manage / cancel booking
               </Link>
+              <ThemeToggle className="menu-theme" showLabel />
             </motion.div>
           </motion.div>
         )}
