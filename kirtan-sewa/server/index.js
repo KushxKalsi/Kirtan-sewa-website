@@ -622,6 +622,16 @@ app.delete(QR_PATH, async (_req, res) => {
   res.json({ settings: db.settings });
 });
 
+// Bulk delete (e.g. clearing out test bookings). Removes the records permanently.
+app.post('/api/admin/bookings/delete', async (req, res) => {
+  const ids = new Set(Array.isArray(req.body?.ids) ? req.body.ids.filter((x) => typeof x === 'string') : []);
+  if (!ids.size) fail(400, 'Select at least one booking.');
+  const before = db.bookings.length;
+  db.bookings = db.bookings.filter((b) => !ids.has(b.id));
+  await save();
+  res.json({ deleted: before - db.bookings.length });
+});
+
 app.delete('/api/admin/bookings/:id', async (req, res) => {
   db.bookings = db.bookings.filter((b) => b.id !== req.params.id);
   await save();
