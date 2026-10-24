@@ -25,6 +25,7 @@ const defaults = () => ({
     programsDone: 1200,
     citiesCovered: 40,
     maxAdvanceDays: 365,
+    customTimeEnabled: true, // customers may enter their own start/end time instead of a slot
     cashEnabled: true,
     upiEnabled: false,
     upiId: '',

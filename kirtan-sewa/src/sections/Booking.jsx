@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { addDays, endOfMonth, format, startOfMonth } from 'date-fns';
-import { ArrowLeft, ArrowRight, CalendarDays, CalendarHeart, Check, Loader2, CircleAlert, MapPin, MousePointerClick, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, CalendarDays, CalendarHeart, Check, Clock, Loader2, CircleAlert, MapPin, MousePointerClick, Plus, X } from 'lucide-react';
 import Calendar from '../components/Calendar';
 import SplitText from '../components/SplitText';
 import Reveal from '../components/Reveal';
@@ -9,7 +9,7 @@ import BookingSuccess from '../components/BookingSuccess';
 import { useSite } from '../components/SiteContext';
 import { useToast } from '../components/Toast';
 import { api } from '../lib/api';
-import { fromKey, prettyDate, slotTime, toKey } from '../lib/date';
+import { fromKey, prettyDate, rangeTo12, slotTime, toKey } from '../lib/date';
 import { rememberBooking } from '../lib/storage';
 import { serviceIcon } from '../lib/icons';
 import { scrollToId } from '../lib/scroll';
@@ -20,7 +20,12 @@ const nowHHMM = () => format(new Date(), 'HH:mm');
 const emptyForm = { name: '', phone: '', email: '', address: '', notes: '', paymentMethod: '' };
 
 const MAX_ITEMS = 20;
+const CUSTOM = 'custom';
 const keyOf = (date, slotId) => `${date}|${slotId}`;
+const itemKey = (it) => (it.slotId === CUSTOM ? `${it.date}|${CUSTOM}|${it.start}|${it.end}` : keyOf(it.date, it.slotId));
+const overlaps = (s1, e1, s2, e2) => s1 < e2 && s2 < e1; // HH:MM strings compare correctly
+const rangeOf = (time) => (time || '').split('–').map((t) => t.trim());
+const minutes = (t) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3));
 
 const panelAnim = {
   initial: { opacity: 0, x: 40, filter: 'blur(6px)' },
@@ -40,7 +45,10 @@ export default function Booking({ preselect }) {
   const [serviceId, setServiceId] = useState('');
   const [month, setMonth] = useState(() => startOfMonth(new Date()));
   const [date, setDate] = useState('');
-  const [selection, setSelection] = useState([]); // [{ categoryId, serviceId, date, slotId }] — many slots across dates
+  const [selection, setSelection] = useState([]); // [{ categoryId, serviceId, date, slotId, start?, end? }] — many slots across dates
+  const [customOpen, setCustomOpen] = useState(false);
+  const [custom, setCustom] = useState({ start: '', end: '' });
+  const [customError, setCustomError] = useState('');
   const [step, setStep] = useState('pick');
   const [booked, setBooked] = useState([]);
   const [blocked, setBlocked] = useState([]);
@@ -67,6 +75,7 @@ export default function Booking({ preselect }) {
     if (step === 'details') setStep('pick');
   };
   const settings = site?.settings || {};
+  const customAllowed = settings.customTimeEnabled !== false;
   const payMethods = [settings.upiEnabled && settings.upiId && 'upi', settings.cashEnabled && 'cash'].filter(Boolean);
   const [nudge, setNudge] = useState(0); // bumps to shake the sewa picker when a sewa is still missing
 
@@ -119,24 +128,37 @@ export default function Booking({ preselect }) {
     return () => document.removeEventListener('visibilitychange', onFocus);
   }, [loadAvailability]);
 
-  const bookedMap = useMemo(() => new Map(booked.map((b) => [keyOf(b.date, b.slotId), b])), [booked]);
-  const pickedMap = useMemo(() => new Map(selection.map((it) => [keyOf(it.date, it.slotId), it])), [selection]);
   const serviceById = useCallback((id) => services.find((x) => x.id === id), [services]);
   const slotById = useCallback((id) => slots.find((x) => x.id === id), [slots]);
-  const sortedSelection = useMemo(
-    () => [...selection].sort((a, b) => (a.date + slotById(a.slotId)?.start).localeCompare(b.date + slotById(b.slotId)?.start)),
-    [selection, slotById],
+  // Every booked time per date (fixed slots and custom times alike), so overlaps can be checked.
+  const bookedByDate = useMemo(() => {
+    const map = new Map();
+    for (const b of booked) {
+      const [start, end] = b.time ? rangeOf(b.time) : [slotById(b.slotId)?.start, slotById(b.slotId)?.end];
+      if (!start || !end) continue;
+      map.set(b.date, [...(map.get(b.date) || []), { ...b, start, end }]);
+    }
+    return map;
+  }, [booked, slotById]);
+  const bookingAt = useCallback((date, start, end) => (bookedByDate.get(date) || []).find((b) => overlaps(start, end, b.start, b.end)), [bookedByDate]);
+  const pickedMap = useMemo(() => new Map(selection.map((it) => [itemKey(it), it])), [selection]);
+  const timesOf = useCallback((it) => (it.slotId === CUSTOM ? [it.start, it.end] : [slotById(it.slotId)?.start, slotById(it.slotId)?.end]), [slotById]);
+  const sortedSelection = useMemo(() => [...selection].sort((a, b) => (a.date + timesOf(a)[0]).localeCompare(b.date + timesOf(b)[0])), [selection, timesOf]);
+  // A picked time on this date that overlaps start–end (other than the item itself).
+  const pickedAt = useCallback(
+    (date, start, end, except) => selection.find((it) => it !== except && it.date === date && overlaps(start, end, ...timesOf(it))),
+    [selection, timesOf],
   );
   const isOffered = useCallback((slot) => !service?.allowedSlots?.length || service.allowedSlots.includes(slot.id), [service]);
 
   const slotState = useCallback(
     (key, slot) => {
-      if (bookedMap.has(keyOf(key, slot.id))) return 'booked';
+      if (bookingAt(key, slot.start, slot.end)) return 'booked';
       if (!isOffered(slot)) return 'not-offered';
       if (key === today && slot.start <= nowHHMM()) return 'passed';
       return 'free';
     },
-    [bookedMap, isOffered, today],
+    [bookingAt, isOffered, today],
   );
 
   const getDay = useCallback(
@@ -146,7 +168,7 @@ export default function Booking({ preselect }) {
       if (blocked.includes(key)) return { state: 'blocked' };
       const states = slots.map((sl) => slotState(key, sl));
       const daySlots = states.map((st, i) => ({ booked: st === 'booked', offered: st === 'free', picked: pickedMap.has(keyOf(key, slots[i].id)) }));
-      const picked = daySlots.filter((d) => d.picked).length;
+      const picked = selection.filter((it) => it.date === key).length;
       const offered = slots.filter((sl, i) => isOffered(sl) && states[i] !== 'passed').length;
       const free = states.filter((st) => st === 'free').length;
       if (offered === 0) return { state: 'closed', slots: daySlots, picked };
@@ -154,32 +176,54 @@ export default function Booking({ preselect }) {
       if (free < offered) return { state: 'partial', slots: daySlots, picked };
       return { state: 'free', slots: daySlots, picked };
     },
-    [today, maxDate, blocked, slots, slotState, isOffered, pickedMap],
+    [today, maxDate, blocked, slots, slotState, isOffered, pickedMap, selection],
   );
 
   // Drop picked slots that someone else booked (or that got blocked) since they were picked.
   useEffect(() => {
-    const keep = selection.filter((it) => !bookedMap.has(keyOf(it.date, it.slotId)) && !blocked.includes(it.date));
+    const keep = selection.filter((it) => !bookingAt(it.date, ...timesOf(it)) && !blocked.includes(it.date));
     if (keep.length === selection.length) return;
     setSelection(keep);
-    toast('A slot you picked was just booked by someone else, so it was removed.', 'error');
-  }, [selection, bookedMap, blocked, toast]);
+    toast('A time you picked was just booked by someone else, so it was removed.', 'error');
+  }, [selection, bookingAt, timesOf, blocked, toast]);
 
   const toggleSlot = (sl) => {
     const key = keyOf(date, sl.id);
     if (pickedMap.has(key)) return setSelection((list) => list.filter((it) => keyOf(it.date, it.slotId) !== key));
-    if (!service || (hasCats && !category)) {
-      setNudge((n) => n + 1);
-      if (window.innerWidth < 960) scrollToId('book', -20);
-      return;
-    }
+    if (needsSewa()) return;
     if (selection.length >= MAX_ITEMS) return toast(`You can book up to ${MAX_ITEMS} slots at once.`, 'error');
+    if (pickedAt(date, sl.start, sl.end)) return toast('That overlaps a custom time you already picked for this day.', 'error');
     setSelection((list) => [...list, { categoryId: category?.id || '', serviceId: service.id, date, slotId: sl.id }]);
+  };
+  // Shakes the category/sewa picker when one is still missing.
+  const needsSewa = () => {
+    if (service && (!hasCats || category)) return false;
+    setNudge((n) => n + 1);
+    if (window.innerWidth < 960) scrollToId('book', -20);
+    return true;
+  };
+  const addCustom = (e) => {
+    e?.preventDefault();
+    setCustomError('');
+    if (needsSewa()) return;
+    const { start, end } = custom;
+    if (!start || !end) return setCustomError('Enter both a start and an end time.');
+    if (minutes(end) - minutes(start) < 30) return setCustomError('The end time must be at least 30 minutes after the start.');
+    if (date === today && start <= nowHHMM()) return setCustomError('That time has already passed today.');
+    const clash = bookingAt(date, start, end);
+    if (clash) return setCustomError(`Already booked ${rangeTo12(`${clash.start} – ${clash.end}`)} — please choose a time outside it.`);
+    if (pickedAt(date, start, end)) return setCustomError('That overlaps a time you already picked for this day.');
+    if (selection.length >= MAX_ITEMS) return setCustomError(`You can book up to ${MAX_ITEMS} slots at once.`);
+    setSelection((list) => [...list, { categoryId: category?.id || '', serviceId: service.id, date, slotId: CUSTOM, start, end }]);
+    setCustom({ start: '', end: '' });
+    setCustomOpen(false);
   };
   const removeItem = (it) => setSelection((list) => list.filter((x) => x !== it));
 
   const pickDate = (key) => {
     setDate(key);
+    setCustomOpen(false);
+    setCustomError('');
     setStep('pick');
     if (window.innerWidth < 960) setTimeout(() => scrollToId(panelRef.current, -90), 80);
   };
@@ -225,10 +269,10 @@ export default function Booking({ preselect }) {
           {sortedSelection.map((it) => {
             const svc = serviceById(it.serviceId);
             const cat = categoryById(it.categoryId);
-            const sl = slotById(it.slotId);
+            const sl = it.slotId === CUSTOM ? { label: 'Custom time', start: it.start, end: it.end } : slotById(it.slotId);
             return (
               <motion.li
-                key={keyOf(it.date, it.slotId)}
+                key={itemKey(it)}
                 layout
                 initial={{ opacity: 0, x: 20 }}
                 animate={{ opacity: 1, x: 0 }}
@@ -458,7 +502,7 @@ export default function Booking({ preselect }) {
                     {submitting ? 'Booking…' : selection.length > 1 ? `Request all ${selection.length} bookings` : 'Confirm booking request'}
                   </button>
                   <p className="fine-print">
-                    The sewa and venue address will be shown on the public calendar so the sangat knows where the jatha is. Manage your booking anytime with your phone number — the jatha will call you to confirm.
+                    This is a request — the time is booked once the jatha confirms it. After that, the sewa and venue address are shown on the public calendar so the sangat knows where the jatha is. Manage your booking anytime with your phone number.
                   </p>
                 </motion.form>
               ) : date ? (
@@ -479,7 +523,7 @@ export default function Booking({ preselect }) {
                       const st = slotState(date, sl);
                       const pickedItem = pickedMap.get(keyOf(date, sl.id));
                       const selected = !!pickedItem;
-                      const info = bookedMap.get(`${date}|${sl.id}`);
+                      const info = bookingAt(date, sl.start, sl.end);
                       return (
                         <motion.button
                           key={sl.id}
@@ -497,7 +541,10 @@ export default function Booking({ preselect }) {
                             <span>{slotTime(sl)}</span>
                             {info && (
                               <span className="slot-booked-info">
-                                <em>{info.serviceName || services.find((x) => x.id === info.serviceId)?.name || 'Booked'}</em>
+                                <em>
+                                  {info.serviceName || services.find((x) => x.id === info.serviceId)?.name || 'Booked'}
+                                  {info.slotId === CUSTOM && ` · ${rangeTo12(`${info.start} – ${info.end}`)}`}
+                                </em>
                                 {info.location && (
                                   <span>
                                     <MapPin size={12} /> {info.location}
@@ -524,7 +571,87 @@ export default function Booking({ preselect }) {
                         </motion.button>
                       );
                     })}
+                    {(bookedByDate.get(date) || [])
+                      .filter((b) => b.slotId === CUSTOM)
+                      .map((b) => (
+                        <motion.div key={`${b.start}-${b.end}`} className="slot s-booked custom-booked" variants={{ hidden: { opacity: 0, y: 18 }, show: { opacity: 1, y: 0, transition: { duration: 0.45, ease } } }}>
+                          <span className="slot-main">
+                            <strong>Custom time</strong>
+                            <span>{rangeTo12(`${b.start} – ${b.end}`)}</span>
+                            <span className="slot-booked-info">
+                              <em>{b.serviceName || 'Booked'}</em>
+                              {b.location && (
+                                <span>
+                                  <MapPin size={12} /> {b.location}
+                                </span>
+                              )}
+                            </span>
+                          </span>
+                          <span className="slot-status">Booked</span>
+                        </motion.div>
+                      ))}
+                    {selection
+                      .filter((it) => it.date === date && it.slotId === CUSTOM)
+                      .map((it) => (
+                        <motion.button key={itemKey(it)} type="button" className="slot s-free selected" onClick={() => removeItem(it)} aria-pressed variants={{ hidden: { opacity: 0, y: 18 }, show: { opacity: 1, y: 0, transition: { duration: 0.45, ease } } }}>
+                          <motion.span className="slot-sel-bg" initial={{ opacity: 0, scale: 0.94 }} animate={{ opacity: 1, scale: 1 }} transition={{ type: 'spring', stiffness: 420, damping: 30 }} />
+                          <span className="slot-main">
+                            <strong>Your time</strong>
+                            <span>{rangeTo12(`${it.start} – ${it.end}`)}</span>
+                          </span>
+                          <span className="slot-status">
+                            <Check size={14} /> {serviceById(it.serviceId)?.name}
+                          </span>
+                        </motion.button>
+                      ))}
                   </motion.div>
+                  {customAllowed && (
+                    <div className={`custom-time ${customOpen ? 'open' : ''}`}>
+                      {!customOpen ? (
+                        <button
+                          type="button"
+                          className="custom-time-toggle"
+                          onClick={() => {
+                            if (needsSewa()) return;
+                            setCustomOpen(true);
+                          }}
+                        >
+                          <Clock size={16} /> Need a different time? <strong>Choose your own time</strong>
+                        </button>
+                      ) : (
+                        <motion.div className="custom-time-form" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35, ease }}>
+                          <p className="custom-time-title">
+                            <Clock size={16} /> Your own time for <strong style={{ color: service?.color }}>{service?.name}</strong>
+                          </p>
+                          <div className="custom-time-row">
+                            <label>
+                              <span className="label">From</span>
+                              <input className="input" type="time" value={custom.start} onChange={(e) => setCustom((c) => ({ ...c, start: e.target.value }))} required />
+                            </label>
+                            <label>
+                              <span className="label">To</span>
+                              <input className="input" type="time" value={custom.end} onChange={(e) => setCustom((c) => ({ ...c, end: e.target.value }))} required />
+                            </label>
+                          </div>
+                          <AnimatePresence>
+                            {customError && (
+                              <motion.p key={customError} className="form-error" initial={{ opacity: 0 }} animate={{ opacity: 1, x: [0, -6, 6, -3, 3, 0] }} exit={{ opacity: 0 }}>
+                                <CircleAlert size={16} /> {customError}
+                              </motion.p>
+                            )}
+                          </AnimatePresence>
+                          <div className="custom-time-actions">
+                            <button type="button" className="btn btn-ghost btn-sm" onClick={() => setCustomOpen(false)}>
+                              Cancel
+                            </button>
+                            <button type="button" className="btn btn-primary btn-sm" onClick={addCustom}>
+                              <Plus size={16} /> Add this time
+                            </button>
+                          </div>
+                        </motion.div>
+                      )}
+                    </div>
+                  )}
                   <AnimatePresence>
                     {selection.length > 0 && (
                       <motion.div initial={{ opacity: 0, y: 20, height: 0 }} animate={{ opacity: 1, y: 0, height: 'auto' }} exit={{ opacity: 0, y: 10, height: 0 }} transition={{ duration: 0.4, ease }}>
@@ -535,13 +662,13 @@ export default function Booking({ preselect }) {
                 </motion.div>
               ) : (
                 <motion.div key="empty" className="panel-empty" {...panelAnim}>
-                  <motion.div className="empty-icon" animate={{ y: [0, -10, 0] }} transition={{ duration: 3.2, repeat: Infinity, ease: 'easeInOut' }}>
+                  <div className="empty-icon">
                     {service ? <CalendarDays size={34} /> : <MousePointerClick size={34} />}
-                  </motion.div>
+                  </div>
                   <h3 className="panel-title">{service ? 'Pick a date' : hasCats && !category ? 'Choose the type of kirtan' : 'Choose your sewa'}</h3>
                   <p className="panel-sub">
                     {service
-                      ? 'Tap a day on the calendar to see its time slots. Dots under each date show which slots are already booked.'
+                      ? 'Tap a day on the calendar to see its time slots. Dots under each date show which slots are already booked (confirmed by the jatha).'
                       : `Start by choosing ${hasCats ? 'the type of kirtan, then the sewa' : 'which sewa'} you want to book. You can also tap any day to see what is already booked there and where.`}
                   </p>
                   {selection.length > 0 && basket(true)}

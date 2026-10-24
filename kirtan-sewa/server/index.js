@@ -1,3 +1,4 @@
+import './tz.js';
 import express from 'express';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -73,6 +74,10 @@ const samePhone = (a, b) => {
   return x.length >= 7 && y.length >= 7 && x.slice(-10) === y.slice(-10);
 };
 const isActive = (b) => b.status === 'pending' || b.status === 'confirmed';
+// Only the admin books a time (by confirming a request). Pending requests never block anyone,
+// so several people can ask for the same time and the admin picks.
+const BOOKED = ['confirmed', 'completed'];
+const isBooked = (b) => BOOKED.includes(b.status);
 
 const publicSettings = () => {
   const { ...s } = db.settings;
@@ -109,8 +114,13 @@ const throttle = (key, max = 10) => {
   attempts.set(key, list);
 };
 
-const slotTaken = (date, slotId, exceptId) =>
-  db.bookings.some((b) => b.date === date && b.slotId === slotId && isActive(b) && b.id !== exceptId);
+// Bookings are fixed slots or a customer's own time ("custom"); either way a time can only be booked once.
+const CUSTOM = 'custom';
+const rangeOf = (b) => (b.slotTime || '').split('–').map((t) => t.trim());
+const overlaps = (s1, e1, s2, e2) => s1 < e2 && s2 < e1; // HH:MM strings compare correctly
+const bookingAt = (date, start, end, exceptId) =>
+  db.bookings.find((b) => b.date === date && isBooked(b) && b.id !== exceptId && overlaps(start, end, ...rangeOf(b)));
+const timeTaken = (...args) => !!bookingAt(...args);
 
 const customerView = (b) => ({
   ref: b.ref,
@@ -139,6 +149,28 @@ const customerView = (b) => ({
   phone: b.phone,
   groupId: b.groupId || '',
   cancelRequest: b.cancelRequest || null,
+  team: teamView(b),
+});
+
+// Who is doing the sewa, with where they are based (read from the team list, so edits show up).
+const personOf = (id) => (db.people || []).find((p) => p.id === id);
+const teamView = (b) => (b.assignees || []).map((a) => ({ name: personOf(a.id)?.name || a.name, address: personOf(a.id)?.address || '' }));
+
+// What a team member sees for a booking they are assigned to.
+const dutyView = (b, personIds) => ({
+  ref: b.ref,
+  serviceName: b.serviceName,
+  categoryName: b.categoryName || '',
+  date: b.date,
+  slotLabel: b.slotLabel,
+  slotTime: b.slotTime,
+  status: b.status,
+  name: b.name,
+  phone: b.phone,
+  address: b.address,
+  notes: b.notes,
+  cancelReason: b.status === 'cancelled' ? b.cancelReason : '',
+  with: teamView({ assignees: (b.assignees || []).filter((a) => !personIds.includes(a.id)) }).map((t) => t.name),
 });
 
 const readAmount = (value) => {
@@ -178,9 +210,9 @@ app.get('/api/availability', async (req, res) => {
   const to = str(req.query.to, 10);
   if (!DATE_RE.test(from) || !DATE_RE.test(to)) fail(400, 'Invalid date range.');
   const booked = db.bookings
-    .filter((b) => isActive(b) && b.date >= from && b.date <= to)
+    .filter((b) => isBooked(b) && b.date >= from && b.date <= to)
     // Public on purpose: visitors can see what each slot is booked for and where.
-    .map((b) => ({ date: b.date, slotId: b.slotId, serviceId: b.serviceId, serviceName: b.serviceName, location: b.address }));
+    .map((b) => ({ date: b.date, slotId: b.slotId, time: b.slotTime, serviceId: b.serviceId, serviceName: b.serviceName, location: b.address }));
   res.json({ booked, blockedDates: db.blockedDates, today: todayKey(), now: nowHHMM() });
 });
 
@@ -201,11 +233,16 @@ function tellAdmin(kind, title, body, search) {
   const url = search ? `/admin?q=${encodeURIComponent(search)}` : '/admin';
   notifyAdmins({ title, body, url, tag: `admin-${kind}-${search || Date.now()}` }).catch(() => {});
 }
-const slotText = (b) => `${b.serviceName}${b.categoryName ? ` (${b.categoryName})` : ''} · ${shortDate(b.date)}, ${b.slotLabel}`;
+const range12 = (b) => rangeOf(b).map(to12).join(' – ');
+// "Evening" for a fixed slot, the actual time for a custom one.
+const slotName = (b) => (b.slotId === CUSTOM ? range12(b) : b.slotLabel);
+// Always with the clock time, for the team: "Evening (6:00 PM – 9:00 PM)" or "7:30 PM – 9:00 PM".
+const timeText = (b) => (b.slotId === CUSTOM ? range12(b) : `${b.slotLabel} (${range12(b)})`);
+const slotText = (b) => `${b.serviceName}${b.categoryName ? ` (${b.categoryName})` : ''} · ${shortDate(b.date)}, ${slotName(b)}`;
 
 // Sends a phone notification about a booking (if the customer allowed notifications). Never blocks the request.
 function notifyBooking(b, kind) {
-  const when = `${b.serviceName} · ${shortDate(b.date)}, ${b.slotLabel}`;
+  const when = `${b.serviceName} · ${shortDate(b.date)}, ${slotName(b)}`;
   const pay = b.paymentMethod === 'cash' ? 'pay in cash on the day.' : b.paymentMethod === 'upi' ? 'tap to pay by UPI.' : 'tap to see your bill.';
   const messages = {
     confirmed: { title: 'Booking confirmed 🙏', body: `${when}. Bill ${rupee(b.amount)} — ${pay}` },
@@ -214,8 +251,106 @@ function notifyBooking(b, kind) {
     cancelled: { title: 'Booking cancelled', body: `${when} was cancelled. Reason: ${b.cancelReason}` },
     requestApproved: { title: 'Cancellation approved', body: `${when} is now cancelled.` },
     requestRejected: { title: 'Cancellation not accepted', body: `${when} is still booked.${b.cancelRequest?.note ? ` “${b.cancelRequest.note}”` : ''}` },
+    team: { title: 'Your sewa team 🙏', body: `${teamView(b).map((t) => t.name).join(', ')} will do ${when}.` },
   };
   notifyPhone(b.phone, { ...messages[kind], url: `/manage?phone=${encodeURIComponent(b.phone)}`, tag: `${b.ref}-${kind}` }).catch(() => {});
+}
+
+/* ---------- team member notifications ---------- */
+
+function to12(hhmm) {
+  const [h, m] = String(hhmm).split(':').map(Number);
+  return `${h % 12 || 12}:${pad(m)} ${h < 12 ? 'AM' : 'PM'}`;
+}
+const slotStartOf = (b) => (b.slotTime || '').slice(0, 5);
+
+// When the two reminders go out: on the day at 6 AM (or 8 PM the evening before for early
+// slots, so it never lands after the 2-hour one) and 2 hours before the slot starts.
+function reminderTimes(b) {
+  const start = slotStartOf(b);
+  if (!DATE_RE.test(b.date) || !TIME_RE.test(start)) return null;
+  const startAt = new Date(`${b.date}T${start}:00`).getTime();
+  const soon = startAt - 2 * 60 * 60 * 1000;
+  let day = new Date(`${b.date}T06:00:00`).getTime();
+  const evening = day >= soon;
+  if (evening) day = new Date(`${b.date}T06:00:00`).getTime() - 10 * 60 * 60 * 1000; // 8 PM the day before
+  return { start: startAt, soon, day, evening };
+}
+
+function notifyPerson(person, kind, b, extra = {}) {
+  if (!person?.phone) return;
+  const time = to12(slotStartOf(b));
+  const when = timeText(b);
+  const what = `${b.serviceName}${b.categoryName ? ` (${b.categoryName})` : ''}`;
+  const at = `at ${b.address}`;
+  const messages = {
+    assigned: { title: 'New sewa duty 🙏', body: `${what} · ${shortDate(b.date)}, ${when} ${at}.` },
+    unassigned: { title: 'Sewa duty removed', body: `You are no longer assigned to ${what} on ${shortDate(b.date)}, ${when}.` },
+    cancelled: { title: 'Sewa cancelled', body: `${what} on ${shortDate(b.date)}, ${when} ${at} has been cancelled.` },
+    day: { title: extra.evening ? 'Sewa tomorrow 🙏' : 'Sewa today 🙏', body: `${what} · ${when} ${at}. Customer: ${b.name}, ${b.phone}.` },
+    soon: { title: `Sewa starts at ${time} ⏰`, body: `${what} ${at}. Customer: ${b.name}, ${b.phone}.` },
+  };
+  notifyPhone(person.phone, { ...messages[kind], url: `/manage?phone=${encodeURIComponent(person.phone)}`, tag: `${b.ref}-${person.id}-${kind}` }).catch(() => {});
+}
+
+const remindedFor = (b, personId) => ((b.reminded ||= {})[personId] ||= {});
+
+// The admin usually ticks people one at a time, so wait until the choice settles before notifying.
+const TEAM_NOTIFY_DELAY = Number(process.env.TEAM_NOTIFY_DELAY_MS) || 30 * 1000;
+const pendingTeam = new Map(); // booking id -> { before, timer }
+
+function teamChanged(b, before) {
+  const entry = pendingTeam.get(b.id) || { before };
+  clearTimeout(entry.timer);
+  entry.timer = setTimeout(() => flushTeam(b.id, entry.before).catch((e) => console.error('[sewa] Team notify failed:', e)), TEAM_NOTIFY_DELAY);
+  pendingTeam.set(b.id, entry);
+}
+
+async function flushTeam(id, before) {
+  pendingTeam.delete(id);
+  const b = db.bookings.find((x) => x.id === id);
+  if (!b || !isActive(b)) return;
+  const now = (b.assignees || []).map((a) => a.id);
+  const added = now.filter((x) => !before.includes(x));
+  const removed = before.filter((x) => !now.includes(x));
+  if (!added.length && !removed.length) return;
+  const t = reminderTimes(b);
+  for (const pid of added) {
+    notifyPerson(personOf(pid), 'assigned', b);
+    // The "new duty" message already has the time, so skip reminders that are already due.
+    const done = remindedFor(b, pid);
+    if (t && Date.now() >= t.day) done.day = true;
+    if (t && Date.now() >= t.soon) done.soon = true;
+  }
+  for (const pid of removed) notifyPerson(personOf(pid), 'unassigned', b);
+  if (now.length) notifyBooking(b, 'team');
+  await save();
+}
+
+const notifyTeamCancelled = (b) => (b.assignees || []).forEach((a) => notifyPerson(personOf(a.id), 'cancelled', b));
+
+async function sendReminders() {
+  const now = Date.now();
+  const today = todayKey();
+  const tomorrow = addDaysKey(1);
+  let changed = false;
+  for (const b of db.bookings) {
+    if (!isActive(b) || b.date < today || b.date > tomorrow || !(b.assignees || []).length || pendingTeam.has(b.id)) continue;
+    const t = reminderTimes(b);
+    if (!t || now >= t.start) continue;
+    for (const a of b.assignees) {
+      const person = personOf(a.id);
+      if (!person?.phone) continue;
+      const done = remindedFor(b, a.id);
+      const kind = now >= t.soon ? 'soon' : now >= t.day ? 'day' : null;
+      if (!kind || done[kind]) continue;
+      done.day = true;
+      if (kind === 'soon') done.soon = true;
+      notifyPerson(person, kind, b, t);
+      changed = true;
+    }
+  }
+  if (changed) await save();
 }
 
 const enabledPaymentMethods = () => [db.settings.upiEnabled && db.settings.upiId && 'upi', db.settings.cashEnabled && 'cash'].filter(Boolean);
@@ -233,15 +368,27 @@ function readItem(item) {
   if (!service) fail(400, 'Please choose a sewa for every selected slot.');
   const date = str(item.date, 10);
   if (!DATE_RE.test(date)) fail(400, 'Please choose a valid date.');
-  const slot = db.slots.find((s) => s.id === item.slotId);
-  if (!slot) fail(400, 'Please choose a time slot.');
-  const label = `${shortDate(date)}, ${slot.label}`;
+  const custom = item.slotId === CUSTOM;
+  let slot;
+  if (custom) {
+    if (db.settings.customTimeEnabled === false) fail(400, 'Custom times are not available — please choose one of the time slots.');
+    const start = str(item.start, 5);
+    const end = str(item.end, 5);
+    if (!TIME_RE.test(start) || !TIME_RE.test(end)) fail(400, 'Please enter a start and end time.');
+    const minutes = (t) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3));
+    if (minutes(end) - minutes(start) < 30) fail(400, `${shortDate(date)}: the end time must be at least 30 minutes after the start.`);
+    slot = { id: CUSTOM, label: 'Custom time', start, end };
+  } else {
+    slot = db.slots.find((s) => s.id === item.slotId);
+    if (!slot) fail(400, 'Please choose a time slot.');
+  }
+  const label = `${shortDate(date)}, ${custom ? `${to12(slot.start)} – ${to12(slot.end)}` : slot.label}`;
   if (date < todayKey()) fail(400, `${label}: that date has already passed.`);
   if (date > addDaysKey(Number(db.settings.maxAdvanceDays) || 365)) fail(400, `${label}: that date is too far ahead to book yet.`);
   if (db.blockedDates.includes(date)) fail(409, `${shortDate(date)}: the jatha is not available on that date.`);
-  if (service.allowedSlots?.length && !service.allowedSlots.includes(slot.id)) fail(400, `${label}: ${service.name} is not offered in this slot.`);
+  if (!custom && service.allowedSlots?.length && !service.allowedSlots.includes(slot.id)) fail(400, `${label}: ${service.name} is not offered in this slot.`);
   if (date === todayKey() && slot.start <= nowHHMM()) fail(400, `${label}: that time slot has already started.`);
-  if (slotTaken(date, slot.id)) fail(409, `${label} was just booked by someone else. Please remove it and try again.`);
+  if (timeTaken(date, slot.start, slot.end)) fail(409, `${label} is already booked (or overlaps a booking). Please remove it and pick another time.`);
   let category = null;
   const categories = publicCategories();
   if (categories.length) {
@@ -261,12 +408,11 @@ app.post('/api/bookings', async (req, res) => {
 
   // Validate everything first so either all slots are booked or none are.
   const items = requested.map(readItem);
-  const seen = new Set();
-  for (const it of items) {
-    const key = `${it.date}|${it.slot.id}`;
-    if (seen.has(key)) fail(400, `${shortDate(it.date)}, ${it.slot.label} is selected twice.`);
-    seen.add(key);
-  }
+  items.forEach((a, i) =>
+    items.slice(i + 1).forEach((b) => {
+      if (a.date === b.date && overlaps(a.slot.start, a.slot.end, b.slot.start, b.slot.end)) fail(400, `${shortDate(a.date)}: two of your selected times overlap.`);
+    }),
+  );
 
   const name = str(body.name, 80);
   const phone = str(body.phone, 20);
@@ -343,18 +489,19 @@ app.post('/api/bookings/lookup', async (req, res) => {
   const phone = str(req.body?.phone, 20);
   if (digits(phone).length < 10) fail(400, 'Please enter the 10-digit phone number used for booking.');
   const today = todayKey();
-  const mine = db.bookings
-    .filter((b) => samePhone(b.phone, phone))
-    // Upcoming first (soonest at top), then past ones (most recent first).
-    .sort((a, b) => {
-      const ua = a.date >= today;
-      const ub = b.date >= today;
-      if (ua !== ub) return ua ? -1 : 1;
-      return ua ? a.date.localeCompare(b.date) : b.date.localeCompare(a.date);
-    })
-    .slice(0, 30);
-  if (!mine.length) fail(404, 'No bookings found for that phone number.');
-  res.json({ bookings: mine.map(customerView) });
+  // Upcoming first (soonest at top), then past ones (most recent first).
+  const byDate = (a, b) => {
+    const ua = a.date >= today;
+    const ub = b.date >= today;
+    if (ua !== ub) return ua ? -1 : 1;
+    return ua ? (a.date + a.slotTime).localeCompare(b.date + b.slotTime) : (b.date + b.slotTime).localeCompare(a.date + a.slotTime);
+  };
+  const mine = db.bookings.filter((b) => samePhone(b.phone, phone)).sort(byDate).slice(0, 30);
+  // The same number may belong to a team member: show the sewas they are assigned to.
+  const personIds = (db.people || []).filter((p) => samePhone(p.phone, phone)).map((p) => p.id);
+  const duties = personIds.length ? db.bookings.filter((b) => (b.assignees || []).some((a) => personIds.includes(a.id))).sort(byDate).slice(0, 40) : [];
+  if (!mine.length && !duties.length) fail(404, 'No bookings or sewa duties found for that phone number.');
+  res.json({ bookings: mine.map(customerView), duties: duties.map((b) => dutyView(b, personIds)), isTeam: personIds.length > 0 });
 });
 
 app.post('/api/bookings/payment-method', async (req, res) => {
@@ -397,7 +544,8 @@ app.get('/api/push/key', async (_req, res) => {
 app.post('/api/push/subscribe', async (req, res) => {
   throttle(`push:${req.ip}`, 30);
   const phone = str(req.body?.phone, 20);
-  if (!db.bookings.some((b) => samePhone(b.phone, phone))) fail(404, 'No bookings found for that phone number.');
+  const known = db.bookings.some((b) => samePhone(b.phone, phone)) || (db.people || []).some((p) => samePhone(p.phone, phone));
+  if (!known) fail(404, 'No bookings found for that phone number.');
   await addSubscription(phone, readSubscription(req.body?.subscription));
   res.json({ ok: true });
 });
@@ -484,7 +632,7 @@ app.put('/api/admin/settings', async (req, res) => {
   for (const key of ['siteName', 'gurmukhiTagline', 'tagline', 'about', 'aboutImage', 'phone', 'whatsapp', 'email', 'address', 'upiId', 'upiName', 'paymentNote']) {
     if (key in b) s[key] = str(b[key], key === 'about' || key === 'tagline' ? 1500 : 300);
   }
-  for (const key of ['cashEnabled', 'upiEnabled']) {
+  for (const key of ['cashEnabled', 'upiEnabled', 'customTimeEnabled']) {
     if (key in b) s[key] = !!b[key];
   }
   for (const key of ['yearsOfSewa', 'programsDone', 'citiesCovered', 'maxAdvanceDays']) {
@@ -611,7 +759,7 @@ const readPerson = (b, existing = {}) => {
     .map((k) => ({ categoryId: str(k?.categoryId, 80), serviceId: str(k?.serviceId, 80) }))
     .filter((k) => serviceIds.has(k.serviceId) && (!k.categoryId || catById.get(k.categoryId)?.serviceIds.includes(k.serviceId)))
     .filter((k) => !seen.has(k.categoryId + '|' + k.serviceId) && seen.add(k.categoryId + '|' + k.serviceId));
-  return { ...existing, name, phone: str(b.phone, 20), skills, active: b.active !== false };
+  return { ...existing, name, phone: str(b.phone, 20), address: str(b.address, 300), skills, active: b.active !== false };
 };
 
 app.post('/api/admin/people', async (req, res) => {
@@ -646,9 +794,11 @@ app.patch('/api/admin/bookings/:id/assign', async (req, res) => {
     if (!canDo(person, booking)) fail(400, `${person.name} does not do ${booking.serviceName}${booking.categoryName ? ` in ${booking.categoryName}` : ''}.`);
     return { id: person.id, name: person.name };
   });
+  const before = (booking.assignees || []).map((a) => a.id);
   booking.assignees = assignees;
   booking.updatedAt = new Date().toISOString();
   await save();
+  teamChanged(booking, before);
   res.json({ booking });
 });
 
@@ -700,7 +850,10 @@ app.patch('/api/admin/bookings/:id', async (req, res) => {
   const prevAmount = booking.amount;
   // Validate everything before changing the booking.
   const restoring = status !== 'cancelled' && booking.status === 'cancelled';
-  if (restoring && slotTaken(booking.date, booking.slotId, booking.id)) fail(409, 'That slot has been booked by someone else since.');
+  if (BOOKED.includes(status) && !BOOKED.includes(prevStatus)) {
+    const clash = bookingAt(booking.date, ...rangeOf(booking), booking.id);
+    if (clash) fail(409, `That time is already booked for ${clash.name} (${clash.ref}, ${slotName(clash)}). Cancel that one first, or cancel this request.`);
+  }
   const amount = status === 'confirmed' ? readAmount(req.body.amount) : null;
   const reason = str(req.body.reason, 500);
   if (status === 'cancelled' && reason.length < 3) fail(400, 'Please give a reason for cancelling.');
@@ -722,7 +875,10 @@ app.patch('/api/admin/bookings/:id', async (req, res) => {
   await save();
   if (status === 'confirmed' && prevStatus !== 'confirmed') notifyBooking(booking, 'confirmed');
   else if (status === 'confirmed' && prevAmount !== booking.amount) notifyBooking(booking, 'billUpdated');
-  if (status === 'cancelled' && prevStatus !== 'cancelled') notifyBooking(booking, 'cancelled');
+  if (status === 'cancelled' && prevStatus !== 'cancelled') {
+    notifyBooking(booking, 'cancelled');
+    notifyTeamCancelled(booking);
+  }
   res.json({ booking });
 });
 
@@ -747,6 +903,7 @@ app.patch('/api/admin/bookings/:id/cancel-request', async (req, res) => {
   booking.updatedAt = new Date().toISOString();
   await save();
   notifyBooking(booking, req.body.action === 'approve' ? 'requestApproved' : 'requestRejected');
+  if (req.body.action === 'approve') notifyTeamCancelled(booking);
   res.json({ booking });
 });
 
@@ -835,6 +992,10 @@ app.use((err, _req, res, _next) => {
   if (status >= 500) console.error(err);
   res.status(status).json({ error: status >= 500 ? 'Server error. Please try again.' : err.message });
 });
+
+// Team reminders: checked every minute (the keep-alive below keeps the server awake for this).
+setInterval(() => sendReminders().catch((e) => console.error('[sewa] Reminders failed:', e)), 60 * 1000);
+sendReminders().catch(() => {});
 
 // Free hosting plans put the site to sleep when idle. Render sets RENDER_EXTERNAL_URL itself;
 // on other hosts set KEEP_ALIVE_URL to the public address. KEEP_ALIVE=off disables it.

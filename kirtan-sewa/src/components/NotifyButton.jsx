@@ -4,8 +4,8 @@ import { Bell, BellRing, CircleAlert, Loader2 } from 'lucide-react';
 import { enableNotifications, isIos, isStandalone, permission, pushSupported, subscribedFor } from '../lib/push';
 import { ease } from '../lib/motion';
 
-/** Card asking the customer to allow notifications for their bookings. */
-export default function NotifyButton({ phone, compact = false }) {
+/** Card asking the customer (or a team member) to allow notifications for their bookings. */
+export default function NotifyButton({ phone, compact = false, team = false }) {
   const [on, setOn] = useState(() => permission() === 'granted' && subscribedFor(phone));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -31,13 +31,17 @@ export default function NotifyButton({ phone, compact = false }) {
         {on ? <BellRing size={20} /> : <Bell size={20} />}
       </motion.span>
       <div>
-        <strong>{on ? 'Notifications are on' : 'Get notified when it’s confirmed'}</strong>
+        <strong>{on ? 'Notifications are on' : team ? 'Get notified about your sewa duties' : 'Get notified when it’s confirmed'}</strong>
         <p>
           {on
-            ? 'We’ll notify you on this device when the jatha confirms, sends your bill, or receives your payment.'
+            ? team
+              ? 'We’ll notify you on this device when you’re given a sewa, on the day, and 2 hours before it starts.'
+              : 'We’ll notify you on this device when the jatha confirms, sends your bill, or receives your payment.'
             : iosNeedsInstall
               ? 'On iPhone: tap Share → “Add to Home Screen”, open the site from the new icon, then tap below.'
-              : 'Allow notifications and we’ll tell you the moment your booking is confirmed — with a link to pay.'}
+              : team
+                ? 'Allow notifications to hear when you’re given a sewa, with reminders on the day and 2 hours before.'
+                : 'Allow notifications and we’ll tell you the moment your booking is confirmed — with a link to pay.'}
         </p>
         {!on && (
           <button type="button" className="btn btn-primary btn-sm" onClick={enable} disabled={busy}>

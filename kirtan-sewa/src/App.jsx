@@ -13,6 +13,7 @@ import ScrollProgress from './components/ScrollProgress';
 import Home from './pages/Home';
 import ManageBooking from './pages/ManageBooking';
 import { scrollToTop, setLenis } from './lib/scroll';
+import { useLowEnd } from './lib/perf';
 
 const Admin = lazy(() => import('./pages/Admin'));
 
@@ -50,8 +51,10 @@ function Shell() {
     setIntro(false);
   }, []);
 
+  // Smooth scrolling is skipped on weak devices: native scrolling stays the most responsive there.
+  const lowEnd = useLowEnd();
   useEffect(() => {
-    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    if (lowEnd || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
     const lenis = new Lenis({ duration: 1.2, easing: (t) => Math.min(1, 1.001 - Math.pow(2, -10 * t)), smoothWheel: true });
     setLenis(lenis);
     let id = requestAnimationFrame(function raf(time) {
@@ -63,7 +66,7 @@ function Shell() {
       lenis.destroy();
       setLenis(null);
     };
-  }, []);
+  }, [lowEnd]);
 
   const site404 = error && !site;
 

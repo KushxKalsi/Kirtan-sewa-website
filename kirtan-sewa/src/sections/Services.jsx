@@ -11,6 +11,20 @@ import { ease } from '../lib/motion';
 
 const FALLBACK_COLOR = '#E9B44C';
 
+// The whole card is the button (tap anywhere on it); Enter/Space work from the keyboard too.
+const pressable = (label, onPress) => ({
+  role: 'button',
+  tabIndex: 0,
+  'aria-label': label,
+  onClick: onPress,
+  onKeyDown: (e) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      onPress();
+    }
+  },
+});
+
 /** Entrance animation: on scroll into view on the page, immediately inside the popup. */
 const entrance = (i, instant) => ({
   initial: { opacity: 0, y: 60, rotateX: -12 },
@@ -24,7 +38,7 @@ function SewaCard({ svc, index, slots, onBook, instant }) {
   const allowed = svc.allowedSlots?.length ? slots.filter((sl) => svc.allowedSlots.includes(sl.id)) : slots;
   return (
     <motion.div {...entrance(index, instant)}>
-      <TiltCard className="service-card" glow={`${svc.color}33`} style={{ '--accent': svc.color }}>
+      <TiltCard className="service-card pressable" glow={`${svc.color}33`} style={{ '--accent': svc.color }} {...pressable(`Book ${svc.name}`, () => onBook(svc.id))}>
         <div className="service-top">
           <motion.div className="service-icon" whileHover={{ rotate: [0, -12, 10, 0], scale: 1.08 }} transition={{ duration: 0.6 }}>
             <Icon size={26} />
@@ -47,12 +61,12 @@ function SewaCard({ svc, index, slots, onBook, instant }) {
               </span>
             ))}
         </div>
-        <button className="service-book" onClick={() => onBook(svc.id)}>
+        <span className="service-book" aria-hidden="true">
           Book this sewa
           <span className="service-arrow">
             <ArrowUpRight size={18} />
           </span>
-        </button>
+        </span>
       </TiltCard>
     </motion.div>
   );
@@ -63,7 +77,7 @@ function CategoryCard({ cat, index, sewas, total, onOpen }) {
   const color = cat.color || FALLBACK_COLOR;
   return (
     <motion.div {...entrance(index, false)}>
-      <TiltCard className="service-card category-card" glow={`${color}33`} style={{ '--accent': color }}>
+      <TiltCard className="service-card category-card pressable" glow={`${color}33`} style={{ '--accent': color }} {...pressable(`${cat.name}: view sewas`, onOpen)}>
         <div className="service-top">
           <motion.div className="service-icon" whileHover={{ rotate: [0, -12, 10, 0], scale: 1.08 }} transition={{ duration: 0.6 }}>
             <Icon size={26} />
@@ -81,12 +95,12 @@ function CategoryCard({ cat, index, sewas, total, onOpen }) {
             </span>
           ))}
         </div>
-        <button className="service-book" onClick={onOpen}>
+        <span className="service-book" aria-hidden="true">
           {sewas.length > 1 ? 'View sewas' : 'View sewa'}
           <span className="service-arrow">
             <ArrowUpRight size={18} />
           </span>
-        </button>
+        </span>
       </TiltCard>
     </motion.div>
   );
