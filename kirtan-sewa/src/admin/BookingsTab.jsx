@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { format } from 'date-fns';
-import { Ban, Banknote, BellRing, Check, ChevronDown, CircleCheck, FileText, Loader2, Mail, MapPin, MessageCircle, Pencil, Phone, RotateCcw, Search, Smartphone, Trash2, Undo2, Wallet } from 'lucide-react';
+import { Ban, Banknote, BellRing, Check, UserRound, Users, ChevronDown, CircleCheck, FileText, Loader2, Mail, MapPin, MessageCircle, Pencil, Phone, RotateCcw, Search, Smartphone, Trash2, Undo2, Wallet } from 'lucide-react';
 import Modal from '../components/Modal';
 import { BillModal } from '../components/Bill';
 import { PAYMENT_LABEL, rupees } from '../lib/money';
@@ -11,6 +11,7 @@ import { ease } from '../lib/motion';
 const FILTERS = [
   { id: 'upcoming', label: 'Upcoming' },
   { id: 'requests', label: 'Cancel requests' },
+  { id: 'unassigned', label: 'Not assigned' },
   { id: 'pending', label: 'Pending' },
   { id: 'confirmed', label: 'Confirmed' },
   { id: 'completed', label: 'Completed' },
@@ -20,6 +21,8 @@ const FILTERS = [
 
 const active = (b) => b.status === 'pending' || b.status === 'confirmed';
 const hasRequest = (b) => b.cancelRequest?.status === 'pending' && active(b);
+// Same rule as the server: active, with this sewa in this category among their skills.
+const canDo = (p, b) => p.active && (p.skills || []).some((k) => k.serviceId === b.serviceId && (!b.categoryId || k.categoryId === b.categoryId));
 const PAY_TEXT = { unpaid: 'Unpaid', submitted: 'To verify', paid: 'Paid' };
 
 export default function BookingsTab({ data, api, patch, toast }) {
@@ -42,6 +45,19 @@ export default function BookingsTab({ data, api, patch, toast }) {
   const [rejectFor, setRejectFor] = useState(null);
   const [rejectNote, setRejectNote] = useState('');
   const { bookings, today, settings } = data;
+  const people = data.people || [];
+  const peopleIds = new Set(people.map((p) => p.id));
+  const setAssignees = async (b, personIds) => {
+    setBusy(b.id + 'assign');
+    try {
+      const { booking } = await api.assign(b.id, personIds);
+      replace(booking);
+    } catch (e) {
+      toast(e.message, 'error');
+    } finally {
+      setBusy('');
+    }
+  };
   const notifyOn = (phone) => (data.notifyPhones || []).includes(String(phone).replace(/\D/g, '').slice(-10));
 
   const stats = useMemo(
@@ -62,10 +78,11 @@ export default function BookingsTab({ data, api, patch, toast }) {
     let rows = bookings.filter((b) => {
       if (filter === 'upcoming') return active(b) && b.date >= today;
       if (filter === 'requests') return hasRequest(b);
+      if (filter === 'unassigned') return active(b) && b.date >= today && !(b.assignees || []).length;
       if (filter === 'all') return true;
       return b.status === filter;
     });
-    if (q) rows = rows.filter((b) => [b.name, b.phone, b.ref, b.serviceName, b.address, b.groupId].some((v) => v?.toLowerCase().includes(q)));
+    if (q) rows = rows.filter((b) => [b.name, b.phone, b.ref, b.serviceName, b.categoryName, b.address, b.groupId, (b.assignees || []).map((a) => a.name).join(' ')].some((v) => v?.toLowerCase().includes(q)));
     const asc = filter === 'upcoming' || filter === 'pending' || filter === 'confirmed';
     return [...rows].sort((a, b) => {
       const ka = a.date + a.slotTime;
@@ -277,12 +294,20 @@ export default function BookingsTab({ data, api, patch, toast }) {
                       <span>{format(fromKey(b.date), 'MMM yy')}</span>
                     </span>
                     <span className="ab-main">
-                      <strong>{b.serviceName}</strong>
+                      <strong>
+                        {b.serviceName}
+                        {b.categoryName && <small className="ab-cat"> · {b.categoryName}</small>}
+                      </strong>
                       <span>
                         {b.slotLabel} · {rangeTo12(b.slotTime)} · {format(fromKey(b.date), 'EEE')}
                       </span>
                       <span className="ab-who">
                         {b.name} · <code>{b.ref}</code>
+                        {active(b) && (
+                          <span className={`pay-tag ${(b.assignees || []).length ? 'assign-tag' : 'unassigned-tag'}`}>
+                            {(b.assignees || []).length ? `👤 ${b.assignees.map((a) => a.name).join(', ')}` : 'Not assigned'}
+                          </span>
+                        )}
                         {hasRequest(b) && <span className="pay-tag req-tag">Cancel requested</span>}
                         {b.groupId && groupSize[b.groupId] > 1 && (
                           <span
@@ -343,6 +368,52 @@ export default function BookingsTab({ data, api, patch, toast }) {
                             <MapPin size={15} /> {b.address}
                           </p>
                           {b.notes && <p className="ab-notes">“{b.notes}”</p>}
+                          {b.status !== 'cancelled' && (() => {
+                            const assignedIds = (b.assignees || []).map((a) => a.id);
+                            const eligible = people.filter((p) => canDo(p, b));
+                            const eligibleIds = new Set(eligible.map((p) => p.id));
+                            const others = (b.assignees || []).filter((a) => !eligibleIds.has(a.id)); // assigned earlier, no longer matching
+                            const keep = (ids) => ids.filter((id) => peopleIds.has(id));
+                            return (
+                              <div className="assign-box">
+                                <div className="assign-head">
+                                  <Users size={15} /> <strong>Assigned to</strong>
+                                  <span className="muted">
+                                    {b.serviceName}
+                                    {b.categoryName && ` · ${b.categoryName}`}
+                                  </span>
+                                  {busy === b.id + 'assign' && <Loader2 size={14} className="spin" />}
+                                </div>
+                                <div className="slot-checks">
+                                  {others.map((a) => (
+                                    <button type="button" key={a.id} className="check-pill active" title="Assigned earlier; no longer matches this sewa. Tap to remove." onClick={() => setAssignees(b, keep(assignedIds.filter((x) => x !== a.id)))} disabled={!!busy}>
+                                      <UserRound size={13} /> {a.name} ✕
+                                    </button>
+                                  ))}
+                                  {eligible.map((p) => {
+                                    const on = assignedIds.includes(p.id);
+                                    return (
+                                      <button
+                                        type="button"
+                                        key={p.id}
+                                        className={`check-pill ${on ? 'active' : ''}`}
+                                        onClick={() => setAssignees(b, keep(on ? assignedIds.filter((x) => x !== p.id) : [...assignedIds, p.id]))}
+                                        disabled={!!busy}
+                                      >
+                                        {on ? <Check size={13} /> : <UserRound size={13} />} {p.name}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                                {!eligible.length && (
+                                  <p className="muted">
+                                    Nobody in your team does {b.serviceName}
+                                    {b.categoryName && ` in ${b.categoryName}`} yet — add it to someone under <strong>Team</strong>.
+                                  </p>
+                                )}
+                              </div>
+                            );
+                          })()}
                           {hasRequest(b) && (
                             <div className="request-note for-admin">
                               <div>

@@ -27,7 +27,8 @@ export default function ServicesTab({ data, api, patch, toast }) {
   const run = async (fn, msg) => {
     try {
       const res = await fn();
-      if (res.services) patch({ services: res.services });
+      const changed = Object.fromEntries(['services', 'categories', 'people'].filter((k) => res[k]).map((k) => [k, res[k]]));
+      if (Object.keys(changed).length) patch(changed);
       if (msg) toast(msg);
       return true;
     } catch (e) {

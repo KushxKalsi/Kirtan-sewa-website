@@ -48,6 +48,7 @@ function BookingCard({ booking, phone, index, onChange, onRequestCancel }) {
         <div>
           <span className="bc-ref">{booking.ref}</span>
           <h2>{booking.serviceName}</h2>
+          {booking.categoryName && <span className="bc-cat">{booking.categoryName}</span>}
         </div>
         <span className={`badge badge-${booking.status}`}>{booking.status}</span>
       </header>

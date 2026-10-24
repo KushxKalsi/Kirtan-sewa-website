@@ -116,6 +116,7 @@ const customerView = (b) => ({
   ref: b.ref,
   serviceId: b.serviceId,
   serviceName: b.serviceName,
+  categoryName: b.categoryName || '',
   date: b.date,
   slotId: b.slotId,
   slotLabel: b.slotLabel,
@@ -148,9 +149,22 @@ const readAmount = (value) => {
 
 /* ---------------- public API ---------------- */
 
+// Active categories that still contain at least one active sewa (what visitors can choose from).
+const publicCategories = () => {
+  const activeIds = new Set(db.services.filter((s) => s.active).map((s) => s.id));
+  return (db.categories || [])
+    .filter((c) => c.active)
+    .map((c) => ({ ...c, serviceIds: c.serviceIds.filter((id) => activeIds.has(id)) }))
+    .filter((c) => c.serviceIds.length);
+};
+
+// Who may be assigned to a booking: active people with a matching skill (sewa, in that category).
+const canDo = (person, b) => person.active && (person.skills || []).some((k) => k.serviceId === b.serviceId && (!b.categoryId || k.categoryId === b.categoryId));
+
 app.get('/api/public', async (_req, res) => {
   res.json({
     settings: publicSettings(),
+    categories: publicCategories(),
     services: db.services.filter((s) => s.active),
     slots: db.slots,
     blockedDates: db.blockedDates,
@@ -187,7 +201,7 @@ function tellAdmin(kind, title, body, search) {
   const url = search ? `/admin?q=${encodeURIComponent(search)}` : '/admin';
   notifyAdmins({ title, body, url, tag: `admin-${kind}-${search || Date.now()}` }).catch(() => {});
 }
-const slotText = (b) => `${b.serviceName} · ${shortDate(b.date)}, ${b.slotLabel}`;
+const slotText = (b) => `${b.serviceName}${b.categoryName ? ` (${b.categoryName})` : ''} · ${shortDate(b.date)}, ${b.slotLabel}`;
 
 // Sends a phone notification about a booking (if the customer allowed notifications). Never blocks the request.
 function notifyBooking(b, kind) {
@@ -228,7 +242,14 @@ function readItem(item) {
   if (service.allowedSlots?.length && !service.allowedSlots.includes(slot.id)) fail(400, `${label}: ${service.name} is not offered in this slot.`);
   if (date === todayKey() && slot.start <= nowHHMM()) fail(400, `${label}: that time slot has already started.`);
   if (slotTaken(date, slot.id)) fail(409, `${label} was just booked by someone else. Please remove it and try again.`);
-  return { service, date, slot };
+  let category = null;
+  const categories = publicCategories();
+  if (categories.length) {
+    category = categories.find((c) => c.id === item.categoryId);
+    if (!category) fail(400, 'Please choose the type of kirtan (category) for every selected slot.');
+    if (!category.serviceIds.includes(service.id)) fail(400, `${label}: ${service.name} is not available in ${category.name}.`);
+  }
+  return { service, category, date, slot };
 }
 
 // Accepts one slot ({ serviceId, date, slotId }) or several ({ items: [...] }) with one set of contact details.
@@ -261,13 +282,16 @@ app.post('/api/bookings', async (req, res) => {
   const groupId = items.length > 1 ? `G-${uid().slice(0, 8).toUpperCase()}` : '';
   const createdAt = new Date().toISOString();
   const created = [];
-  for (const { service, date, slot } of items) {
+  for (const { service, category, date, slot } of items) {
     const booking = {
       id: uid(),
       ref: makeRef(),
       groupId,
       serviceId: service.id,
       serviceName: service.name,
+      categoryId: category?.id || '',
+      categoryName: category?.name || '',
+      assignees: [], // [{ id, name }] — filled in by the admin; names are kept even if the person is removed later
       date,
       slotId: slot.id,
       slotLabel: slot.label,
@@ -438,6 +462,8 @@ app.get('/api/admin/data', async (_req, res) => {
   res.json({
     settings: db.settings,
     services: db.services,
+    categories: db.categories || [],
+    people: db.people || [],
     slots: db.slots,
     blockedDates: db.blockedDates,
     bookings: db.bookings,
@@ -511,9 +537,110 @@ app.put('/api/admin/services/:id', async (req, res) => {
 });
 
 app.delete('/api/admin/services/:id', async (req, res) => {
-  db.services = db.services.filter((s) => s.id !== req.params.id);
+  const id = req.params.id;
+  db.services = db.services.filter((s) => s.id !== id);
+  for (const c of db.categories || []) c.serviceIds = c.serviceIds.filter((x) => x !== id);
+  for (const p of db.people || []) p.skills = (p.skills || []).filter((k) => k.serviceId !== id);
   await save();
-  res.json({ services: db.services });
+  res.json({ services: db.services, categories: db.categories, people: db.people });
+});
+
+/* ---------- categories ---------- */
+
+const readCategory = (b, existing = {}) => {
+  const name = str(b.name, 80);
+  if (name.length < 2) fail(400, 'Category name is required.');
+  const valid = new Set(db.services.map((s) => s.id));
+  const serviceIds = Array.isArray(b.serviceIds) ? [...new Set(b.serviceIds.filter((id) => valid.has(id)))] : [];
+  if (!serviceIds.length) fail(400, 'Tick at least one sewa for this category.');
+  return { ...existing, name, gurmukhi: str(b.gurmukhi, 80), description: str(b.description, 400), serviceIds, active: b.active !== false };
+};
+
+app.post('/api/admin/categories', async (req, res) => {
+  const category = readCategory(req.body || {});
+  let id = slugify(category.name);
+  while ((db.categories || []).some((c) => c.id === id)) id = `${id}-${uid().slice(0, 4)}`;
+  db.categories = [...(db.categories || []), { id, ...category }];
+  await save();
+  res.status(201).json({ categories: db.categories });
+});
+
+app.put('/api/admin/categories/:id', async (req, res) => {
+  const idx = (db.categories || []).findIndex((c) => c.id === req.params.id);
+  if (idx < 0) fail(404, 'Category not found.');
+  db.categories[idx] = readCategory(req.body || {}, db.categories[idx]);
+  // A person can't keep a skill for a sewa that is no longer in this category.
+  for (const p of db.people || []) p.skills = (p.skills || []).filter((k) => k.categoryId !== req.params.id || db.categories[idx].serviceIds.includes(k.serviceId));
+  await save();
+  res.json({ categories: db.categories, people: db.people });
+});
+
+app.delete('/api/admin/categories/:id', async (req, res) => {
+  db.categories = (db.categories || []).filter((c) => c.id !== req.params.id);
+  for (const p of db.people || []) p.skills = (p.skills || []).filter((k) => k.categoryId !== req.params.id);
+  await save();
+  res.json({ categories: db.categories, people: db.people });
+});
+
+app.put('/api/admin/categories-order', async (req, res) => {
+  const order = Array.isArray(req.body?.ids) ? req.body.ids : [];
+  const pos = (id) => (order.indexOf(id) < 0 ? 1e9 : order.indexOf(id));
+  db.categories = [...(db.categories || [])].sort((a, b) => pos(a.id) - pos(b.id));
+  await save();
+  res.json({ categories: db.categories });
+});
+
+/* ---------- team (people) ---------- */
+
+const readPerson = (b, existing = {}) => {
+  const name = str(b.name, 80);
+  if (name.length < 2) fail(400, 'Name is required.');
+  const serviceIds = new Set(db.services.map((s) => s.id));
+  const catById = new Map((db.categories || []).map((c) => [c.id, c]));
+  const seen = new Set();
+  const skills = (Array.isArray(b.skills) ? b.skills : [])
+    .map((k) => ({ categoryId: str(k?.categoryId, 80), serviceId: str(k?.serviceId, 80) }))
+    .filter((k) => serviceIds.has(k.serviceId) && (!k.categoryId || catById.get(k.categoryId)?.serviceIds.includes(k.serviceId)))
+    .filter((k) => !seen.has(k.categoryId + '|' + k.serviceId) && seen.add(k.categoryId + '|' + k.serviceId));
+  return { ...existing, name, phone: str(b.phone, 20), skills, active: b.active !== false };
+};
+
+app.post('/api/admin/people', async (req, res) => {
+  db.people = [...(db.people || []), { id: uid(), ...readPerson(req.body || {}) }];
+  await save();
+  res.status(201).json({ people: db.people });
+});
+
+app.put('/api/admin/people/:id', async (req, res) => {
+  const idx = (db.people || []).findIndex((p) => p.id === req.params.id);
+  if (idx < 0) fail(404, 'Person not found.');
+  db.people[idx] = readPerson(req.body || {}, db.people[idx]);
+  await save();
+  res.json({ people: db.people });
+});
+
+app.delete('/api/admin/people/:id', async (req, res) => {
+  // Bookings keep the name they were assigned with, so history stays readable.
+  db.people = (db.people || []).filter((p) => p.id !== req.params.id);
+  await save();
+  res.json({ people: db.people });
+});
+
+// Assign team members to one booking (one time slot). Only people with a matching skill are allowed.
+app.patch('/api/admin/bookings/:id/assign', async (req, res) => {
+  const booking = db.bookings.find((b) => b.id === req.params.id);
+  if (!booking) fail(404, 'Booking not found.');
+  const ids = Array.isArray(req.body?.personIds) ? [...new Set(req.body.personIds)] : [];
+  const assignees = ids.map((id) => {
+    const person = (db.people || []).find((p) => p.id === id);
+    if (!person) fail(400, 'That team member no longer exists.');
+    if (!canDo(person, booking)) fail(400, `${person.name} does not do ${booking.serviceName}${booking.categoryName ? ` in ${booking.categoryName}` : ''}.`);
+    return { id: person.id, name: person.name };
+  });
+  booking.assignees = assignees;
+  booking.updatedAt = new Date().toISOString();
+  await save();
+  res.json({ booking });
 });
 
 app.put('/api/admin/services-order', async (req, res) => {

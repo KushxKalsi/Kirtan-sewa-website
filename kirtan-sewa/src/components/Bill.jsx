@@ -97,7 +97,7 @@ export function Bill({ booking: b, settings: s, origin = '' }) {
           <tr>
             <td>
               {b.serviceName}
-              <small>Gurbani Kirtan sewa</small>
+              <small>{b.categoryName || 'Gurbani Kirtan sewa'}</small>
             </td>
             <td>
               {prettyDate(b.date, 'EEE, d MMM yyyy')}

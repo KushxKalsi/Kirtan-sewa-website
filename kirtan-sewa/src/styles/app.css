@@ -754,6 +754,72 @@
     box-shadow: 0 0 0 0 rgba(255, 153, 51, 0);
   }
 }
+.cat-picker {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 10px;
+  margin-bottom: 20px;
+}
+.cat-card {
+  position: relative;
+  display: grid;
+  gap: 2px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  border: 1px solid var(--border);
+  background: var(--tint);
+  text-align: left;
+  transition: border-color 0.25s, color 0.25s;
+}
+.cat-card > :not(.cat-card-bg) {
+  position: relative;
+}
+.cat-card:hover {
+  border-color: var(--gold);
+}
+.cat-card strong {
+  font-size: 15.5px;
+}
+.cat-card .gurmukhi {
+  font-size: 13.5px;
+  color: var(--gold);
+}
+.cat-card small {
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.cat-card.active {
+  border-color: transparent;
+  color: #1a1206;
+}
+.cat-card.active .gurmukhi,
+.cat-card.active small {
+  color: rgba(26, 18, 6, 0.75);
+}
+.cat-card-bg {
+  position: absolute;
+  inset: -1px;
+  border-radius: 16px;
+  background: var(--grad-gold);
+  box-shadow: 0 12px 34px -12px rgba(255, 153, 51, 0.7);
+}
+.cat-picker.needs-choice .cat-card {
+  border-color: color-mix(in srgb, var(--gold) 55%, transparent);
+}
+.basket-item em small {
+  font-weight: 600;
+  color: var(--muted);
+}
+.bc-cat {
+  display: inline-block;
+  margin-top: 6px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--gold);
+  background: color-mix(in srgb, var(--gold) 12%, transparent);
+}
 .svc-picker.needs-choice .svc-chip {
   border-color: color-mix(in srgb, var(--accent) 55%, transparent);
   color: var(--text);
@@ -1910,6 +1976,93 @@
 .notify-error svg {
   flex-shrink: 0;
   margin-top: 3px;
+}
+.ab-cat {
+  font-weight: 600;
+  color: var(--muted);
+  font-size: 13px;
+}
+.pay-tag.assign-tag {
+  color: var(--blue);
+  background: color-mix(in srgb, var(--blue) 12%, transparent);
+  white-space: normal;
+}
+.pay-tag.unassigned-tag {
+  color: var(--muted);
+  background: var(--surface-2);
+}
+.assign-box {
+  margin-top: 14px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  border: 1px solid color-mix(in srgb, var(--blue) 30%, transparent);
+  background: color-mix(in srgb, var(--blue) 5%, transparent);
+}
+.assign-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+  color: var(--blue);
+}
+.assign-head strong {
+  color: var(--text);
+}
+.assign-head .muted {
+  font-size: 13px;
+}
+.assign-box .check-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.assign-box .muted {
+  margin: 8px 0 0;
+}
+.skill-groups {
+  display: grid;
+  gap: 12px;
+}
+.skill-group {
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: var(--tint);
+}
+.skill-group-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.link-btn {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--gold);
+}
+.skill-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+.chip.warn-chip {
+  color: var(--warn);
+}
+.person-phone {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 8px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.check-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 .pay-tag.group-tag {
   color: var(--blue);

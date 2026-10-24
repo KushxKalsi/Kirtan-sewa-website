@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
-import { CalendarDays, Clock, ExternalLink, Layers, Loader2, LogOut, Settings } from 'lucide-react';
+import { CalendarDays, Clock, ExternalLink, Layers, LayoutGrid, Loader2, LogOut, Settings, Users } from 'lucide-react';
 import BookingsTab from './BookingsTab';
 import ServicesTab from './ServicesTab';
 import ScheduleTab from './ScheduleTab';
 import SettingsTab from './SettingsTab';
 import AdminNotify from './AdminNotify';
+import CategoriesTab from './CategoriesTab';
+import TeamTab from './TeamTab';
 import { adminApi } from '../lib/api';
 import { useSite } from '../components/SiteContext';
 import { useToast } from '../components/Toast';
@@ -14,7 +16,9 @@ import { ease } from '../lib/motion';
 
 const TABS = [
   { id: 'bookings', label: 'Bookings', icon: CalendarDays },
+  { id: 'categories', label: 'Categories', icon: LayoutGrid },
   { id: 'services', label: 'Sewa services', icon: Layers },
+  { id: 'team', label: 'Team', icon: Users },
   { id: 'schedule', label: 'Schedule', icon: Clock },
   { id: 'settings', label: 'Site settings', icon: Settings },
 ];
@@ -102,7 +106,9 @@ export default function AdminDashboard({ token, onLogout }) {
           <AnimatePresence mode="wait">
             <motion.div key={tab} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.4, ease }}>
               {tab === 'bookings' && <BookingsTab {...ctx} />}
+              {tab === 'categories' && <CategoriesTab {...ctx} />}
               {tab === 'services' && <ServicesTab {...ctx} />}
+              {tab === 'team' && <TeamTab {...ctx} />}
               {tab === 'schedule' && <ScheduleTab {...ctx} />}
               {tab === 'settings' && <SettingsTab {...ctx} />}
             </motion.div>

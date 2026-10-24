@@ -85,6 +85,27 @@ const defaults = () => ({
       active: true,
     },
   ],
+  // Top-level choice shown first when booking; each lists the sewas available in it.
+  categories: [
+    {
+      id: 'kirtan-raag',
+      name: 'Kirtan with Raag',
+      gurmukhi: 'ਰਾਗੀ ਜਥਾ',
+      description: 'Gurbani Kirtan in traditional raags with harmonium and tabla. All sewas are available.',
+      serviceIds: ['kirtan-diwan', 'asa-di-vaar', 'so-dar-di-chaunki', 'aarti'],
+      active: true,
+    },
+    {
+      id: 'kirtan-kavishri',
+      name: 'Kirtan with Kavishri',
+      gurmukhi: 'ਕਵੀਸ਼ਰੀ ਜਥਾ',
+      description: 'A kavishri jatha presenting Gurbani and Sikh history in the traditional kavishri style.',
+      serviceIds: ['kirtan-diwan'],
+      active: true,
+    },
+  ],
+  // Team members who can be assigned to bookings. skills: [{ categoryId, serviceId }] = what they do.
+  people: [],
   slots: [
     { id: 'amrit-vela', label: 'Amrit Vela', start: '04:00', end: '07:00' },
     { id: 'morning', label: 'Morning', start: '09:00', end: '12:00' },
