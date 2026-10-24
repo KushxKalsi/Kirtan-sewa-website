@@ -40,7 +40,7 @@ When `DATABASE_URL` is set the app stores everything (bookings, settings, the UP
 1. **Database**: sign up at neon.tech, create a project (region: *AWS Asia Pacific (Singapore)*), and copy the
    connection string (`postgresql://…?sslmode=require`).
 2. **GitHub**: push this folder to a new repository. `data/`, `dist/` and `node_modules/` are git-ignored.
-3. **Render**: New → **Blueprint** → pick the repo. `render.yaml` sets the build, start and health check.
+3. **Render**: New → **Blueprint** → pick the repo. `render.yaml` (at the repo root) sets the build, start and health check.
    Fill in `ADMIN_PASSWORD` and `DATABASE_URL` → **Apply**.
 4. The site is live at `https://<name>.onrender.com` (admin: `/admin`).
 
