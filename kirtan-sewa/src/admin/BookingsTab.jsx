@@ -1,0 +1,444 @@
+import { useMemo, useState } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
+import { format } from 'date-fns';
+import { Ban, Banknote, Check, ChevronDown, CircleCheck, FileText, Loader2, Mail, MapPin, MessageCircle, Pencil, Phone, RotateCcw, Search, Smartphone, Trash2, Undo2, Wallet } from 'lucide-react';
+import Modal from '../components/Modal';
+import { BillModal } from '../components/Bill';
+import { PAYMENT_LABEL, rupees } from '../lib/money';
+import { fromKey, prettyDate, rangeTo12 } from '../lib/date';
+import { ease } from '../lib/motion';
+
+const FILTERS = [
+  { id: 'upcoming', label: 'Upcoming' },
+  { id: 'pending', label: 'Pending' },
+  { id: 'confirmed', label: 'Confirmed' },
+  { id: 'completed', label: 'Completed' },
+  { id: 'cancelled', label: 'Cancelled' },
+  { id: 'all', label: 'All' },
+];
+
+const active = (b) => b.status === 'pending' || b.status === 'confirmed';
+const PAY_TEXT = { unpaid: 'Unpaid', submitted: 'To verify', paid: 'Paid' };
+
+export default function BookingsTab({ data, api, patch, toast }) {
+  const [filter, setFilter] = useState('upcoming');
+  const [query, setQuery] = useState('');
+  const [openId, setOpenId] = useState(null);
+  const [busy, setBusy] = useState('');
+  const [cancelFor, setCancelFor] = useState(null);
+  const [reason, setReason] = useState('');
+  const [deleteFor, setDeleteFor] = useState(null);
+  const [confirmFor, setConfirmFor] = useState(null);
+  const [amount, setAmount] = useState('');
+  const [payFor, setPayFor] = useState(null);
+  const [payForm, setPayForm] = useState({ method: 'upi', amount: '', utr: '', note: '' });
+  const [billFor, setBillFor] = useState(null);
+  const { bookings, today, settings } = data;
+
+  const stats = useMemo(
+    () => [
+      { label: 'Upcoming', value: bookings.filter((b) => active(b) && b.date >= today).length, tone: 'gold' },
+      { label: 'Awaiting confirmation', value: bookings.filter((b) => b.status === 'pending' && b.date >= today).length, tone: 'warn' },
+      { label: 'Confirmed', value: bookings.filter((b) => b.status === 'confirmed').length, tone: 'success' },
+      { label: 'Cancelled', value: bookings.filter((b) => b.status === 'cancelled').length, tone: 'danger' },
+      { label: 'Payments to verify', value: bookings.filter((b) => b.paymentStatus === 'submitted' && b.status !== 'cancelled').length, tone: 'warn' },
+      { label: 'Collected', value: rupees(bookings.filter((b) => b.paymentStatus === 'paid').reduce((sum, b) => sum + (b.amount || 0), 0)), tone: 'success' },
+    ],
+    [bookings, today],
+  );
+
+  const list = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    let rows = bookings.filter((b) => {
+      if (filter === 'upcoming') return active(b) && b.date >= today;
+      if (filter === 'all') return true;
+      return b.status === filter;
+    });
+    if (q) rows = rows.filter((b) => [b.name, b.phone, b.ref, b.serviceName, b.address].some((v) => v?.toLowerCase().includes(q)));
+    const asc = filter === 'upcoming' || filter === 'pending' || filter === 'confirmed';
+    return [...rows].sort((a, b) => {
+      const ka = a.date + a.slotTime;
+      const kb = b.date + b.slotTime;
+      return asc ? ka.localeCompare(kb) : kb.localeCompare(ka) || b.createdAt.localeCompare(a.createdAt);
+    });
+  }, [bookings, filter, query, today]);
+
+  const replace = (booking) => patch({ bookings: bookings.map((b) => (b.id === booking.id ? booking : b)) });
+
+  const setStatus = async (b, status, why, amt) => {
+    setBusy(b.id + status);
+    try {
+      const { booking } = await api.setStatus(b.id, status, why, amt);
+      replace(booking);
+      toast(`Booking ${booking.ref} marked ${status}.`);
+      return true;
+    } catch (e) {
+      toast(e.message, 'error');
+      return false;
+    } finally {
+      setBusy('');
+    }
+  };
+
+  const openConfirm = (b) => {
+    setAmount(b.amount ? String(b.amount) : '');
+    setConfirmFor(b);
+  };
+  const submitConfirm = async (e) => {
+    e.preventDefault();
+    if (await setStatus(confirmFor, 'confirmed', undefined, amount)) setConfirmFor(null);
+  };
+
+  const openPayment = (b) => {
+    setPayForm({ method: b.paymentStatus === 'submitted' || b.utr ? 'upi' : 'cash', amount: String(b.amount || ''), utr: b.utr || '', note: '' });
+    setPayFor(b);
+  };
+  const savePayment = async (b, payment) => {
+    setBusy(b.id + 'pay');
+    try {
+      const { booking } = await api.setPayment(b.id, payment);
+      replace(booking);
+      toast(payment.status === 'paid' ? `Payment of ${rupees(booking.amount)} recorded.` : 'Marked as unpaid.');
+      return true;
+    } catch (e) {
+      toast(e.message, 'error');
+      return false;
+    } finally {
+      setBusy('');
+    }
+  };
+  const submitPayment = async (e) => {
+    e.preventDefault();
+    if (await savePayment(payFor, { status: 'paid', ...payForm })) setPayFor(null);
+  };
+
+  const billMessage = (b) => {
+    const lines = [
+      'Waheguru Ji Ka Khalsa, Waheguru Ji Ki Fateh 🙏',
+      '',
+      `Your booking for ${b.serviceName} on ${prettyDate(b.date, 'EEE, d MMM yyyy')} (${b.slotLabel}) is confirmed.`,
+      `Bill No: ${b.billNo}`,
+      `Amount: ${rupees(b.amount)}`,
+      settings.upiEnabled && settings.upiId ? `Pay by UPI to: ${settings.upiId}` : '',
+      settings.cashEnabled ? 'Cash on the day is also fine.' : '',
+      '',
+      `View your bill and pay: ${window.location.origin}/manage?ref=${b.ref}&phone=${encodeURIComponent(b.phone)}`,
+    ];
+    return encodeURIComponent(lines.filter((l, i) => l || lines[i - 1]).join('\n'));
+  };
+
+  const confirmCancel = async (e) => {
+    e.preventDefault();
+    if (await setStatus(cancelFor, 'cancelled', reason)) setCancelFor(null);
+  };
+
+  const confirmDelete = async () => {
+    setBusy('delete');
+    try {
+      await api.deleteBooking(deleteFor.id);
+      patch({ bookings: bookings.filter((b) => b.id !== deleteFor.id) });
+      toast('Booking deleted.');
+      setDeleteFor(null);
+    } catch (e) {
+      toast(e.message, 'error');
+    } finally {
+      setBusy('');
+    }
+  };
+
+  const wa = (phone) => {
+    const d = phone.replace(/\D/g, '');
+    return `https://wa.me/${d.length === 10 ? '91' + d : d}`;
+  };
+
+  return (
+    <div className="admin-section">
+      <div className="admin-stats">
+        {stats.map((s, i) => (
+          <motion.div key={s.label} className={`admin-stat glass tone-${s.tone}`} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.06, duration: 0.5, ease }}>
+            <strong>{s.value}</strong>
+            <span>{s.label}</span>
+          </motion.div>
+        ))}
+      </div>
+
+      <div className="admin-toolbar">
+        <div className="filter-pills">
+          {FILTERS.map((f) => (
+            <button key={f.id} className={filter === f.id ? 'active' : ''} onClick={() => setFilter(f.id)}>
+              {filter === f.id && <motion.span layoutId="filter-pill" className="pill-bg" transition={{ type: 'spring', stiffness: 400, damping: 34 }} />}
+              <span>{f.label}</span>
+            </button>
+          ))}
+        </div>
+        <label className="search">
+          <Search size={16} />
+          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search name, phone, ID…" />
+        </label>
+      </div>
+
+      {list.length === 0 ? (
+        <div className="admin-empty glass">No bookings here yet.</div>
+      ) : (
+        <motion.ul className="admin-bookings" layout>
+          <AnimatePresence initial={false}>
+            {list.map((b) => {
+              const open = openId === b.id;
+              const past = b.date < today;
+              return (
+                <motion.li
+                  key={b.id}
+                  layout
+                  className={`admin-booking glass st-${b.status}`}
+                  initial={{ opacity: 0, y: 16 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, x: -30, transition: { duration: 0.25 } }}
+                  transition={{ duration: 0.4, ease }}
+                >
+                  <button className="ab-row" onClick={() => setOpenId(open ? null : b.id)} aria-expanded={open}>
+                    <span className="ab-date">
+                      <strong>{format(fromKey(b.date), 'd')}</strong>
+                      <span>{format(fromKey(b.date), 'MMM yy')}</span>
+                    </span>
+                    <span className="ab-main">
+                      <strong>{b.serviceName}</strong>
+                      <span>
+                        {b.slotLabel} · {rangeTo12(b.slotTime)} · {format(fromKey(b.date), 'EEE')}
+                      </span>
+                      <span className="ab-who">
+                        {b.name} · <code>{b.ref}</code>
+                        {b.amount > 0 && b.status !== 'cancelled' && (
+                          <span className={`pay-tag pay-${b.paymentStatus || 'unpaid'}`}>
+                            {rupees(b.amount)} · {PAY_TEXT[b.paymentStatus || 'unpaid']}
+                          </span>
+                        )}
+                      </span>
+                    </span>
+                    <span className={`badge badge-${b.status}`}>{b.status}</span>
+                    <motion.span className="ab-chevron" animate={{ rotate: open ? 180 : 0 }}>
+                      <ChevronDown size={18} />
+                    </motion.span>
+                  </button>
+
+                  <AnimatePresence initial={false}>
+                    {open && (
+                      <motion.div className="ab-detail" initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.35, ease }}>
+                        <div className="ab-detail-inner">
+                          <div className="ab-contact">
+                            <a href={`tel:${b.phone}`} className="chip">
+                              <Phone size={13} /> {b.phone}
+                            </a>
+                            <a href={wa(b.phone)} target="_blank" rel="noreferrer" className="chip">
+                              <MessageCircle size={13} /> WhatsApp
+                            </a>
+                            {b.email && (
+                              <a href={`mailto:${b.email}`} className="chip">
+                                <Mail size={13} /> {b.email}
+                              </a>
+                            )}
+                          </div>
+                          <p className="ab-line">
+                            <MapPin size={15} /> {b.address}
+                          </p>
+                          {b.notes && <p className="ab-notes">“{b.notes}”</p>}
+                          {b.status === 'cancelled' && (
+                            <div className="cancel-note">
+                              <strong>
+                                Cancelled by {b.cancelledBy === 'admin' ? 'admin' : 'customer'}
+                                {b.cancelledAt && ` · ${format(new Date(b.cancelledAt), 'd MMM yyyy, h:mm a')}`}
+                              </strong>
+                              <p>Reason: {b.cancelReason}</p>
+                            </div>
+                          )}
+                          {b.amount > 0 && b.status !== 'cancelled' && (
+                            <div className={`ab-pay pay-${b.paymentStatus || 'unpaid'}`}>
+                              <div className="ab-pay-top">
+                                <span>
+                                  <strong>{rupees(b.amount)}</strong> · Bill {b.billNo}
+                                </span>
+                                <span className={`pay-tag pay-${b.paymentStatus || 'unpaid'}`}>{PAY_TEXT[b.paymentStatus || 'unpaid']}</span>
+                              </div>
+                              {b.paymentStatus === 'submitted' && <p>Customer says they paid by UPI · UTR <code>{b.utr}</code>. Check your bank/UPI app, then verify.</p>}
+                              {b.paymentStatus === 'paid' && (
+                                <p>
+                                  Received via {PAYMENT_LABEL[b.paymentMethod]}
+                                  {b.paidAt && ` on ${format(new Date(b.paidAt), 'd MMM yyyy')}`}
+                                  {b.utr && ` · UTR ${b.utr}`}
+                                  {b.paymentNote && ` · ${b.paymentNote}`}
+                                </p>
+                              )}
+                              <div className="ab-actions">
+                                {b.paymentStatus === 'submitted' && (
+                                  <button className="btn btn-primary btn-sm" onClick={() => savePayment(b, { status: 'paid', method: 'upi', amount: b.amount, utr: b.utr })} disabled={!!busy}>
+                                    {busy === b.id + 'pay' ? <Loader2 size={15} className="spin" /> : <Check size={15} />} Verify &amp; mark paid
+                                  </button>
+                                )}
+                                {b.paymentStatus !== 'paid' ? (
+                                  <button className="btn btn-ghost btn-sm" onClick={() => openPayment(b)} disabled={!!busy}>
+                                    <Wallet size={15} /> Record payment
+                                  </button>
+                                ) : (
+                                  <button className="btn btn-ghost btn-sm" onClick={() => savePayment(b, { status: 'unpaid' })} disabled={!!busy}>
+                                    <Undo2 size={15} /> Mark unpaid
+                                  </button>
+                                )}
+                                <button className="btn btn-ghost btn-sm" onClick={() => setBillFor(b)}>
+                                  <FileText size={15} /> View bill
+                                </button>
+                                <a className="btn btn-ghost btn-sm" href={`${wa(b.phone)}?text=${billMessage(b)}`} target="_blank" rel="noreferrer">
+                                  <MessageCircle size={15} /> Send bill
+                                </a>
+                                {b.status === 'confirmed' && b.paymentStatus !== 'paid' && (
+                                  <button className="btn btn-ghost btn-sm" onClick={() => openConfirm(b)} disabled={!!busy}>
+                                    <Pencil size={15} /> Edit amount
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          )}
+                          <p className="ab-meta">Requested {format(new Date(b.createdAt), 'd MMM yyyy, h:mm a')}</p>
+
+                          <div className="ab-actions">
+                            {b.status === 'pending' && (
+                              <button className="btn btn-primary btn-sm" onClick={() => openConfirm(b)} disabled={!!busy}>
+                                <Check size={15} /> Confirm &amp; create bill
+                              </button>
+                            )}
+                            {b.status === 'confirmed' && !b.amount && (
+                              <button className="btn btn-primary btn-sm" onClick={() => openConfirm(b)} disabled={!!busy}>
+                                <FileText size={15} /> Create bill
+                              </button>
+                            )}
+                            {b.status === 'confirmed' && (
+                              <button className="btn btn-ghost btn-sm" onClick={() => setStatus(b, 'completed')} disabled={!!busy}>
+                                <CircleCheck size={15} /> Mark completed
+                              </button>
+                            )}
+                            {active(b) && (
+                              <button
+                                className="btn btn-ghost btn-sm danger-text"
+                                onClick={() => {
+                                  setReason('');
+                                  setCancelFor(b);
+                                }}
+                                disabled={!!busy}
+                              >
+                                <Ban size={15} /> Cancel
+                              </button>
+                            )}
+                            {b.status === 'cancelled' && !past && (
+                              <button className="btn btn-ghost btn-sm" onClick={() => setStatus(b, 'pending')} disabled={!!busy}>
+                                <RotateCcw size={15} /> Restore
+                              </button>
+                            )}
+                            <button className="btn btn-ghost btn-sm danger-text" onClick={() => setDeleteFor(b)} disabled={!!busy}>
+                              <Trash2 size={15} /> Delete
+                            </button>
+                          </div>
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </motion.li>
+              );
+            })}
+          </AnimatePresence>
+        </motion.ul>
+      )}
+
+      <Modal open={!!cancelFor} onClose={() => setCancelFor(null)} title="Cancel this booking" subtitle={cancelFor && `${cancelFor.serviceName} for ${cancelFor.name} on ${format(fromKey(cancelFor.date), 'd MMM yyyy')}. The reason is shown to the customer.`}>
+        <form onSubmit={confirmCancel} className="cancel-form">
+          <label className="field">
+            <textarea value={reason} onChange={(e) => setReason(e.target.value)} placeholder=" " rows={3} required minLength={3} autoFocus />
+            <span>Reason for cancelling *</span>
+          </label>
+          <div className="modal-actions">
+            <button type="button" className="btn btn-ghost" onClick={() => setCancelFor(null)}>
+              Back
+            </button>
+            <button className="btn btn-danger" disabled={!!busy}>
+              {busy ? <Loader2 size={17} className="spin" /> : <Ban size={17} />} Cancel booking
+            </button>
+          </div>
+        </form>
+      </Modal>
+
+      <Modal
+        open={!!confirmFor}
+        onClose={() => setConfirmFor(null)}
+        title={confirmFor?.status === 'confirmed' ? 'Edit bill amount' : 'Confirm & create bill'}
+        subtitle={confirmFor && `${confirmFor.serviceName} for ${confirmFor.name} on ${format(fromKey(confirmFor.date), 'd MMM yyyy')}. The customer will see the bill and can pay by ${[settings.upiEnabled && settings.upiId && 'UPI', settings.cashEnabled && 'cash'].filter(Boolean).join(' or ') || '—'}.`}
+      >
+        <form onSubmit={submitConfirm} className="cancel-form">
+          <label className="field amount-field">
+            <input type="number" inputMode="numeric" min="1" step="1" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder=" " required autoFocus />
+            <span>Amount (₹) *</span>
+          </label>
+          {!(settings.upiEnabled && settings.upiId) && !settings.cashEnabled && <p className="fine-print">Tip: turn on UPI or Cash in Site settings → Payments so customers know how to pay.</p>}
+          <div className="modal-actions">
+            <button type="button" className="btn btn-ghost" onClick={() => setConfirmFor(null)}>
+              Back
+            </button>
+            <button className="btn btn-primary" disabled={!!busy}>
+              {busy ? <Loader2 size={17} className="spin" /> : <FileText size={17} />} {confirmFor?.status === 'confirmed' ? 'Update bill' : 'Confirm & create bill'}
+            </button>
+          </div>
+        </form>
+      </Modal>
+
+      <Modal open={!!payFor} onClose={() => setPayFor(null)} title="Record payment" subtitle={payFor && `Bill ${payFor.billNo} · ${payFor.name}`}>
+        <form onSubmit={submitPayment} className="cancel-form">
+          <div className="pay-options" role="radiogroup">
+            {[
+              { id: 'upi', label: 'UPI', icon: Smartphone },
+              { id: 'cash', label: 'Cash', icon: Banknote },
+            ].map((m) => (
+              <button type="button" role="radio" aria-checked={payForm.method === m.id} key={m.id} className={`pay-option ${payForm.method === m.id ? 'active' : ''}`} onClick={() => setPayForm((f) => ({ ...f, method: m.id }))}>
+                {payForm.method === m.id && <motion.span layoutId="admin-pay-option" className="pay-option-bg" transition={{ type: 'spring', stiffness: 420, damping: 34 }} />}
+                <m.icon size={20} />
+                <span>
+                  <strong>{m.label}</strong>
+                </span>
+              </button>
+            ))}
+          </div>
+          <label className="field amount-field">
+            <input type="number" inputMode="numeric" min="1" value={payForm.amount} onChange={(e) => setPayForm((f) => ({ ...f, amount: e.target.value }))} placeholder=" " required />
+            <span>Amount received (₹) *</span>
+          </label>
+          {payForm.method === 'upi' && (
+            <label className="field">
+              <input value={payForm.utr} onChange={(e) => setPayForm((f) => ({ ...f, utr: e.target.value }))} placeholder=" " />
+              <span>UTR / transaction ID (optional)</span>
+            </label>
+          )}
+          <label className="field">
+            <input value={payForm.note} onChange={(e) => setPayForm((f) => ({ ...f, note: e.target.value }))} placeholder=" " />
+            <span>Note (optional)</span>
+          </label>
+          <div className="modal-actions">
+            <button type="button" className="btn btn-ghost" onClick={() => setPayFor(null)}>
+              Back
+            </button>
+            <button className="btn btn-primary" disabled={!!busy}>
+              {busy ? <Loader2 size={17} className="spin" /> : <Check size={17} />} Save payment
+            </button>
+          </div>
+        </form>
+      </Modal>
+
+      <BillModal booking={billFor} settings={settings} onClose={() => setBillFor(null)} />
+
+      <Modal open={!!deleteFor} onClose={() => setDeleteFor(null)} title="Delete booking?" subtitle="This removes the record permanently. To keep a history, cancel it instead.">
+        <div className="modal-actions">
+          <button className="btn btn-ghost" onClick={() => setDeleteFor(null)}>
+            Keep
+          </button>
+          <button className="btn btn-danger" onClick={confirmDelete} disabled={busy === 'delete'}>
+            {busy === 'delete' ? <Loader2 size={17} className="spin" /> : <Trash2 size={17} />} Delete
+          </button>
+        </div>
+      </Modal>
+    </div>
+  );
+}
