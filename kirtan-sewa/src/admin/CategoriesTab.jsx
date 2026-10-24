@@ -2,10 +2,11 @@ import { useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { ArrowDown, ArrowUp, Eye, EyeOff, LayoutGrid, Loader2, Pencil, Plus, Save, Trash2 } from 'lucide-react';
 import Modal from '../components/Modal';
-import { serviceIcon } from '../lib/icons';
+import { SERVICE_ICONS, serviceIcon } from '../lib/icons';
 import { ease } from '../lib/motion';
 
-const blank = { name: '', gurmukhi: '', description: '', serviceIds: [], active: true };
+const COLORS = ['#F6C453', '#FF9933', '#E9B44C', '#FF7A59', '#7C9CFF', '#5EEAD4', '#C084FC', '#F472B6'];
+const blank = { name: '', gurmukhi: '', description: '', serviceIds: [], icon: 'music', color: '#E9B44C', active: true };
 
 /** Top-level booking choice (e.g. Kirtan with Raag / with Kavishri) and which sewas each one offers. */
 export default function CategoriesTab({ data, api, patch, toast }) {
@@ -71,10 +72,12 @@ export default function CategoriesTab({ data, api, patch, toast }) {
 
       <motion.ul className="admin-services" layout>
         <AnimatePresence initial={false}>
-          {categories.map((c, i) => (
-            <motion.li key={c.id} layout className={`admin-service glass ${c.active ? '' : 'inactive'}`} style={{ '--accent': 'var(--gold)' }} initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }} transition={{ duration: 0.35, ease }}>
+          {categories.map((c, i) => {
+            const Icon = c.icon ? serviceIcon(c.icon) : LayoutGrid;
+            return (
+            <motion.li key={c.id} layout className={`admin-service glass ${c.active ? '' : 'inactive'}`} style={{ '--accent': c.color || 'var(--gold)' }} initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }} transition={{ duration: 0.35, ease }}>
               <span className="as-icon">
-                <LayoutGrid size={20} />
+                <Icon size={20} />
               </span>
               <div className="as-main">
                 <strong>
@@ -103,7 +106,8 @@ export default function CategoriesTab({ data, api, patch, toast }) {
                 </button>
               </div>
             </motion.li>
-          ))}
+            );
+          })}
         </AnimatePresence>
       </motion.ul>
 
@@ -123,6 +127,25 @@ export default function CategoriesTab({ data, api, patch, toast }) {
             <span className="label">Short description</span>
             <textarea className="input" rows={2} value={form.description} onChange={set('description')} />
           </label>
+          <div>
+            <span className="label">Icon (shown on the home page card)</span>
+            <div className="icon-grid">
+              {Object.entries(SERVICE_ICONS).map(([key, Icon]) => (
+                <button type="button" key={key} className={`icon-pick ${form.icon === key ? 'active' : ''}`} onClick={() => setForm((f) => ({ ...f, icon: key }))} aria-label={key}>
+                  <Icon size={18} />
+                </button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <span className="label">Accent colour</span>
+            <div className="color-row">
+              {COLORS.map((c) => (
+                <button type="button" key={c} className={`swatch ${(form.color || '').toLowerCase() === c.toLowerCase() ? 'active' : ''}`} style={{ background: c }} onClick={() => setForm((f) => ({ ...f, color: c }))} aria-label={c} />
+              ))}
+              <input type="color" value={form.color || '#E9B44C'} onChange={set('color')} aria-label="Custom colour" />
+            </div>
+          </div>
           <div>
             <span className="label">Sewas in this category * (only these are shown to visitors who pick it)</span>
             <div className="slot-checks">

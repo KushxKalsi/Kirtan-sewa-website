@@ -27,7 +27,7 @@ export default function Home({ ready }) {
     <main>
       <Hero ready={ready} />
       <About />
-      <Services onBook={(id) => setPreselect({ id, n: Date.now() })} />
+      <Services onBook={(id, categoryId) => setPreselect({ id, categoryId, n: Date.now() })} />
       <Booking preselect={preselect} />
       <Gallery />
       <Testimonials />

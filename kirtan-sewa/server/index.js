@@ -553,7 +553,16 @@ const readCategory = (b, existing = {}) => {
   const valid = new Set(db.services.map((s) => s.id));
   const serviceIds = Array.isArray(b.serviceIds) ? [...new Set(b.serviceIds.filter((id) => valid.has(id)))] : [];
   if (!serviceIds.length) fail(400, 'Tick at least one sewa for this category.');
-  return { ...existing, name, gurmukhi: str(b.gurmukhi, 80), description: str(b.description, 400), serviceIds, active: b.active !== false };
+  return {
+    ...existing,
+    name,
+    gurmukhi: str(b.gurmukhi, 80),
+    description: str(b.description, 400),
+    serviceIds,
+    icon: str(b.icon, 30) || 'music',
+    color: /^#[0-9a-f]{6}$/i.test(b.color) ? b.color : '#E9B44C',
+    active: b.active !== false,
+  };
 };
 
 app.post('/api/admin/categories', async (req, res) => {

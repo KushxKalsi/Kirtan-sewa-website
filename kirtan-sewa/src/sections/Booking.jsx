@@ -73,13 +73,27 @@ export default function Booking({ preselect }) {
   useEffect(() => {
     if (!preselect) return;
     // From a sewa card: keep the chosen category if it has this sewa, otherwise use the first one that does.
-    const cat = categories.find((c) => c.id === categoryId && c.serviceIds.includes(preselect.id)) || categories.find((c) => c.serviceIds.includes(preselect.id));
+    const cat =
+      categories.find((c) => c.id === preselect.categoryId) ||
+      categories.find((c) => c.id === categoryId && c.serviceIds.includes(preselect.id)) ||
+      categories.find((c) => c.serviceIds.includes(preselect.id));
     if (cat) setCategoryId(cat.id);
     setServiceId(preselect.id);
     setStep('pick');
-    scrollToId('book');
+    setTimeout(() => scrollToId('booking-calendar', -90), 400); // after the popup has closed
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [preselect]);
+
+  // On phones the sewa row scrolls sideways: bring the chosen sewa into view.
+  useEffect(() => {
+    if (!serviceId) return;
+    const t = setTimeout(() => {
+      const row = document.querySelector('.svc-picker');
+      const chip = row?.querySelector('.svc-chip.active');
+      if (row && chip && row.scrollWidth > row.clientWidth) row.scrollTo({ left: chip.offsetLeft - row.clientWidth / 2 + chip.offsetWidth / 2, behavior: 'smooth' });
+    }, 500);
+    return () => clearTimeout(t);
+  }, [serviceId, categoryId]);
 
   const loadAvailability = useCallback(async () => {
     setLoadingAvail(true);
@@ -267,7 +281,7 @@ export default function Booking({ preselect }) {
           </Reveal>
         </div>
 
-        <Reveal className="booking-shell glass" y={60}>
+        <Reveal id="booking-calendar" className="booking-shell glass" y={60}>
           <div className="booking-left">
             {hasCats && (
               <>
