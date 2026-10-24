@@ -30,7 +30,7 @@ export default function BookingSuccess({ bookings, phone, onAgain }) {
     }
   };
 
-  const lines = bookings.map((b) => `• ${b.serviceName} — ${prettyDate(b.date, 'EEE, d MMM yyyy')}, ${b.slotLabel} (${rangeTo12(b.slotTime)}) — ID ${b.ref}`);
+  const lines = bookings.map((b) => `• ${b.serviceName}${b.categoryName ? ` (${b.categoryName})` : ''} — ${prettyDate(b.date, 'EEE, d MMM yyyy')}, ${b.slotLabel} (${rangeTo12(b.slotTime)}) — ID ${b.ref}`);
   const message = `Waheguru Ji Ka Khalsa, Waheguru Ji Ki Fateh 🙏\n\nI have requested ${many ? `${bookings.length} bookings` : 'a booking'}:\n${lines.join('\n')}\n\nName: ${booking.name}\nVenue: ${booking.address}`;
 
   return (
@@ -67,7 +67,10 @@ export default function BookingSuccess({ bookings, phone, onAgain }) {
             {bookings.map((b, i) => (
               <motion.li key={b.ref} initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.7 + i * 0.07, duration: 0.4, ease }}>
                 <span>
-                  <strong>{b.serviceName}</strong>
+                  <strong>
+                    {b.serviceName}
+                    {b.categoryName && <small> · {b.categoryName}</small>}
+                  </strong>
                   {prettyDate(b.date, 'EEE, d MMM yyyy')} · {b.slotLabel}, {rangeTo12(b.slotTime)}
                 </span>
                 <code>{b.ref}</code>
@@ -86,7 +89,10 @@ export default function BookingSuccess({ bookings, phone, onAgain }) {
             <dl className="success-details">
               <div>
                 <dt>Sewa</dt>
-                <dd>{booking.serviceName}</dd>
+                <dd>
+                  {booking.serviceName}
+                  {booking.categoryName && <small className="muted"> · {booking.categoryName}</small>}
+                </dd>
               </div>
               <div>
                 <dt>Date</dt>

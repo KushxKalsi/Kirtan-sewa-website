@@ -36,10 +36,11 @@ export default function Booking({ preselect }) {
   const today = site?.today || toKey(new Date());
   const maxDate = toKey(addDays(fromKey(today), Number(site?.settings.maxAdvanceDays) || 365));
 
+  const [categoryId, setCategoryId] = useState('');
   const [serviceId, setServiceId] = useState('');
   const [month, setMonth] = useState(() => startOfMonth(new Date()));
   const [date, setDate] = useState('');
-  const [selection, setSelection] = useState([]); // [{ serviceId, date, slotId }] — many slots across dates
+  const [selection, setSelection] = useState([]); // [{ categoryId, serviceId, date, slotId }] — many slots across dates
   const [step, setStep] = useState('pick');
   const [booked, setBooked] = useState([]);
   const [blocked, setBlocked] = useState([]);
@@ -50,16 +51,34 @@ export default function Booking({ preselect }) {
   const [result, setResult] = useState(null);
   const panelRef = useRef(null);
 
-  const service = services.find((s) => s.id === serviceId) || null;
+  // Step 1 is the category (e.g. Kirtan with Raag / with Kavishri); it decides which sewas can be picked.
+  const categories = useMemo(() => site?.categories || [], [site]);
+  const hasCats = categories.length > 0;
+  const category = categories.find((c) => c.id === categoryId) || null;
+  const visibleServices = hasCats ? (category ? services.filter((s) => category.serviceIds.includes(s.id)) : []) : services;
+  const service = visibleServices.find((s) => s.id === serviceId) || null;
+  const categoryById = useCallback((id) => categories.find((c) => c.id === id), [categories]);
+
+  const chooseCategory = (c) => {
+    setCategoryId(c.id);
+    const inCat = services.filter((s) => c.serviceIds.includes(s.id));
+    if (inCat.length === 1) setServiceId(inCat[0].id); // e.g. Kavishri only has Kirtan Diwan
+    else if (!c.serviceIds.includes(serviceId)) setServiceId('');
+    if (step === 'details') setStep('pick');
+  };
   const settings = site?.settings || {};
   const payMethods = [settings.upiEnabled && settings.upiId && 'upi', settings.cashEnabled && 'cash'].filter(Boolean);
   const [nudge, setNudge] = useState(0); // bumps to shake the sewa picker when a sewa is still missing
 
   useEffect(() => {
     if (!preselect) return;
+    // From a sewa card: keep the chosen category if it has this sewa, otherwise use the first one that does.
+    const cat = categories.find((c) => c.id === categoryId && c.serviceIds.includes(preselect.id)) || categories.find((c) => c.serviceIds.includes(preselect.id));
+    if (cat) setCategoryId(cat.id);
     setServiceId(preselect.id);
     setStep('pick');
     scrollToId('book');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [preselect]);
 
   const loadAvailability = useCallback(async () => {
@@ -135,13 +154,13 @@ export default function Booking({ preselect }) {
   const toggleSlot = (sl) => {
     const key = keyOf(date, sl.id);
     if (pickedMap.has(key)) return setSelection((list) => list.filter((it) => keyOf(it.date, it.slotId) !== key));
-    if (!service) {
+    if (!service || (hasCats && !category)) {
       setNudge((n) => n + 1);
       if (window.innerWidth < 960) scrollToId('book', -20);
       return;
     }
     if (selection.length >= MAX_ITEMS) return toast(`You can book up to ${MAX_ITEMS} slots at once.`, 'error');
-    setSelection((list) => [...list, { serviceId: service.id, date, slotId: sl.id }]);
+    setSelection((list) => [...list, { categoryId: category?.id || '', serviceId: service.id, date, slotId: sl.id }]);
   };
   const removeItem = (it) => setSelection((list) => list.filter((x) => x !== it));
 
@@ -191,6 +210,7 @@ export default function Booking({ preselect }) {
         <AnimatePresence initial={false}>
           {sortedSelection.map((it) => {
             const svc = serviceById(it.serviceId);
+            const cat = categoryById(it.categoryId);
             const sl = slotById(it.slotId);
             return (
               <motion.li
@@ -207,7 +227,10 @@ export default function Booking({ preselect }) {
                   <span>
                     {sl?.label} · {sl && slotTime(sl)}
                   </span>
-                  <em>{svc?.name}</em>
+                  <em>
+                    {svc?.name}
+                    {cat && <small> · {cat.name}</small>}
+                  </em>
                 </button>
                 {editable && (
                   <button type="button" className="icon-btn basket-remove" onClick={() => removeItem(it)} aria-label="Remove">
@@ -224,7 +247,7 @@ export default function Booking({ preselect }) {
           <button type="button" className="btn btn-primary btn-block" onClick={() => setStep('details')}>
             Continue with {selection.length} slot{selection.length > 1 ? 's' : ''} <ArrowRight size={18} />
           </button>
-          <p className="fine-print">Tip: pick more dates on the calendar, or switch sewa, to add more slots.</p>
+          <p className="fine-print">Tip: pick more dates on the calendar, or switch the type of kirtan / sewa, to add more slots.</p>
         </div>
       )}
     </div>
@@ -240,14 +263,54 @@ export default function Booking({ preselect }) {
           </Reveal>
           <SplitText className="section-title" text="Check availability & book your date" highlight={[3, 4, 5]} />
           <Reveal delay={0.1}>
-            <p className="section-lead">Every booked slot shows on the calendar in real time. Pick a sewa, then as many dates and times as you need — and book them all at once.</p>
+            <p className="section-lead">Every booked slot shows on the calendar in real time. Choose the type of kirtan and the sewa, then as many dates and times as you need — and book them all at once.</p>
           </Reveal>
         </div>
 
         <Reveal className="booking-shell glass" y={60}>
           <div className="booking-left">
+            {hasCats && (
+              <>
+                <p className={`step-hint ${category ? 'done' : ''}`}>
+                  <span className="step-num">1</span>
+                  {category ? (
+                    <>
+                      Type of kirtan: <strong>{category.name}</strong>
+                    </>
+                  ) : (
+                    'Choose the type of kirtan'
+                  )}
+                </p>
+                <motion.div
+                  key={`cat-${nudge}`}
+                  className={`cat-picker ${category ? '' : 'needs-choice'}`}
+                  role="radiogroup"
+                  aria-label="Choose the type of kirtan"
+                  animate={nudge && !category ? { x: [0, -10, 10, -6, 6, 0] } : undefined}
+                  transition={{ duration: 0.5 }}
+                >
+                  {categories.map((c) => {
+                    const on = c.id === category?.id;
+                    return (
+                      <button key={c.id} type="button" role="radio" aria-checked={on} className={`cat-card ${on ? 'active' : ''}`} onClick={() => chooseCategory(c)}>
+                        {on && <motion.span layoutId="cat-active" className="cat-card-bg" transition={{ type: 'spring', stiffness: 400, damping: 34 }} />}
+                        <strong>{c.name}</strong>
+                        {c.gurmukhi && <span className="gurmukhi">{c.gurmukhi}</span>}
+                        <small>
+                          {c.serviceIds.length === services.length ? 'All sewas' : c.serviceIds.map((id) => serviceById(id)?.name).filter(Boolean).join(', ')}
+                        </small>
+                      </button>
+                    );
+                  })}
+                </motion.div>
+              </>
+            )}
+
+            <AnimatePresence initial={false}>
+            {(!hasCats || category) && (
+            <motion.div key="sewa-step" initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} transition={{ duration: 0.4, ease }}>
             <p className={`step-hint ${service ? 'done' : ''}`}>
-              <span className="step-num">1</span>
+              <span className="step-num">{hasCats ? 2 : 1}</span>
               {service ? (
                 <>
                   Booking for <strong style={{ color: service.color }}>{service.name}</strong>
@@ -261,10 +324,10 @@ export default function Booking({ preselect }) {
               className={`svc-picker ${service ? '' : 'needs-choice'}`}
               role="radiogroup"
               aria-label="Choose a sewa"
-              animate={nudge ? { x: [0, -10, 10, -6, 6, 0] } : undefined}
+              animate={nudge && (!hasCats || category) ? { x: [0, -10, 10, -6, 6, 0] } : undefined}
               transition={{ duration: 0.5 }}
             >
-              {services.map((s) => {
+              {visibleServices.map((s) => {
                 const Icon = serviceIcon(s.icon);
                 const active = s.id === service?.id;
                 return (
@@ -286,6 +349,9 @@ export default function Booking({ preselect }) {
                 );
               })}
             </motion.div>
+            </motion.div>
+            )}
+            </AnimatePresence>
 
             <div className="cal-wrap">
               <AnimatePresence>
@@ -391,7 +457,7 @@ export default function Booking({ preselect }) {
                         Tap one or more times to add <strong style={{ color: service.color }}>{service.name}</strong> — you can add other dates too
                       </>
                     ) : (
-                      'See what is booked below. To book a free slot, first choose your sewa (step 1).'
+                      `See what is booked below. To book a free slot, first choose ${hasCats && !category ? 'the type of kirtan and your sewa' : 'your sewa'} on the left.`
                     )}
                   </p>
                   <motion.div className="slot-list" initial="hidden" animate="show" variants={{ hidden: {}, show: { transition: { staggerChildren: 0.07 } } }}>
@@ -458,11 +524,11 @@ export default function Booking({ preselect }) {
                   <motion.div className="empty-icon" animate={{ y: [0, -10, 0] }} transition={{ duration: 3.2, repeat: Infinity, ease: 'easeInOut' }}>
                     {service ? <CalendarDays size={34} /> : <MousePointerClick size={34} />}
                   </motion.div>
-                  <h3 className="panel-title">{service ? 'Pick a date' : 'Choose your sewa'}</h3>
+                  <h3 className="panel-title">{service ? 'Pick a date' : hasCats && !category ? 'Choose the type of kirtan' : 'Choose your sewa'}</h3>
                   <p className="panel-sub">
                     {service
                       ? 'Tap a day on the calendar to see its time slots. Dots under each date show which slots are already booked.'
-                      : 'Start by choosing which sewa you want to book. You can also tap any day to see what is already booked there and where.'}
+                      : `Start by choosing ${hasCats ? 'the type of kirtan, then the sewa' : 'which sewa'} you want to book. You can also tap any day to see what is already booked there and where.`}
                   </p>
                   {selection.length > 0 && basket(true)}
                 </motion.div>

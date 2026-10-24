@@ -71,6 +71,17 @@ empty, it copies `data/db.json` into it. Upload the UPI QR again afterwards.
 
 Each time slot takes one booking per day, across all sewas, because there is one jatha.
 
+## Categories, team and assignments
+
+- **Categories** (admin → Categories): the first choice when booking, e.g. *Kirtan with Raag* (all sewas) and
+  *Kirtan with Kavishri* (Kirtan Diwan only). Visitors pick a category, then only its sewas show. A category with
+  a single sewa selects it automatically. One booking can mix categories (each slot keeps its own).
+- **Team** (admin → Team): add people and tick what each one does, per category, e.g. "Kavishri → Kirtan Diwan".
+  Inactive people can't be assigned.
+- **Assigning:** open a booking and use **Assigned to**. Only people who do that sewa in that category are listed.
+  You can assign several people, and each slot of a multi-slot booking separately. The **Not assigned** filter
+  shows upcoming bookings with nobody assigned. Names stay on bookings even if a person is later removed.
+
 ## Light / dark mode
 
 The site follows the visitor's phone or browser theme by default. The button in the navbar cycles through
