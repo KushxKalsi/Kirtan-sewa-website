@@ -15,6 +15,7 @@ self.addEventListener('push', (event) => {
       icon: '/icon-192.png',
       badge: '/badge-96.png',
       tag: data.tag,
+      ...(data.image && { image: data.image }), // big picture (Android Chrome), e.g. the Gurpurab poster
       renotify: !!data.tag,
       data: { url: data.url || '/manage' },
     }),
