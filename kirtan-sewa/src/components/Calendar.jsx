@@ -85,11 +85,13 @@ export default function Calendar({ month, onMonthChange, selected, onSelect, get
                   animate={{ opacity: 1, scale: 1 }}
                   transition={{ delay: Math.min(i * 0.008, 0.3), duration: 0.3 }}
                   whileTap={disabled ? undefined : { scale: 0.9 }}
-                  aria-label={`${format(d, 'd MMMM')} — ${info.state}`}
+                  aria-label={`${format(d, 'd MMMM')} — ${info.state}${info.gurpurab?.length ? ` — ${info.gurpurab.map((g) => `${g.kindLabel}, ${g.name}`).join('; ')}` : ''}`}
+                  title={info.gurpurab?.length ? info.gurpurab.map((g) => `${g.kindLabel} · ${g.name}`).join('\n') : undefined}
                   aria-pressed={isSel}
                 >
                   {isSel && <motion.span layoutId="cal-selected" className="cal-sel-bg" transition={{ type: 'spring', stiffness: 420, damping: 34 }} />}
                   <span className="cal-num">{format(d, 'd')}</span>
+                  {inMonth && info.gurpurab?.length > 0 && <span className={`cal-gp k-${info.gurpurab[0].kind}`} aria-hidden="true" />}
                   <AnimatePresence>
                     {inMonth && info.picked > 0 && (
                       <motion.span key={info.picked} className="cal-picked" initial={{ scale: 0 }} animate={{ scale: 1 }} exit={{ scale: 0 }} transition={{ type: 'spring', stiffness: 500, damping: 22 }}>
@@ -126,6 +128,9 @@ export default function Calendar({ month, onMonthChange, selected, onSelect, get
         </span>
         <span>
           <i className="lg-blocked" /> Unavailable
+        </span>
+        <span>
+          <i className="lg-gp" /> Gurpurab
         </span>
       </div>
     </div>

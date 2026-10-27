@@ -104,6 +104,23 @@ Each time slot takes one booking per day, across all sewas, because there is one
   8 AM) and **2 hours before** the start. Assigning waits 30 seconds to settle, so ticking people on and off
   sends one message.
 
+## Gurpurab (Prakash Purab, Jyoti Jot Divas, Shaheedi Purab)
+
+- **Admin → Gurpurab** lists the Prakash Purab and Jyoti Jot Divas of all ten Gurus, the Shaheedi Purab of Guru
+  Arjan Dev Ji and Guru Tegh Bahadur Ji, and the Bhagats in the SGPC calendar (Ravidas Ji, Dhanna Ji,
+  Kabir Ji). Dates are from the SGPC calendar for Nanakshahi 558 (March 2026 – March 2027). Add others with
+  **Add day**.
+- Most of these follow the moon, so dates change every year. When the SGPC publishes the new Jantri, open each
+  day under "Passed this year" and set its new date.
+- **Home page carousel:** upcoming days, with the pictures you add to each (posters or photos, any shape, up
+  to 8 per day). A day without pictures gets a designed card with the name in Gurmukhi. Visitors can swipe,
+  and **Book kirtan for this day** opens that date in the booking calendar.
+- **Calendar:** Gurpurab days have a coloured dot, and the day's panel names the Gurpurab.
+- **One month before** each day (10 AM), every device with notifications on gets a reminder: customers, team
+  members, admins, and visitors who tapped **Remind me** in the Gurpurab section (no booking needed). The
+  reminder includes the first picture. It's sent once per date. Use the send button on a day to send it
+  again, or to send one for a day you added late.
+
 ## Low-end phones
 
 The site measures the device as it loads: 2 GB RAM or less, 4 CPU cores or fewer on a touch screen, data saver,

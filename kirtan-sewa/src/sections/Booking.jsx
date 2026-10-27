@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { addDays, endOfMonth, format, startOfMonth } from 'date-fns';
-import { ArrowLeft, ArrowRight, CalendarDays, CalendarHeart, Check, Clock, Loader2, CircleAlert, MapPin, MousePointerClick, Plus, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, CalendarDays, CalendarHeart, Check, Clock, Loader2, Sparkles, CircleAlert, MapPin, MousePointerClick, Plus, X } from 'lucide-react';
 import Calendar from '../components/Calendar';
 import SplitText from '../components/SplitText';
 import Reveal from '../components/Reveal';
@@ -76,6 +76,7 @@ export default function Booking({ preselect }) {
     if (step === 'details') setStep('pick');
   };
   const settings = site?.settings || {};
+  const gurpurabsOn = useCallback((key) => (site?.gurpurabs || []).filter((g) => g.date === key), [site]);
   const customAllowed = settings.customTimeEnabled !== false;
   const payMethods = [settings.upiEnabled && settings.upiId && 'upi', settings.cashEnabled && 'cash'].filter(Boolean);
   const [nudge, setNudge] = useState(0); // bumps to shake the sewa picker when a sewa is still missing
@@ -87,8 +88,15 @@ export default function Booking({ preselect }) {
       categories.find((c) => c.id === preselect.categoryId) ||
       categories.find((c) => c.id === categoryId && c.serviceIds.includes(preselect.id)) ||
       categories.find((c) => c.serviceIds.includes(preselect.id));
-    if (cat) setCategoryId(cat.id);
-    setServiceId(preselect.id);
+    if (preselect.date) {
+      // From a Gurpurab: open that date on the calendar (the sewa is chosen next).
+      setMonth(startOfMonth(fromKey(preselect.date)));
+      setDate(preselect.date);
+    }
+    if (preselect.id) {
+      if (cat) setCategoryId(cat.id);
+      setServiceId(preselect.id);
+    }
     setStep('pick');
     setTimeout(() => scrollToId('booking-calendar', -90), 400); // after the popup has closed
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -163,18 +171,19 @@ export default function Booking({ preselect }) {
     (key) => {
       if (key < today) return { state: 'past' };
       if (key > maxDate) return { state: 'closed' };
-      if (blocked.includes(key)) return { state: 'blocked' };
+      const gurpurab = gurpurabsOn(key);
+      if (blocked.includes(key)) return { state: 'blocked', gurpurab };
       const states = slots.map((sl) => slotState(key, sl));
       const daySlots = states.map((st, i) => ({ booked: st === 'booked', offered: st === 'free', picked: picksAt(key, slots[i].id).length > 0 }));
       const picked = selection.filter((it) => it.date === key).length;
       const offered = slots.filter((sl, i) => isOffered(sl) && states[i] !== 'passed').length;
       const free = states.filter((st) => st === 'free').length;
-      if (offered === 0) return { state: 'closed', slots: daySlots, picked };
-      if (free === 0) return { state: 'full', slots: daySlots, picked };
-      if (free < offered) return { state: 'partial', slots: daySlots, picked };
-      return { state: 'free', slots: daySlots, picked };
+      if (offered === 0) return { state: 'closed', slots: daySlots, picked, gurpurab };
+      if (free === 0) return { state: 'full', slots: daySlots, picked, gurpurab };
+      if (free < offered) return { state: 'partial', slots: daySlots, picked, gurpurab };
+      return { state: 'free', slots: daySlots, picked, gurpurab };
     },
-    [today, maxDate, blocked, slots, slotState, isOffered, picksAt, selection],
+    [today, maxDate, blocked, slots, slotState, isOffered, picksAt, selection, gurpurabsOn],
   );
 
   // Drop picked times that the jatha has since marked unavailable.
@@ -509,6 +518,14 @@ export default function Booking({ preselect }) {
                 <motion.div key={`slots-${date}`} {...panelAnim}>
                   <p className="panel-kicker">{format(fromKey(date), 'EEEE')}</p>
                   <h3 className="panel-title">{prettyDate(date, 'd MMMM yyyy')}</h3>
+                  {gurpurabsOn(date).map((g) => (
+                    <motion.p key={g.id} className={`gp-banner k-${g.kind}`} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, ease }}>
+                      <Sparkles size={16} />
+                      <span>
+                        <strong>{g.kindLabel}</strong> · {g.name}
+                      </span>
+                    </motion.p>
+                  ))}
                   <p className="panel-sub">
                     {service ? (
                       <>

@@ -5,7 +5,9 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { db, save, uid, makeRef, slugify, DATA_DIR, initDb, kv } from './db.js';
-import { initPush, pushPublicKey, addSubscription, notifyPhone, addAdminSubscription, removeAdminSubscription, adminDeviceCount, notifyAdmins } from './push.js';
+import { initPush, pushPublicKey, addSubscription, notifyPhone, addAdminSubscription, removeAdminSubscription, adminDeviceCount, notifyAdmins, addPublicSubscription, notifyEveryone, everyoneCount } from './push.js';
+import { GURPURAB_KINDS } from './gurpurabs.js';
+import { format, subMonths } from 'date-fns';
 
 await initDb();
 await initPush();
@@ -32,9 +34,10 @@ if (db.settings.upiQrFile) {
 
 const app = express();
 const QR_PATH = '/api/admin/upi-qr';
+const GP_IMAGE_PATH = '/api/admin/gurpurab-images';
 const smallJson = express.json({ limit: '300kb' });
-// The QR upload carries an image, so it gets its own larger body limit.
-app.use((req, res, next) => (req.path === QR_PATH ? next() : smallJson(req, res, next)));
+// Image uploads (UPI QR, Gurpurab pictures) get their own larger body limit.
+app.use((req, res, next) => (req.path === QR_PATH || req.path === GP_IMAGE_PATH ? next() : smallJson(req, res, next)));
 
 
 /* ---------------- helpers ---------------- */
@@ -197,6 +200,7 @@ app.get('/api/public', async (_req, res) => {
     services: db.services.filter((s) => s.active),
     slots: db.slots,
     blockedDates: db.blockedDates,
+    gurpurabs: upcomingGurpurabs().map(publicGurpurab),
     today: todayKey(),
     now: nowHHMM(),
   });
@@ -550,6 +554,20 @@ app.post('/api/push/subscribe', async (req, res) => {
   res.json({ ok: true });
 });
 
+// Images are kept apart from the main record (it is loaded on every request) and never change, so cache them for long.
+app.get('/api/gurpurab-images/:id', async (req, res) => {
+  if (!/^[a-f0-9]{16}$/.test(req.params.id)) fail(404, 'Not found.');
+  const img = await kv.get(`gp-img-${req.params.id}`);
+  if (!img) fail(404, 'Not found.');
+  res.set('Cache-Control', 'public, max-age=31536000, immutable').type(img.type).send(Buffer.from(img.data, 'base64'));
+});
+
+app.post('/api/push/subscribe-public', async (req, res) => {
+  throttle(`push:${req.ip}`, 30);
+  await addPublicSubscription(readSubscription(req.body?.subscription));
+  res.json({ ok: true });
+});
+
 app.get('/api/health', async (_req, res) => {
   res.json({ ok: true, uptime: Math.round(process.uptime()) });
 });
@@ -615,6 +633,8 @@ app.get('/api/admin/data', async (_req, res) => {
     slots: db.slots,
     blockedDates: db.blockedDates,
     blockedTimes: db.blockedTimes || [],
+    gurpurabs: db.gurpurabs || [],
+    everyoneDevices: everyoneCount(),
     bookings: db.bookings,
     notifyPhones: Object.keys(db.pushSubs || {}),
     adminDevices: adminDeviceCount(),
@@ -964,6 +984,65 @@ app.patch('/api/admin/bookings/:id/payment', async (req, res) => {
 });
 
 
+/* ---------- admin: Gurpurab ---------- */
+
+const sortGurpurabs = () => db.gurpurabs.sort((a, b) => a.date.localeCompare(b.date));
+const readGurpurab = (b, existing = {}) => {
+  if (!GURPURAB_KINDS[b.kind]) fail(400, 'Choose Prakash Purab, Jyoti Jot Divas or Shaheedi Purab.');
+  const name = str(b.name, 120);
+  if (name.length < 2) fail(400, 'Enter the name, e.g. Sri Guru Nanak Dev Ji.');
+  const date = str(b.date, 10);
+  if (!DATE_RE.test(date)) fail(400, 'Choose the date.');
+  const images = (Array.isArray(b.images) ? b.images : []).filter((id) => /^[a-f0-9]{16}$/.test(id)).slice(0, 8);
+  return { ...existing, kind: b.kind, name, gurmukhi: str(b.gurmukhi, 120), date, images, active: b.active !== false, noticeSentFor: existing.noticeSentFor || '' };
+};
+const dropImages = (ids) => Promise.all(ids.map((id) => kv.set(`gp-img-${id}`, null)));
+
+app.post('/api/admin/gurpurabs', async (req, res) => {
+  db.gurpurabs = [...(db.gurpurabs || []), { id: uid(), ...readGurpurab(req.body || {}) }];
+  sortGurpurabs();
+  await save();
+  res.status(201).json({ gurpurabs: db.gurpurabs });
+});
+
+app.put('/api/admin/gurpurabs/:id', async (req, res) => {
+  const g = (db.gurpurabs || []).find((x) => x.id === req.params.id);
+  if (!g) fail(404, 'Not found.');
+  const next = readGurpurab(req.body || {}, g);
+  await dropImages((g.images || []).filter((id) => !next.images.includes(id)));
+  Object.assign(g, next);
+  sortGurpurabs();
+  await save();
+  res.json({ gurpurabs: db.gurpurabs });
+});
+
+app.delete('/api/admin/gurpurabs/:id', async (req, res) => {
+  const g = (db.gurpurabs || []).find((x) => x.id === req.params.id);
+  if (g) await dropImages(g.images || []);
+  db.gurpurabs = (db.gurpurabs || []).filter((x) => x.id !== req.params.id);
+  await save();
+  res.json({ gurpurabs: db.gurpurabs });
+});
+
+// Send the "upcoming Gurpurab" notification to everyone right now.
+app.post('/api/admin/gurpurabs/:id/notify', async (req, res) => {
+  const g = (db.gurpurabs || []).find((x) => x.id === req.params.id);
+  if (!g) fail(404, 'Not found.');
+  if (g.date < todayKey()) fail(400, 'This day has passed — change its date to next year first.');
+  if (!everyoneCount()) fail(400, 'Nobody has turned on notifications yet.');
+  const sent = await sendGurpurabNotice(g);
+  res.json({ gurpurabs: db.gurpurabs, sent });
+});
+
+app.post(GP_IMAGE_PATH, express.json({ limit: '6mb' }), async (req, res) => {
+  const match = /^data:(image\/(?:png|jpeg|webp));base64,([A-Za-z0-9+/=]+)$/.exec(req.body?.dataUrl || '');
+  if (!match) fail(400, 'Please upload a PNG, JPG or WebP image.');
+  if (Buffer.byteLength(match[2], 'base64') > 4 * 1024 * 1024) fail(400, 'Image is too large (max 4 MB).');
+  const id = uid();
+  await kv.set(`gp-img-${id}`, { type: match[1], data: match[2] });
+  res.status(201).json({ id, url: gpImageUrl(id) });
+});
+
 app.post(QR_PATH, express.json({ limit: '4mb' }), async (req, res) => {
   const match = /^data:(image\/(?:png|jpeg|webp));base64,([A-Za-z0-9+/=]+)$/.exec(req.body?.dataUrl || '');
   if (!match) fail(400, 'Please upload a PNG, JPG or WebP image.');
@@ -1024,9 +1103,60 @@ app.use((err, _req, res, _next) => {
   res.status(status).json({ error: status >= 500 ? 'Server error. Please try again.' : err.message });
 });
 
+/* ---------- Gurpurab: Prakash / Jyoti Jot / Shaheedi days ---------- */
+
+const gpImageUrl = (imgId) => `/api/gurpurab-images/${imgId}`;
+const gpKind = (g) => GURPURAB_KINDS[g.kind] || GURPURAB_KINDS.prakash;
+const upcomingGurpurabs = () =>
+  (db.gurpurabs || []).filter((g) => g.active && g.date >= todayKey()).sort((a, b) => a.date.localeCompare(b.date));
+const publicGurpurab = (g) => ({
+  id: g.id,
+  kind: g.kind,
+  kindLabel: gpKind(g).label,
+  kindGurmukhi: gpKind(g).gurmukhi,
+  name: g.name,
+  gurmukhi: g.gurmukhi,
+  date: g.date,
+  images: (g.images || []).map(gpImageUrl),
+});
+
+// "One month to go" goes out at 10 AM, one calendar month before the day.
+const noticeAt = (g) => subMonths(new Date(`${g.date}T10:00:00`), 1).getTime();
+const NOTICE_GRACE = 3 * 24 * 60 * 60 * 1000; // still send if the server was asleep at that moment
+
+async function sendGurpurabNotice(g) {
+  const days = Math.round((new Date(`${g.date}T00:00:00`) - new Date(`${todayKey()}T00:00:00`)) / 86400000);
+  const when = format(new Date(`${g.date}T00:00:00`), 'EEEE, d MMMM');
+  const sent = await notifyEveryone({
+    title: `🙏 ${gpKind(g).label} — ${g.name}`,
+    body: `${when}${days > 1 ? ` · ${days} days to go` : days === 1 ? ' · tomorrow' : ''}. Book Gurbani Kirtan sewa for the Gurpurab.`,
+    url: `/?gurpurab=${encodeURIComponent(g.id)}`,
+    tag: `gp-${g.id}-${g.date}`,
+    ...(g.images?.[0] && { image: gpImageUrl(g.images[0]) }),
+  });
+  g.noticeSentFor = g.date;
+  g.noticeSentAt = new Date().toISOString();
+  g.noticeDevices = sent;
+  await save();
+  return sent;
+}
+
+async function sendGurpurabNotices() {
+  const now = Date.now();
+  for (const g of upcomingGurpurabs()) {
+    if (g.noticeSentFor === g.date) continue;
+    const at = noticeAt(g);
+    if (now >= at && now < at + NOTICE_GRACE) await sendGurpurabNotice(g);
+  }
+}
+
 // Team reminders: checked every minute (the keep-alive below keeps the server awake for this).
-setInterval(() => sendReminders().catch((e) => console.error('[sewa] Reminders failed:', e)), 60 * 1000);
+setInterval(() => {
+  sendReminders().catch((e) => console.error('[sewa] Reminders failed:', e));
+  sendGurpurabNotices().catch((e) => console.error('[sewa] Gurpurab notices failed:', e));
+}, 60 * 1000);
 sendReminders().catch(() => {});
+sendGurpurabNotices().catch(() => {});
 
 // Free hosting plans put the site to sleep when idle. Render sets RENDER_EXTERNAL_URL itself;
 // on other hosts set KEEP_ALIVE_URL to the public address. KEEP_ALIVE=off disables it.

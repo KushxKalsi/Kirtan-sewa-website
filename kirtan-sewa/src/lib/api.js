@@ -28,6 +28,7 @@ export const api = {
   setPaymentMethod: (ref, phone, method) => request('/bookings/payment-method', { method: 'POST', body: { ref, phone, method } }),
   pushKey: () => request('/push/key'),
   pushSubscribe: (phone, subscription) => request('/push/subscribe', { method: 'POST', body: { phone, subscription } }),
+  pushSubscribePublic: (subscription) => request('/push/subscribe-public', { method: 'POST', body: { subscription } }),
 };
 
 export const adminApi = (token) => ({
@@ -59,6 +60,11 @@ export const adminApi = (token) => ({
   setPayment: (id, payment) => request(`/admin/bookings/${id}/payment`, { method: 'PATCH', body: payment, token }),
   uploadQr: (dataUrl) => request('/admin/upi-qr', { method: 'POST', body: { dataUrl }, token }),
   removeQr: () => request('/admin/upi-qr', { method: 'DELETE', token }),
+  addGurpurab: (g) => request('/admin/gurpurabs', { method: 'POST', body: g, token }),
+  updateGurpurab: (id, g) => request(`/admin/gurpurabs/${id}`, { method: 'PUT', body: g, token }),
+  deleteGurpurab: (id) => request(`/admin/gurpurabs/${id}`, { method: 'DELETE', token }),
+  notifyGurpurab: (id) => request(`/admin/gurpurabs/${id}/notify`, { method: 'POST', body: {}, token }),
+  uploadGurpurabImage: (dataUrl) => request('/admin/gurpurab-images', { method: 'POST', body: { dataUrl }, token }),
 });
 
 export const adminLogin = (password) => request('/admin/login', { method: 'POST', body: { password } });

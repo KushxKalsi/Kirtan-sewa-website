@@ -9,6 +9,7 @@ import { ease } from '../lib/motion';
 import { lockScroll, unlockScroll } from '../lib/scroll';
 
 const LINKS = [
+  { id: 'gurpurab', label: 'Gurpurab' },
   { id: 'about', label: 'About' },
   { id: 'sewa', label: 'Sewa' },
   { id: 'book', label: 'Calendar' },

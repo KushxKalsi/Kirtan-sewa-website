@@ -61,6 +61,17 @@ export async function enableNotifications(phone) {
   writeStore(KEY, [...new Set([...readStore(KEY, []), digits])]);
 }
 
+/* ---------- Gurpurab reminders (any visitor, no booking needed) ---------- */
+const GP_KEY = 'sewa.gpPush';
+/** Any notifications on this device already include Gurpurab reminders. */
+export const gurpurabRemindersOn = () => permission() === 'granted' && (readStore(GP_KEY, false) === true || readStore(KEY, []).length > 0 || readStore(ADMIN_KEY, false) === true);
+
+export async function enableGurpurabReminders() {
+  const sub = await subscribeBrowser();
+  await api.pushSubscribePublic(sub.toJSON());
+  writeStore(GP_KEY, true);
+}
+
 /* ---------- admin ---------- */
 const ADMIN_KEY = 'sewa.adminPush';
 export const adminPushOn = () => permission() === 'granted' && readStore(ADMIN_KEY, false) === true;

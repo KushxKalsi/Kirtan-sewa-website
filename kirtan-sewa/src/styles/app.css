@@ -1131,6 +1131,47 @@
   background: repeating-linear-gradient(135deg, var(--faint) 0 2px, transparent 2px 4px);
   border: 1px solid var(--faint);
 }
+/* Gurpurab days on the calendar */
+.k-prakash {
+  --gp: #ff9933;
+}
+.k-jyoti-jot {
+  --gp: #8fa6ff;
+}
+.k-shaheedi {
+  --gp: #e2574c;
+}
+.cal-gp {
+  position: absolute;
+  top: 5px;
+  left: 5px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--gp);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--gp) 30%, transparent), 0 0 10px var(--gp);
+}
+.lg-gp {
+  border-radius: 50% !important;
+  background: #ff9933;
+  box-shadow: 0 0 6px #ff9933;
+}
+.gp-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 10px 0 0;
+  padding: 10px 14px;
+  border-radius: 12px;
+  font-size: 14px;
+  border: 1px solid color-mix(in srgb, var(--gp) 45%, transparent);
+  background: color-mix(in srgb, var(--gp) 10%, transparent);
+}
+.gp-banner svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: var(--gp);
+}
 
 .panel-kicker {
   margin: 0;
@@ -3673,4 +3714,404 @@ input:focus-visible + .tick {
 .blocked-times .icon-btn {
   width: 32px;
   height: 32px;
+}
+
+/* =========================================================
+   Gurpurab carousel
+   ========================================================= */
+.gurpurab .section-head {
+  margin-bottom: clamp(28px, 4vw, 44px);
+}
+.gp-carousel {
+  position: relative;
+  padding: 0;
+  overflow: hidden;
+  border-radius: 28px;
+}
+.gp-stage {
+  position: relative;
+  display: grid;
+  overflow: hidden;
+}
+.gp-slide {
+  grid-area: 1 / 1;
+  display: grid;
+  grid-template-columns: 1.25fr 1fr;
+  min-height: clamp(380px, 46vw, 520px);
+  touch-action: pan-y;
+  cursor: grab;
+}
+.gp-slide:active {
+  cursor: grabbing;
+}
+.gp-media {
+  position: relative;
+  overflow: hidden;
+  background: #0b0f1d;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.gp-media-bg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scale(1.35); /* pushes the blur's soft edges outside the frame */
+  filter: blur(28px) saturate(1.2);
+  opacity: 0.7;
+  pointer-events: none;
+}
+.gp-media-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  pointer-events: none;
+}
+.gp-fallback {
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 10px;
+  padding: 30px;
+  text-align: center;
+  background: radial-gradient(circle at 50% 45%, color-mix(in srgb, var(--gp) 35%, transparent), transparent 62%), linear-gradient(160deg, #141c38, #0a0e1c);
+}
+.gp-fallback-ring {
+  position: absolute;
+  width: min(78%, 360px);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  border: 1px dashed color-mix(in srgb, var(--gp) 60%, transparent);
+  animation: spin 80s linear infinite;
+}
+.gp-fallback-mark {
+  position: relative;
+  font-size: clamp(72px, 11vw, 120px);
+  line-height: 1;
+  padding-top: 0.2em;
+  color: var(--gp);
+  text-shadow: 0 0 40px color-mix(in srgb, var(--gp) 60%, transparent);
+}
+.gp-fallback-name {
+  position: relative;
+  max-width: 90%;
+  font-size: clamp(20px, 2.6vw, 28px);
+  color: #f7ecd6;
+}
+.gp-content {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: flex-start;
+  gap: 10px;
+  padding: clamp(26px, 4vw, 52px);
+}
+.gp-kind {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 12.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--gp);
+  border: 1px solid color-mix(in srgb, var(--gp) 45%, transparent);
+  background: color-mix(in srgb, var(--gp) 10%, transparent);
+}
+.gp-kind .gurmukhi {
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 600;
+}
+.gp-gurmukhi {
+  margin: 6px 0 0;
+  font-size: clamp(18px, 2vw, 22px);
+  color: var(--gold);
+}
+.gp-content h3 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: clamp(32px, 4vw, 48px);
+  font-weight: 600;
+  line-height: 1.05;
+}
+.gp-date {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0 0;
+  color: var(--muted);
+}
+.gp-date svg {
+  color: var(--gold);
+}
+.gp-countdown {
+  margin: 0 0 12px;
+  font-weight: 800;
+  font-size: 15px;
+  color: var(--gp);
+}
+.gp-arrow {
+  position: absolute;
+  top: 50%;
+  translate: 0 -50%;
+  z-index: 2;
+  border-radius: 50%;
+  background: var(--modal-bg);
+}
+.gp-arrow.prev {
+  left: 14px;
+}
+.gp-arrow.next {
+  left: calc(55.5% - 54px);
+}
+.gp-dots {
+  position: absolute;
+  z-index: 2;
+  left: 0;
+  width: 55.5%;
+  bottom: 16px;
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 60px;
+  flex-wrap: wrap;
+}
+.gp-dots button {
+  position: relative;
+  width: 22px;
+  height: 5px;
+  border-radius: 99px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.28);
+  transition: width 0.3s var(--ease);
+}
+.gp-dots button.active {
+  width: 42px;
+}
+.gp-dot-fill {
+  position: absolute;
+  inset: 0;
+  transform-origin: 0 50%;
+  background: #ffd38a;
+}
+.gp-dots button.active:not(:has(.gp-dot-fill)) {
+  background: #ffd38a;
+}
+.gp-list {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(230px, 1fr);
+  gap: 12px;
+  margin-top: 18px;
+  padding-bottom: 6px;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: thin;
+}
+.gp-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  border: 1px solid var(--border);
+  background: var(--tint);
+  text-align: left;
+  scroll-snap-align: start;
+  transition: border-color 0.25s, background 0.25s;
+}
+.gp-item:hover,
+.gp-item.active {
+  border-color: color-mix(in srgb, var(--gp) 60%, transparent);
+  background: color-mix(in srgb, var(--gp) 8%, transparent);
+}
+.gp-item-date {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 52px;
+  height: 52px;
+  border-radius: 14px;
+  font-size: 11.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--gp);
+  background: color-mix(in srgb, var(--gp) 12%, transparent);
+  line-height: 1.1;
+}
+.gp-item-date strong {
+  font-size: 20px;
+}
+.gp-item-text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.gp-item-text strong {
+  font-size: 14.5px;
+  line-height: 1.25;
+}
+.gp-item-text small {
+  color: var(--muted);
+  font-size: 12.5px;
+}
+.gp-remind {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px 12px;
+  margin-top: 16px;
+  padding: 12px 16px;
+  border-radius: 16px;
+  border: 1px dashed var(--border-strong);
+  font-size: 14px;
+  color: var(--muted);
+}
+.gp-remind > svg {
+  color: var(--gold);
+}
+.gp-remind > span {
+  flex: 1;
+  min-width: 200px;
+}
+.gp-remind.on {
+  border-style: solid;
+}
+@media (max-width: 760px) {
+  .gp-slide {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto auto;
+    min-height: 0;
+  }
+  .gp-media {
+    aspect-ratio: 1 / 1;
+  }
+  /* media is a square as wide as the container: keep arrows and dots on the picture */
+  .gp-arrow {
+    top: calc((100vw - 2 * var(--gutter)) / 2 - 20px);
+    translate: none;
+  }
+  .gp-arrow.next {
+    left: auto;
+    right: 14px;
+  }
+  .gp-dots {
+    width: 100%;
+    top: calc(100vw - 2 * var(--gutter) - 22px);
+    bottom: auto;
+  }
+  .gp-content {
+    padding: 22px 20px 26px;
+  }
+  .gp-list {
+    grid-auto-columns: 78%;
+  }
+  .gp-dots {
+    padding: 0 58px;
+    gap: 5px;
+  }
+  .gp-dots button {
+    width: 12px;
+  }
+  .gp-dots button.active {
+    width: 28px;
+  }
+}
+.low-end .gp-fallback-ring {
+  animation: none;
+}
+
+/* admin: Gurpurab */
+.gp-admin .gp-item-date {
+  width: 56px;
+  height: 56px;
+}
+.gp-admin-title {
+  margin: 26px 0 12px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.gp-note {
+  display: flex;
+  gap: 6px;
+  align-items: flex-start;
+  font-size: 13px;
+}
+.gp-note svg {
+  flex-shrink: 0;
+  margin-top: 3px;
+  color: var(--gold);
+}
+.gp-kind-chip {
+  color: var(--gp) !important;
+}
+.gp-thumbs {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+.gp-thumbs img {
+  width: 44px;
+  height: 44px;
+  border-radius: 8px;
+  object-fit: cover;
+  border: 1px solid var(--border);
+}
+.gp-edit-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.gp-edit-image {
+  position: relative;
+  width: 96px;
+  height: 96px;
+}
+.gp-edit-image img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+}
+.gp-edit-image button {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  color: #fff;
+  background: var(--danger);
+}
+.gp-add-image {
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 4px;
+  width: 96px;
+  height: 96px;
+  border-radius: 12px;
+  border: 1px dashed var(--border-strong);
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+  text-align: center;
+}
+.gp-add-image:hover {
+  border-color: var(--gold);
+  color: var(--text);
 }

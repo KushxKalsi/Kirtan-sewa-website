@@ -96,3 +96,40 @@ export async function notifyAdmins(message) {
     await save().catch(() => {});
   }
 }
+
+/* ---------- everyone (Gurpurab notices) ---------- */
+
+const MAX_PUBLIC = 5000;
+
+/** A visitor who wants Gurpurab reminders without a booking. */
+export async function addPublicSubscription(sub) {
+  const list = (db.publicPushSubs || []).filter((s) => s.endpoint !== sub.endpoint);
+  list.push(cleanSub(sub));
+  db.publicPushSubs = list.slice(-MAX_PUBLIC);
+  await save();
+}
+
+// Every device we may notify: customers, team members, admins and Gurpurab-only visitors (no duplicates).
+function everyone() {
+  const all = [...Object.values(db.pushSubs || {}).flat(), ...(db.adminPushSubs || []), ...(db.publicPushSubs || [])];
+  return [...new Map(all.map((s) => [s.endpoint, s])).values()];
+}
+
+export const everyoneCount = () => everyone().length;
+
+/** Sends one message to every device; returns how many devices it went to. */
+export async function notifyEveryone(message) {
+  const subs = everyone();
+  if (!subs.length) return 0;
+  const dead = await sendAll(subs, message);
+  if (dead.size) {
+    for (const key of Object.keys(db.pushSubs || {})) {
+      db.pushSubs[key] = db.pushSubs[key].filter((s) => !dead.has(s.endpoint));
+      if (!db.pushSubs[key].length) delete db.pushSubs[key];
+    }
+    db.adminPushSubs = (db.adminPushSubs || []).filter((s) => !dead.has(s.endpoint));
+    db.publicPushSubs = (db.publicPushSubs || []).filter((s) => !dead.has(s.endpoint));
+    await save().catch(() => {});
+  }
+  return subs.length - dead.size;
+}

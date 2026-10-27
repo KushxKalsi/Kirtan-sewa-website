@@ -3,6 +3,7 @@ import net from 'node:net';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
+import { seedGurpurabs } from './gurpurabs.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const DATA_DIR = process.env.DATA_DIR || path.resolve(__dirname, '../data');
@@ -122,6 +123,8 @@ const defaults = () => ({
   bookings: [],
   pushSubs: {}, // phone (last 10 digits) -> browser push subscriptions
   adminPushSubs: [], // admin devices that get a notification for every customer action
+  publicPushSubs: [], // visitors who only asked for Gurpurab reminders
+  gurpurabs: seedGurpurabs(), // Prakash / Jyoti Jot / Shaheedi days (admin → Gurpurab)
 });
 
 /* ---------------- storage ----------------

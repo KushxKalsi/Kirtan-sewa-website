@@ -2,6 +2,7 @@ import { useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { ImageUp, Loader2, Plus, QrCode, Save, Trash2 } from 'lucide-react';
 import { ease } from '../lib/motion';
+import { fileToDataUrl } from '../lib/image';
 
 const FIELDS = [
   { k: 'siteName', label: 'Jatha / website name' },
@@ -20,27 +21,6 @@ const NUMBERS = [
   { k: 'citiesCovered', label: 'Cities covered' },
   { k: 'maxAdvanceDays', label: 'Allow booking up to (days ahead)' },
 ];
-
-// Shrinks big photos of a QR so the upload stays small; PNG keeps the code sharp.
-function fileToDataUrl(file, max = 1000) {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => {
-      const scale = Math.min(1, max / Math.max(img.width, img.height));
-      const canvas = document.createElement('canvas');
-      canvas.width = Math.round(img.width * scale);
-      canvas.height = Math.round(img.height * scale);
-      const ctx = canvas.getContext('2d');
-      ctx.fillStyle = '#fff';
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-      URL.revokeObjectURL(img.src);
-      resolve(canvas.toDataURL('image/png'));
-    };
-    img.onerror = () => reject(new Error('That file is not an image.'));
-    img.src = URL.createObjectURL(file);
-  });
-}
 
 export default function SettingsTab({ data, api, patch, toast }) {
   const [form, setForm] = useState(() => ({ ...data.settings, galleryText: (data.settings.gallery || []).join('\n') }));

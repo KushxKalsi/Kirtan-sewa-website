@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
-import { CalendarDays, Clock, ExternalLink, Layers, LayoutGrid, Loader2, LogOut, Settings, Users } from 'lucide-react';
+import { CalendarDays, Clock, ExternalLink, Layers, LayoutGrid, Loader2, LogOut, Settings, Sparkles, Users } from 'lucide-react';
 import BookingsTab from './BookingsTab';
 import ServicesTab from './ServicesTab';
 import ScheduleTab from './ScheduleTab';
@@ -9,6 +9,7 @@ import SettingsTab from './SettingsTab';
 import AdminNotify from './AdminNotify';
 import CategoriesTab from './CategoriesTab';
 import TeamTab from './TeamTab';
+import GurpurabTab from './GurpurabTab';
 import { adminApi } from '../lib/api';
 import { useSite } from '../components/SiteContext';
 import { useToast } from '../components/Toast';
@@ -20,6 +21,7 @@ const TABS = [
   { id: 'services', label: 'Sewa services', icon: Layers },
   { id: 'team', label: 'Team', icon: Users },
   { id: 'schedule', label: 'Schedule', icon: Clock },
+  { id: 'gurpurab', label: 'Gurpurab', icon: Sparkles },
   { id: 'settings', label: 'Site settings', icon: Settings },
 ];
 
@@ -110,6 +112,7 @@ export default function AdminDashboard({ token, onLogout }) {
               {tab === 'services' && <ServicesTab {...ctx} />}
               {tab === 'team' && <TeamTab {...ctx} />}
               {tab === 'schedule' && <ScheduleTab {...ctx} />}
+              {tab === 'gurpurab' && <GurpurabTab {...ctx} />}
               {tab === 'settings' && <SettingsTab {...ctx} />}
             </motion.div>
           </AnimatePresence>
