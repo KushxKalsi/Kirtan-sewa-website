@@ -157,6 +157,26 @@ export default function SettingsTab({ data, api, patch, toast }) {
           <span className="label">Note shown with payment options</span>
           <textarea className="input" rows={2} value={form.paymentNote || ''} onChange={set('paymentNote')} />
         </label>
+        <div className="grid-2">
+          <label>
+            <span className="label">Customers may offer their own amount from (₹)</span>
+            <input className="input" type="number" min="0" value={form.offerMin ?? ''} onChange={set('offerMin')} />
+          </label>
+        </div>
+        <div>
+          <h3>Your commission</h3>
+          <p className="muted">Worked out on each bill above the amount below. The amounts show only in this admin panel; the site footer carries a one-line note in small print. Set the rate to 0 to turn it off.</p>
+        </div>
+        <div className="grid-2">
+          <label>
+            <span className="label">Commission (%)</span>
+            <input className="input" type="number" min="0" max="100" step="0.5" value={form.commissionRate ?? ''} onChange={set('commissionRate')} />
+          </label>
+          <label>
+            <span className="label">On bills above (₹)</span>
+            <input className="input" type="number" min="0" value={form.commissionAbove ?? ''} onChange={set('commissionAbove')} />
+          </label>
+        </div>
       </div>
 
       <div className="admin-card glass admin-form">

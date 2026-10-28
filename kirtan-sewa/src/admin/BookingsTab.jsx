@@ -1,17 +1,20 @@
 import { useEffect, useMemo, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { format } from 'date-fns';
-import { Ban, Banknote, BellRing, Check, Lock, LockOpen, UserRound, Users, ChevronDown, CircleCheck, FileText, Loader2, Mail, MapPin, MessageCircle, Pencil, Phone, RotateCcw, Search, Smartphone, Trash2, Undo2, Wallet } from 'lucide-react';
+import { Ban, Banknote, BellRing, Check, ExternalLink, Lock, LockOpen, Navigation, Repeat, Save, Tag, UserRound, Users, ChevronDown, CircleCheck, FileText, Loader2, Mail, MapPin, MessageCircle, Pencil, Phone, RotateCcw, Search, Smartphone, Trash2, Undo2, Wallet } from 'lucide-react';
 import Modal from '../components/Modal';
 import { BillModal } from '../components/Bill';
 import { PAYMENT_LABEL, rupees } from '../lib/money';
 import { fromKey, prettyDate, rangeTo12 } from '../lib/date';
+import { directionsLink, distanceKm, kmText, mapsLink } from '../lib/geo';
 import { ease } from '../lib/motion';
 
 const FILTERS = [
   { id: 'upcoming', label: 'Upcoming' },
   { id: 'requests', label: 'Cancel requests' },
   { id: 'unassigned', label: 'Not assigned' },
+  { id: 'offers', label: 'Offers' },
+  { id: 'team', label: 'Team requests' },
   { id: 'pending', label: 'Pending' },
   { id: 'confirmed', label: 'Confirmed' },
   { id: 'completed', label: 'Completed' },
@@ -30,6 +33,102 @@ const overlap = (a, b) => {
   return a.date === b.date && s1 < e2 && s2 < e1;
 };
 const PAY_TEXT = { unpaid: 'Unpaid', submitted: 'To verify', paid: 'Paid' };
+const offerPending = (b) => b.offer?.status === 'pending' && active(b);
+const teamRequests = (b) => (b.assignees || []).filter((a) => a.cancelRequest?.status === 'pending');
+const OFFER_TEXT = { pending: 'waiting for you', accepted: 'accepted', countered: 'you set another amount', declined: 'declined' };
+
+/** One team member on a booking: their bhet, whether they confirmed, their cancel request, and swapping them out. */
+function AssigneeRow({ b, a, person, roles, candidates, api, replace, toast }) {
+  const [pay, setPay] = useState(a.pay ?? '');
+  const [swapTo, setSwapTo] = useState('');
+  const [busy, setBusy] = useState('');
+  useEffect(() => setPay(a.pay ?? ''), [a.pay]);
+  const run = async (key, fn, msg) => {
+    setBusy(key);
+    try {
+      replace((await fn()).booking);
+      if (msg) toast(msg);
+    } catch (e) {
+      toast(e.message, 'error');
+    } finally {
+      setBusy('');
+    }
+  };
+  const request = a.cancelRequest?.status === 'pending' ? a.cancelRequest : null;
+  const changed = String(pay) !== String(a.pay ?? '');
+  return (
+    <li className={`assignee ${request ? 'has-request' : ''}`}>
+      <div className="assignee-top">
+        <span className="assignee-name">
+          <UserRound size={14} /> <strong>{a.name}</strong>
+          {person?.role && <small className="muted"> · {roles[person.role]}</small>}
+          {a.replaces && <small className="muted"> · in place of {a.replaces}</small>}
+        </span>
+        <span className={`pay-tag ${a.state === 'confirmed' ? 'pay-paid' : 'pay-submitted'}`}>{a.state === 'confirmed' ? 'Confirmed ✓' : 'Not confirmed yet'}</span>
+        {person?.phone && (
+          <a className="chip" href={`tel:${person.phone}`}>
+            <Phone size={12} /> Call
+          </a>
+        )}
+        {person?.location && b.location && (
+          <a className="chip" href={directionsLink(person.location, b.location)} target="_blank" rel="noreferrer">
+            <Navigation size={12} /> {kmText(distanceKm(person.location, b.location))}
+          </a>
+        )}
+      </div>
+      <form
+        className="assignee-pay"
+        onSubmit={(e) => {
+          e.preventDefault();
+          run('pay', () => api.setAssigneePay(b.id, a.id, pay), pay === '' ? 'Bhet cleared.' : `Bhet set to ${rupees(pay)} — ${a.name} is notified.`);
+        }}
+      >
+        <label>
+          <span className="label">Bhet (₹)</span>
+          <input className="input" type="number" inputMode="numeric" min="0" value={pay} onChange={(e) => setPay(e.target.value)} placeholder="Not set" />
+        </label>
+        <button className="btn btn-ghost btn-sm" disabled={!changed || !!busy}>
+          {busy === 'pay' ? <Loader2 size={14} className="spin" /> : <Save size={14} />} Save
+        </button>
+      </form>
+      {request && (
+        <div className="request-note for-admin">
+          <div>
+            <strong>
+              {a.name} asks to be taken off · {format(new Date(request.at), 'd MMM, h:mm a')}
+            </strong>
+            <p>Reason: {request.reason}</p>
+            <div className="ab-actions">
+              <button className="btn btn-danger btn-sm" onClick={() => run('approve', () => api.resolveDutyCancel(b.id, a.id, 'approve'), `${a.name} removed from this booking. Assign someone else.`)} disabled={!!busy}>
+                <Check size={15} /> Approve
+              </button>
+              <button className="btn btn-ghost btn-sm" onClick={() => run('reject', () => api.resolveDutyCancel(b.id, a.id, 'reject'), 'Request rejected.')} disabled={!!busy}>
+                <Undo2 size={15} /> Reject
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {active(b) && candidates.length > 0 && (
+        <div className="assignee-swap">
+          <select className="input" value={swapTo} onChange={(e) => setSwapTo(e.target.value)} aria-label={`Who takes ${a.name}'s place`}>
+            <option value="">Put someone in {a.name}’s place…</option>
+            {candidates.map((c) => (
+              <option key={c.p.id} value={c.p.id}>
+                {c.p.name}
+                {c.p.role ? ` — ${roles[c.p.role]}` : ''}
+                {c.km != null ? ` · ${kmText(c.km)}` : ''}
+              </option>
+            ))}
+          </select>
+          <button className="btn btn-ghost btn-sm" disabled={!swapTo || !!busy} onClick={() => run('swap', () => api.replaceAssignee(b.id, a.id, swapTo), 'Replaced — both are notified.').then(() => setSwapTo(''))}>
+            {busy === 'swap' ? <Loader2 size={14} className="spin" /> : <Repeat size={14} />} Replace
+          </button>
+        </div>
+      )}
+    </li>
+  );
+}
 
 export default function BookingsTab({ data, api, patch, toast }) {
   // A tapped admin notification opens /admin?q=<booking ID or group> — show that booking straight away.
@@ -50,9 +149,17 @@ export default function BookingsTab({ data, api, patch, toast }) {
   const [billFor, setBillFor] = useState(null);
   const [rejectFor, setRejectFor] = useState(null);
   const [rejectNote, setRejectNote] = useState('');
+  const [declineFor, setDeclineFor] = useState(null);
+  const [declineNote, setDeclineNote] = useState('');
   const { bookings, today, settings } = data;
   const people = data.people || [];
+  const roles = data.roles || {};
   const peopleIds = new Set(people.map((p) => p.id));
+  const personById = (id) => people.find((p) => p.id === id);
+  const leaveOn = (personId, date) => (data.leaves || []).find((l) => l.personId === personId && l.status === 'approved' && l.from <= date && l.to >= date);
+  // The admin's commission: a share of bills above a set amount. Shown here only — never to customers or the team.
+  const rate = Number(settings.commissionRate) || 0;
+  const commissionOf = (b) => (rate > 0 && b.amount > (Number(settings.commissionAbove) || 0) && b.status !== 'cancelled' ? Math.round((b.amount * rate) / 100) : 0);
   const setAssignees = async (b, personIds) => {
     setBusy(b.id + 'assign');
     try {
@@ -74,9 +181,22 @@ export default function BookingsTab({ data, api, patch, toast }) {
       { label: 'Cancelled', value: bookings.filter((b) => b.status === 'cancelled').length, tone: 'danger' },
       { label: 'Cancel requests', value: bookings.filter(hasRequest).length, tone: 'danger' },
       { label: 'Payments to verify', value: bookings.filter((b) => b.paymentStatus === 'submitted' && b.status !== 'cancelled').length, tone: 'warn' },
+      { label: 'Offers to review', value: bookings.filter(offerPending).length, tone: 'warn' },
+      { label: 'Team requests', value: bookings.filter((b) => active(b) && teamRequests(b).length).length, tone: 'danger' },
       { label: 'Collected', value: rupees(bookings.filter((b) => b.paymentStatus === 'paid').reduce((sum, b) => sum + (b.amount || 0), 0)), tone: 'success', wide: true },
+      ...(rate > 0
+        ? [
+            {
+              label: `Your commission (${rate}% above ${rupees(settings.commissionAbove || 0)}) · paid / billed · admin only`,
+              value: `${rupees(bookings.filter((b) => b.paymentStatus === 'paid').reduce((s, b) => s + commissionOf(b), 0))} / ${rupees(bookings.reduce((s, b) => s + commissionOf(b), 0))}`,
+              tone: 'gold',
+              wide: true,
+            },
+          ]
+        : []),
     ],
-    [bookings, today],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [bookings, today, rate, settings.commissionAbove],
   );
 
   const list = useMemo(() => {
@@ -85,6 +205,8 @@ export default function BookingsTab({ data, api, patch, toast }) {
       if (filter === 'upcoming') return active(b) && b.date >= today;
       if (filter === 'requests') return hasRequest(b);
       if (filter === 'unassigned') return active(b) && b.date >= today && !(b.assignees || []).length;
+      if (filter === 'offers') return offerPending(b);
+      if (filter === 'team') return active(b) && teamRequests(b).length > 0;
       if (filter === 'all') return true;
       return b.status === filter;
     });
@@ -160,8 +282,22 @@ export default function BookingsTab({ data, api, patch, toast }) {
   };
 
   const openConfirm = (b) => {
-    setAmount(b.amount ? String(b.amount) : '');
+    setAmount(b.amount ? String(b.amount) : offerPending(b) ? String(b.offer.amount) : '');
     setConfirmFor(b);
+  };
+  const answerOffer = async (b, action, note) => {
+    setBusy(b.id + 'offer');
+    try {
+      const { booking } = await api.answerOffer(b.id, action, note);
+      replace(booking);
+      toast(action === 'accept' ? `Offer accepted — bill ${rupees(booking.amount)} sent to ${booking.name}.` : 'Offer declined — the customer sees your message in their chat.');
+      return true;
+    } catch (e) {
+      toast(e.message, 'error');
+      return false;
+    } finally {
+      setBusy('');
+    }
   };
   const submitConfirm = async (e) => {
     e.preventDefault();
@@ -201,7 +337,7 @@ export default function BookingsTab({ data, api, patch, toast }) {
       settings.upiEnabled && settings.upiId ? `Pay by UPI to: ${settings.upiId}` : '',
       settings.cashEnabled ? 'Cash on the day is also fine.' : '',
       '',
-      `View your bill and pay: ${window.location.origin}/manage?phone=${encodeURIComponent(b.phone)}`,
+      `View your bill and pay (log in with this mobile number): ${window.location.origin}/account`,
     ];
     return encodeURIComponent(lines.filter((l, i) => l || lines[i - 1]).join('\n'));
   };
@@ -350,9 +486,11 @@ export default function BookingsTab({ data, api, patch, toast }) {
                         {b.name} · <code>{b.ref}</code>
                         {active(b) && (
                           <span className={`pay-tag ${(b.assignees || []).length ? 'assign-tag' : 'unassigned-tag'}`}>
-                            {(b.assignees || []).length ? `👤 ${b.assignees.map((a) => a.name).join(', ')}` : 'Not assigned'}
+                            {(b.assignees || []).length ? `👤 ${b.assignees.map((a) => a.name + (a.state === 'confirmed' ? ' ✓' : '')).join(', ')}` : 'Not assigned'}
                           </span>
                         )}
+                        {offerPending(b) && <span className="pay-tag offer-tag">Offer {rupees(b.offer.amount)}</span>}
+                        {active(b) && teamRequests(b).length > 0 && <span className="pay-tag req-tag">Team member wants off</span>}
                         {hasRequest(b) && <span className="pay-tag req-tag">Cancel requested</span>}
                         {clashes[b.id] && (
                           <span className="pay-tag clash-tag" title={clashes[b.id].map((o) => `${o.name} (${o.ref})`).join(', ')}>
@@ -421,14 +559,57 @@ export default function BookingsTab({ data, api, patch, toast }) {
                           </div>
                           <p className="ab-line">
                             <MapPin size={15} /> {b.address}
+                            <a className="chip" href={mapsLink(b.location, b.address)} target="_blank" rel="noreferrer">
+                              <ExternalLink size={12} /> {b.location ? 'Map pin' : 'Search map'}
+                            </a>
                           </p>
+                          {b.location?.label && <p className="ab-meta">📍 {b.location.label}</p>}
                           {b.notes && <p className="ab-notes">“{b.notes}”</p>}
+                          {b.offer && b.status !== 'cancelled' && (
+                            <div className={`offer-admin o-${b.offer.status}`}>
+                              <Tag size={16} />
+                              <div>
+                                <strong>
+                                  Customer offers {rupees(b.offer.amount)} · {OFFER_TEXT[b.offer.status]}
+                                  {b.offer.status === 'countered' && ` (${rupees(b.offer.counter)})`}
+                                </strong>
+                                {b.offer.note && <p>“{b.offer.note}”</p>}
+                                {offerPending(b) && (
+                                  <div className="ab-actions">
+                                    <button className="btn btn-primary btn-sm" onClick={() => answerOffer(b, 'accept')} disabled={!!busy}>
+                                      {busy === b.id + 'offer' ? <Loader2 size={15} className="spin" /> : <Check size={15} />} Accept {rupees(b.offer.amount)}
+                                      {b.status === 'pending' ? ' & confirm' : ''}
+                                    </button>
+                                    <button className="btn btn-ghost btn-sm" onClick={() => openConfirm(b)} disabled={!!busy}>
+                                      <Pencil size={15} /> Set another amount
+                                    </button>
+                                    <button
+                                      className="btn btn-ghost btn-sm danger-text"
+                                      onClick={() => {
+                                        setDeclineNote('');
+                                        setDeclineFor(b);
+                                      }}
+                                      disabled={!!busy}
+                                    >
+                                      <Ban size={15} /> Decline
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          )}
                           {b.status !== 'cancelled' && (() => {
                             const assignedIds = (b.assignees || []).map((a) => a.id);
-                            const eligible = people.filter((p) => canDo(p, b));
-                            const eligibleIds = new Set(eligible.map((p) => p.id));
+                            // Who can do it, nearest to the venue first (when both have a map pin).
+                            const eligible = people
+                              .filter((p) => canDo(p, b))
+                              .map((p) => ({ p, km: distanceKm(b.location, p.location), leave: leaveOn(p.id, b.date) }))
+                              .sort((x, y) => (x.km ?? 1e9) - (y.km ?? 1e9) || x.p.name.localeCompare(y.p.name));
+                            const nearest = eligible.find((c) => c.km != null && !c.leave)?.p.id;
+                            const eligibleIds = new Set(eligible.map((c) => c.p.id));
                             const others = (b.assignees || []).filter((a) => !eligibleIds.has(a.id)); // assigned earlier, no longer matching
                             const keep = (ids) => ids.filter((id) => peopleIds.has(id));
+                            const candidates = eligible.filter((c) => !assignedIds.includes(c.p.id) && !c.leave);
                             return (
                               <div className="assign-box">
                                 <div className="assign-head">
@@ -445,30 +626,44 @@ export default function BookingsTab({ data, api, patch, toast }) {
                                       <UserRound size={13} /> {a.name} ✕
                                     </button>
                                   ))}
-                                  {eligible.map((p) => {
+                                  {eligible.map(({ p, km, leave }) => {
                                     const on = assignedIds.includes(p.id);
                                     return (
                                       <button
                                         type="button"
                                         key={p.id}
-                                        className={`check-pill ${on ? 'active' : ''}`}
+                                        className={`check-pill ${on ? 'active' : ''} ${leave && !on ? 'on-leave' : ''}`}
                                         onClick={() => setAssignees(b, keep(on ? assignedIds.filter((x) => x !== p.id) : [...assignedIds, p.id]))}
-                                        disabled={!!busy}
+                                        disabled={!!busy || (!!leave && !on)}
+                                        title={leave ? `On leave ${prettyDate(leave.from, 'd MMM')} – ${prettyDate(leave.to, 'd MMM')}` : undefined}
                                       >
                                         {on ? <Check size={13} /> : <UserRound size={13} />} {p.name}
-                                        {p.address && <small className="pill-address">{p.address}</small>}
+                                        {p.role && <small className="pill-role">{roles[p.role]}</small>}
+                                        {km != null && <small className={`pill-km ${p.id === nearest ? 'nearest' : ''}`}>{p.id === nearest ? `Nearest · ${kmText(km)}` : kmText(km)}</small>}
+                                        {leave && <small className="pill-leave">On leave</small>}
+                                        {!km && p.address && <small className="pill-address">{p.address}</small>}
                                       </button>
                                     );
                                   })}
                                 </div>
                                 {eligible.length > 0 && (
-                                  <p className="muted assign-hint">People you tick are notified (if they turned notifications on), and reminded on the day and 2 hours before.</p>
+                                  <p className="muted assign-hint">
+                                    {b.location ? 'Sorted by distance from the venue (straight line). ' : 'Ask the customer to pin the venue on the map to see who is nearest. '}
+                                    People you tick are notified, and reminded on the day and 2 hours before.
+                                  </p>
                                 )}
                                 {!eligible.length && (
                                   <p className="muted">
                                     Nobody in your team does {b.serviceName}
                                     {b.categoryName && ` in ${b.categoryName}`} yet — add it to someone under <strong>Team</strong>.
                                   </p>
+                                )}
+                                {(b.assignees || []).length > 0 && (
+                                  <ul className="assignee-list">
+                                    {b.assignees.map((a) => (
+                                      <AssigneeRow key={a.id} b={b} a={a} person={personById(a.id)} roles={roles} candidates={candidates} api={api} replace={replace} toast={toast} />
+                                    ))}
+                                  </ul>
                                 )}
                               </div>
                             );
@@ -514,6 +709,13 @@ export default function BookingsTab({ data, api, patch, toast }) {
                                 </span>
                                 <span className={`pay-tag pay-${b.paymentStatus || 'unpaid'}`}>{PAY_TEXT[b.paymentStatus || 'unpaid']}</span>
                               </div>
+                              {commissionOf(b) > 0 && (
+                                <p className="commission-line">
+                                  Your commission ({rate}%): <strong>{rupees(commissionOf(b))}</strong>
+                                  {(b.assignees || []).some((a) => a.pay != null) && ` · Team bhet: ${rupees((b.assignees || []).reduce((s, a) => s + (a.pay || 0), 0))}`}
+                                  <small> · only you see this</small>
+                                </p>
+                              )}
                               {b.paymentStatus === 'submitted' && <p>Customer says they paid by UPI · UTR <code>{b.utr}</code>. Check your bank/UPI app, then verify.</p>}
                               {b.paymentStatus === 'paid' && (
                                 <p>
@@ -636,7 +838,10 @@ export default function BookingsTab({ data, api, patch, toast }) {
         open={!!confirmFor}
         onClose={() => setConfirmFor(null)}
         title={confirmFor?.status === 'confirmed' ? 'Edit bill amount' : 'Confirm & create bill'}
-        subtitle={confirmFor && `${confirmFor.serviceName} for ${confirmFor.name} on ${format(fromKey(confirmFor.date), 'd MMM yyyy')}. The customer will see the bill and can pay by ${[settings.upiEnabled && settings.upiId && 'UPI', settings.cashEnabled && 'cash'].filter(Boolean).join(' or ') || '—'}.`}
+        subtitle={
+          confirmFor &&
+          `${confirmFor.serviceName} for ${confirmFor.name} on ${format(fromKey(confirmFor.date), 'd MMM yyyy')}.${offerPending(confirmFor) ? ` They offered ${rupees(confirmFor.offer.amount)}.` : ''} The customer will see the bill and can pay by ${[settings.upiEnabled && settings.upiId && 'UPI', settings.cashEnabled && 'cash'].filter(Boolean).join(' or ') || '—'}.`
+        }
       >
         <form onSubmit={submitConfirm} className="cancel-form">
           <label className="field amount-field">
@@ -697,6 +902,29 @@ export default function BookingsTab({ data, api, patch, toast }) {
       </Modal>
 
       <BillModal booking={billFor} settings={settings} onClose={() => setBillFor(null)} />
+
+      <Modal open={!!declineFor} onClose={() => setDeclineFor(null)} title="Decline offer" subtitle={declineFor && `${declineFor.name} offered ${rupees(declineFor.offer.amount)}. Your message goes to their chat.`}>
+        <form
+          className="cancel-form"
+          onSubmit={async (e) => {
+            e.preventDefault();
+            if (await answerOffer(declineFor, 'decline', declineNote)) setDeclineFor(null);
+          }}
+        >
+          <label className="field">
+            <textarea value={declineNote} onChange={(e) => setDeclineNote(e.target.value)} placeholder=" " rows={3} autoFocus />
+            <span>Message to the customer (optional)</span>
+          </label>
+          <div className="modal-actions">
+            <button type="button" className="btn btn-ghost" onClick={() => setDeclineFor(null)}>
+              Back
+            </button>
+            <button className="btn btn-danger" disabled={!!busy}>
+              {busy ? <Loader2 size={17} className="spin" /> : <Ban size={17} />} Decline offer
+            </button>
+          </div>
+        </form>
+      </Modal>
 
       <Modal open={!!rejectFor} onClose={() => setRejectFor(null)} title="Reject cancellation request" subtitle="The booking stays active. You can add a message the customer will see.">
         <form onSubmit={submitReject} className="cancel-form">

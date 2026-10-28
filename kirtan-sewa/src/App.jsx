@@ -1,21 +1,24 @@
 import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react';
-import { Route, Routes, useLocation } from 'react-router-dom';
+import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { AnimatePresence, MotionConfig, motion } from 'framer-motion';
 import Lenis from 'lenis';
 import 'lenis/dist/lenis.css';
 import { SiteProvider, useSite } from './components/SiteContext';
 import { ToastProvider } from './components/Toast';
+import { AuthProvider } from './components/AuthContext';
 import Navbar from './components/Navbar';
 import Footer from './components/Footer';
 import Preloader from './components/Preloader';
 import CursorGlow from './components/CursorGlow';
 import ScrollProgress from './components/ScrollProgress';
 import Home from './pages/Home';
-import ManageBooking from './pages/ManageBooking';
+import Login from './pages/Login';
 import { scrollToTop, setLenis } from './lib/scroll';
 import { useLowEnd } from './lib/perf';
 
 const Admin = lazy(() => import('./pages/Admin'));
+const Account = lazy(() => import('./pages/Account'));
+const TeamDashboard = lazy(() => import('./pages/TeamDashboard'));
 
 const curtain = {
   initial: { scaleY: 1, transformOrigin: '50% 0%' },
@@ -91,7 +94,10 @@ function Shell() {
             <motion.div className="curtain" variants={curtain} initial={firstRoute.current ? false : 'initial'} animate="animate" exit="exit" aria-hidden="true" />
             <Routes location={location}>
               <Route path="/" element={<Home ready={ready} />} />
-              <Route path="/manage" element={<ManageBooking />} />
+              <Route path="/login" element={<Login />} />
+              <Route path="/account" element={<Suspense fallback={<main className="page" />}><Account /></Suspense>} />
+              <Route path="/team" element={<Suspense fallback={<main className="page" />}><TeamDashboard /></Suspense>} />
+              <Route path="/manage" element={<Navigate to="/account" replace />} />
               <Route path="/admin" element={<Suspense fallback={<main className="page" />}><Admin /></Suspense>} />
               <Route path="*" element={<Home ready={ready} />} />
             </Routes>
@@ -107,9 +113,11 @@ export default function App() {
   return (
     <MotionConfig reducedMotion="user">
       <SiteProvider>
-        <ToastProvider>
-          <Shell />
-        </ToastProvider>
+        <AuthProvider>
+          <ToastProvider>
+            <Shell />
+          </ToastProvider>
+        </AuthProvider>
       </SiteProvider>
     </MotionConfig>
   );

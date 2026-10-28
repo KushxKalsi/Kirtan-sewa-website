@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { AnimatePresence, motion, useMotionValueEvent, useScroll } from 'framer-motion';
-import { CalendarDays, ClipboardList, Menu, X } from 'lucide-react';
+import { CalendarDays, CircleUserRound, ClipboardList, LogIn, Menu, X } from 'lucide-react';
 import { useSite } from './SiteContext';
+import { useAuth } from './AuthContext';
 import { useGoTo } from './useGoTo';
 import ThemeToggle from './ThemeToggle';
 import { ease } from '../lib/motion';
@@ -19,7 +20,12 @@ const LINKS = [
 
 export default function Navbar() {
   const { site } = useSite();
+  const { session } = useAuth();
   const goTo = useGoTo();
+  // Logged in: a link to their own page; otherwise to the login page.
+  const me = session
+    ? { to: session.role === 'member' ? '/team' : '/account', full: session.role === 'member' ? 'My sewas' : 'My account', short: session.role === 'member' ? 'Sewas' : 'Account', icon: session.role === 'member' ? ClipboardList : CircleUserRound }
+    : { to: '/login', full: 'Log in', short: 'Log in', icon: LogIn };
   const { pathname } = useLocation();
   const { scrollY } = useScroll();
   const [solid, setSolid] = useState(false);
@@ -65,10 +71,10 @@ export default function Navbar() {
           </nav>
 
           <div className="nav-actions">
-            <Link to="/manage" className={`nav-manage ${pathname === '/manage' ? 'active' : ''}`} aria-current={pathname === '/manage' ? 'page' : undefined}>
-              <ClipboardList size={16} />
-              <span className="nm-full">Manage booking</span>
-              <span className="nm-short">Manage</span>
+            <Link to={me.to} className={`nav-manage ${pathname === me.to ? 'active' : ''}`} aria-current={pathname === me.to ? 'page' : undefined}>
+              <me.icon size={16} />
+              <span className="nm-full">{me.full}</span>
+              <span className="nm-short">{me.short}</span>
             </Link>
             <ThemeToggle className="nav-theme" />
             <button className="btn btn-primary btn-sm nav-cta" onClick={() => go('book')}>
@@ -116,8 +122,8 @@ export default function Navbar() {
               <button className="btn btn-primary btn-block" onClick={() => go('book')}>
                 <CalendarDays size={18} /> Book a Sewa
               </button>
-              <Link to="/manage" className="btn btn-ghost btn-block">
-                <ClipboardList size={18} /> Manage / cancel booking
+              <Link to={me.to} className="btn btn-ghost btn-block">
+                <me.icon size={18} /> {session ? me.full : 'Log in / create account'}
               </Link>
               <ThemeToggle className="menu-theme" showLabel />
             </motion.div>

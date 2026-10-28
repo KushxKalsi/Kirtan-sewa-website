@@ -4,19 +4,19 @@ import { Bell, BellRing, CircleAlert, Loader2 } from 'lucide-react';
 import { enableNotifications, isIos, isStandalone, permission, pushSupported, subscribedFor } from '../lib/push';
 import { ease } from '../lib/motion';
 
-/** Card asking the customer (or a team member) to allow notifications for their bookings. */
-export default function NotifyButton({ phone, compact = false, team = false }) {
+/** Card asking the logged-in customer (or team member) to allow notifications for their account. */
+export default function NotifyButton({ phone, client, compact = false, team = false }) {
   const [on, setOn] = useState(() => permission() === 'granted' && subscribedFor(phone));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const iosNeedsInstall = !pushSupported() && isIos() && !isStandalone();
-  if (!phone || (!pushSupported() && !iosNeedsInstall)) return null;
+  if (!phone || !client || (!pushSupported() && !iosNeedsInstall)) return null;
 
   const enable = async () => {
     setBusy(true);
     setError('');
     try {
-      await enableNotifications(phone);
+      await enableNotifications(client, phone);
       setOn(true);
     } catch (e) {
       setError(e.message);
@@ -35,8 +35,8 @@ export default function NotifyButton({ phone, compact = false, team = false }) {
         <p>
           {on
             ? team
-              ? 'We’ll notify you on this device when you’re given a sewa, on the day, and 2 hours before it starts.'
-              : 'We’ll notify you on this device when the jatha confirms, sends your bill, or receives your payment.'
+              ? 'We’ll notify you on this device about new sewas, messages, on the day, and 2 hours before it starts.'
+              : 'We’ll notify you on this device when the jatha confirms, sends your bill, replies to you, or receives your payment.'
             : iosNeedsInstall
               ? 'On iPhone: tap Share → “Add to Home Screen”, open the site from the new icon, then tap below.'
               : team

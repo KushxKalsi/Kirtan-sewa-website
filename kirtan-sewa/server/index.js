@@ -7,6 +7,8 @@ import { fileURLToPath } from 'node:url';
 import { db, save, uid, makeRef, slugify, DATA_DIR, initDb, kv } from './db.js';
 import { initPush, pushPublicKey, addSubscription, notifyPhone, addAdminSubscription, removeAdminSubscription, adminDeviceCount, notifyAdmins, addPublicSubscription, notifyEveryone, everyoneCount } from './push.js';
 import { GURPURAB_KINDS } from './gurpurabs.js';
+import { checkPassword, hashPassword, passwordProblem, sessions } from './auth.js';
+import { reversePlace, searchPlaces } from './geo.js';
 import { format, subMonths } from 'date-fns';
 
 await initDb();
@@ -17,6 +19,7 @@ const PORT = Number(process.env.PORT) || 5174;
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'waheguru';
 const SECRET = process.env.TOKEN_SECRET || db.meta.secret;
 const TOKEN_TTL = 1000 * 60 * 60 * 12; // 12 hours
+const auth = sessions(SECRET); // customer and team member logins
 
 if (!process.env.ADMIN_PASSWORD) {
   console.warn('[sewa] ADMIN_PASSWORD not set — using default "waheguru". Set it before going live.');
@@ -35,9 +38,10 @@ if (db.settings.upiQrFile) {
 const app = express();
 const QR_PATH = '/api/admin/upi-qr';
 const GP_IMAGE_PATH = '/api/admin/gurpurab-images';
+const DOC_PATH = '/api/team/documents/';
 const smallJson = express.json({ limit: '300kb' });
-// Image uploads (UPI QR, Gurpurab pictures) get their own larger body limit.
-app.use((req, res, next) => (req.path === QR_PATH || req.path === GP_IMAGE_PATH ? next() : smallJson(req, res, next)));
+// Image uploads (UPI QR, Gurpurab pictures, team documents) get their own larger body limit.
+app.use((req, res, next) => (req.path === QR_PATH || req.path === GP_IMAGE_PATH || req.path.startsWith(DOC_PATH) ? next() : smallJson(req, res, next)));
 
 
 /* ---------------- helpers ---------------- */
@@ -77,6 +81,24 @@ const samePhone = (a, b) => {
   return x.length >= 7 && y.length >= 7 && x.slice(-10) === y.slice(-10);
 };
 const isActive = (b) => b.status === 'pending' || b.status === 'confirmed';
+const phoneKey = (p) => digits(p).slice(-10);
+const ownsBooking = (user, b) => b.userId === user.id || (!b.userId && samePhone(b.phone, user.phone));
+
+// Team roles within a jatha.
+const ROLES = { 'head-ragi': 'Head Ragi', 'side-ragi': 'Side Ragi', tabla: 'Tabla' };
+// Documents a team member uploads to their profile.
+const DOC_KINDS = { headPhoto: 'Jatha head photo', jathaPhoto: 'Jatha photo', aadhaar: 'Aadhaar card', bankProof: 'Bank passbook / cancelled cheque' };
+
+// A place picked on the map: { lat, lng, label }, or null.
+function readLocation(v) {
+  if (!v) return null;
+  const lat = Number(v.lat);
+  const lng = Number(v.lng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) fail(400, 'That map location is not valid. Please pick it again.');
+  return { lat: Math.round(lat * 1e6) / 1e6, lng: Math.round(lng * 1e6) / 1e6, label: str(v.label, 300) };
+}
+// Approved leave covering this date, if any.
+const leaveOn = (personId, date) => db.leaves.find((l) => l.personId === personId && l.status === 'approved' && l.from <= date && l.to >= date);
 // Bookings never block a time: several requests (and bookings) may share one. A time is only
 // unavailable when the admin blocks it on purpose (blockedTimes) or blocks the whole date.
 const isBooked = (b) => b.status === 'confirmed' || b.status === 'completed';
@@ -100,9 +122,35 @@ const verifyToken = (token) => {
   return expected.length === given.length && crypto.timingSafeEqual(expected, given);
 };
 
+const bearer = (req) => (req.headers.authorization || '').replace(/^Bearer\s+/i, '');
 const requireAdmin = (req, _res, next) => {
-  const token = (req.headers.authorization || '').replace(/^Bearer\s+/i, '');
-  if (!verifyToken(token)) fail(401, 'Please log in again.');
+  if (!verifyToken(bearer(req))) fail(401, 'Please log in again.');
+  next();
+};
+
+// A customer or team member session; a changed password (new version) ends the old ones.
+function sessionOf(req) {
+  const s = auth.read(bearer(req));
+  if (s?.role === 'user') {
+    const user = db.users.find((u) => u.id === s.id);
+    return user && (user.tokenVersion || 0) === s.version ? { role: 'user', user } : null;
+  }
+  if (s?.role === 'member') {
+    const person = db.people.find((p) => p.id === s.id);
+    return person && person.passwordHash && (person.tokenVersion || 0) === s.version ? { role: 'member', person } : null;
+  }
+  return null;
+}
+const requireUser = (req, _res, next) => {
+  const s = sessionOf(req);
+  if (s?.role !== 'user') fail(401, 'Please log in to continue.');
+  req.user = s.user;
+  next();
+};
+const requireMember = (req, _res, next) => {
+  const s = sessionOf(req);
+  if (s?.role !== 'member') fail(401, 'Please log in again.');
+  req.person = s.person;
   next();
 };
 
@@ -149,29 +197,44 @@ const customerView = (b) => ({
   phone: b.phone,
   groupId: b.groupId || '',
   cancelRequest: b.cancelRequest || null,
+  location: b.location || null,
+  offer: b.offer || null,
   team: teamView(b),
 });
 
 // Who is doing the sewa, with where they are based (read from the team list, so edits show up).
 const personOf = (id) => (db.people || []).find((p) => p.id === id);
-const teamView = (b) => (b.assignees || []).map((a) => ({ name: personOf(a.id)?.name || a.name, address: personOf(a.id)?.address || '' }));
+const teamView = (b) =>
+  (b.assignees || []).map((a) => ({ name: personOf(a.id)?.name || a.name, address: personOf(a.id)?.address || '', role: ROLES[personOf(a.id)?.role] || '' }));
 
-// What a team member sees for a booking they are assigned to.
-const dutyView = (b, personIds) => ({
-  ref: b.ref,
-  serviceName: b.serviceName,
-  categoryName: b.categoryName || '',
-  date: b.date,
-  slotLabel: b.slotLabel,
-  slotTime: b.slotTime,
-  status: b.status,
-  name: b.name,
-  phone: b.phone,
-  address: b.address,
-  notes: b.notes,
-  cancelReason: b.status === 'cancelled' ? b.cancelReason : '',
-  with: teamView({ assignees: (b.assignees || []).filter((a) => !personIds.includes(a.id)) }).map((t) => t.name),
-});
+// What a team member sees for a booking they are (or were) assigned to. Only their own pay is shown.
+const dutyView = (b, person) => {
+  const mine = (b.assignees || []).find((a) => a.id === person.id) || {};
+  const payRequest = db.messages.findLast((m) => m.kind === 'pay-request' && m.bookingId === b.id && m.thread === threadOf('m', person.id));
+  return {
+    id: b.id,
+    ref: b.ref,
+    serviceName: b.serviceName,
+    categoryName: b.categoryName || '',
+    date: b.date,
+    slotId: b.slotId,
+    slotLabel: b.slotLabel,
+    slotTime: b.slotTime,
+    status: b.status,
+    name: b.name,
+    phone: b.phone,
+    address: b.address,
+    location: b.location || null,
+    notes: b.notes,
+    cancelReason: b.status === 'cancelled' ? b.cancelReason : '',
+    with: teamView({ assignees: (b.assignees || []).filter((a) => a.id !== person.id) }).map((t) => (t.role ? `${t.name} (${t.role})` : t.name)),
+    pay: mine.pay ?? null,
+    state: mine.state || 'assigned',
+    confirmedAt: mine.confirmedAt || '',
+    cancelRequest: mine.cancelRequest || null,
+    payRequest: payRequest?.status === 'pending' ? { amount: payRequest.amount, at: payRequest.at } : null,
+  };
+};
 
 const readAmount = (value) => {
   const amount = Math.round(Number(value) || 0);
@@ -255,7 +318,7 @@ function notifyBooking(b, kind) {
     requestRejected: { title: 'Cancellation not accepted', body: `${when} is still booked.${b.cancelRequest?.note ? ` “${b.cancelRequest.note}”` : ''}` },
     team: { title: 'Your sewa team 🙏', body: `${teamView(b).map((t) => t.name).join(', ')} will do ${when}.` },
   };
-  notifyPhone(b.phone, { ...messages[kind], url: `/manage?phone=${encodeURIComponent(b.phone)}`, tag: `${b.ref}-${kind}` }).catch(() => {});
+  notifyPhone(b.phone, { ...messages[kind], url: '/account', tag: `${b.ref}-${kind}` }).catch(() => {});
 }
 
 /* ---------- team member notifications ---------- */
@@ -291,8 +354,11 @@ function notifyPerson(person, kind, b, extra = {}) {
     cancelled: { title: 'Sewa cancelled', body: `${what} on ${shortDate(b.date)}, ${when} ${at} has been cancelled.` },
     day: { title: extra.evening ? 'Sewa tomorrow 🙏' : 'Sewa today 🙏', body: `${what} · ${when} ${at}. Customer: ${b.name}, ${b.phone}.` },
     soon: { title: `Sewa starts at ${time} ⏰`, body: `${what} ${at}. Customer: ${b.name}, ${b.phone}.` },
+    pay: { title: 'Sewa bhet updated', body: `${what} on ${shortDate(b.date)}: you will get ${rupee(extra.pay || 0)}.` },
+    cancelApproved: { title: 'Duty cancellation approved', body: `You are no longer doing ${what} on ${shortDate(b.date)}, ${when}.` },
+    cancelRejected: { title: 'Duty cancellation not accepted', body: `Please do ${what} on ${shortDate(b.date)}, ${when}.${extra.note ? ` “${extra.note}”` : ''}` },
   };
-  notifyPhone(person.phone, { ...messages[kind], url: `/manage?phone=${encodeURIComponent(person.phone)}`, tag: `${b.ref}-${person.id}-${kind}` }).catch(() => {});
+  notifyPhone(person.phone, { ...messages[kind], url: '/team', tag: `${b.ref}-${person.id}-${kind}` }).catch(() => {});
 }
 
 const remindedFor = (b, personId) => ((b.reminded ||= {})[personId] ||= {});
@@ -401,8 +467,18 @@ function readItem(item) {
   return { service, category, date, slot };
 }
 
+// What a customer offers to pay (optional): from settings.offerMin rupees.
+function readOffer(value, note) {
+  if (value === undefined || value === null || value === '') return null;
+  const amount = Math.round(Number(value) || 0);
+  const min = Number(db.settings.offerMin) || 0;
+  if (amount < min || amount > 10000000) fail(400, `Your offer must be at least ${rupee(min)}.`);
+  return { amount, note: str(note, 300), status: 'pending', at: new Date().toISOString() };
+}
+
 // Accepts one slot ({ serviceId, date, slotId }) or several ({ items: [...] }) with one set of contact details.
-app.post('/api/bookings', async (req, res) => {
+// Booking needs a customer login; the booking is linked to that account and its mobile number.
+app.post('/api/bookings', requireUser, async (req, res) => {
   const body = req.body || {};
   const requested = Array.isArray(body.items) ? body.items : [body];
   if (!requested.length) fail(400, 'Please choose at least one time slot.');
@@ -418,14 +494,16 @@ app.post('/api/bookings', async (req, res) => {
     seen.add(key);
   }
 
-  const name = str(body.name, 80);
-  const phone = str(body.phone, 20);
+  const user = req.user;
+  const name = str(body.name, 80) || user.name;
+  const phone = user.phone;
   const email = str(body.email, 120);
   const address = str(body.address, 300);
   const notes = str(body.notes, 600);
+  const location = readLocation(body.location);
+  const offer = readOffer(body.offer, body.offerNote);
   const paymentMethod = readPaymentChoice(body.paymentMethod);
   if (name.length < 2) fail(400, 'Please enter your name.');
-  if (digits(phone).length < 10 || digits(phone).length > 15) fail(400, 'Please enter a valid phone number.');
   if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) fail(400, 'Please enter a valid email or leave it empty.');
   if (address.length < 5) fail(400, 'Please enter the venue address.');
 
@@ -437,6 +515,7 @@ app.post('/api/bookings', async (req, res) => {
       id: uid(),
       ref: makeRef(),
       groupId,
+      userId: user.id,
       serviceId: service.id,
       serviceName: service.name,
       categoryId: category?.id || '',
@@ -450,7 +529,9 @@ app.post('/api/bookings', async (req, res) => {
       phone,
       email,
       address,
+      location, // { lat, lng, label } picked on the map, so the closest team member can be found
       notes,
+      offer: offer && { ...offer }, // { amount, note, status: pending | accepted | countered | declined }
       paymentMethod, // the customer's choice; replaced by the actual method when payment is recorded
       paymentStatus: 'unpaid',
       amount: null,
@@ -468,10 +549,16 @@ app.post('/api/bookings', async (req, res) => {
     db.bookings.push(booking); // pushed before the next makeRef() so refs stay unique
     created.push(booking);
   }
+  if (email && !user.email) user.email = email;
+  if (offer) {
+    const list = created.map((b) => b.ref).join(', ');
+    postMessage(threadOf('u', user.id), 'user', { kind: 'offer', text: `I would like to offer ${rupee(offer.amount)}${created.length > 1 ? ' for each booking' : ''} (${list}).${offer.note ? ` ${offer.note}` : ''}`, bookingId: created[0].id, bookingIds: created.map((b) => b.id), bookingRef: created[0].ref, amount: offer.amount });
+  }
   await save();
   const views = created.map(customerView).sort((a, b) => (a.date + a.slotTime).localeCompare(b.date + b.slotTime));
+  const offered = offer ? ` · Offer ${rupee(offer.amount)}` : '';
   if (created.length === 1) {
-    tellAdmin('new', 'New booking request 🙏', `${name} · ${slotText(created[0])} · ${address}`, created[0].ref);
+    tellAdmin('new', 'New booking request 🙏', `${name} · ${slotText(created[0])} · ${address}${offered}`, created[0].ref);
   } else {
     const list = views.slice(0, 3).map(slotText).join('; ') + (views.length > 3 ? ` +${views.length - 3} more` : '');
     tellAdmin('new', `New booking request: ${created.length} slots 🙏`, `${name} · ${list}`, groupId);
@@ -479,37 +566,23 @@ app.post('/api/bookings', async (req, res) => {
   res.status(201).json({ booking: views[0], bookings: views });
 });
 
-const findOwnBooking = (body) => {
-  const ref = str(body?.ref, 20).toUpperCase();
-  const booking = db.bookings.find((b) => b.ref === ref);
-  if (!booking || !samePhone(booking.phone, body?.phone)) {
-    fail(404, 'No booking found with that ID and phone number.');
-  }
+// A booking of the logged-in customer, by its booking ID.
+const findOwnBooking = (req, ref = req.body?.ref) => {
+  const booking = db.bookings.find((b) => b.ref === str(ref, 20).toUpperCase());
+  if (!booking || !ownsBooking(req.user, booking)) fail(404, 'No booking found with that ID in your account.');
   return booking;
 };
 
-app.post('/api/bookings/lookup', async (req, res) => {
-  throttle(`lookup:${req.ip}`, 40);
-  const phone = str(req.body?.phone, 20);
-  if (digits(phone).length < 10) fail(400, 'Please enter the 10-digit phone number used for booking.');
-  const today = todayKey();
-  // Upcoming first (soonest at top), then past ones (most recent first).
-  const byDate = (a, b) => {
-    const ua = a.date >= today;
-    const ub = b.date >= today;
-    if (ua !== ub) return ua ? -1 : 1;
-    return ua ? (a.date + a.slotTime).localeCompare(b.date + b.slotTime) : (b.date + b.slotTime).localeCompare(a.date + a.slotTime);
-  };
-  const mine = db.bookings.filter((b) => samePhone(b.phone, phone)).sort(byDate).slice(0, 30);
-  // The same number may belong to a team member: show the sewas they are assigned to.
-  const personIds = (db.people || []).filter((p) => samePhone(p.phone, phone)).map((p) => p.id);
-  const duties = personIds.length ? db.bookings.filter((b) => (b.assignees || []).some((a) => personIds.includes(a.id))).sort(byDate).slice(0, 40) : [];
-  if (!mine.length && !duties.length) fail(404, 'No bookings or sewa duties found for that phone number.');
-  res.json({ bookings: mine.map(customerView), duties: duties.map((b) => dutyView(b, personIds)), isTeam: personIds.length > 0 });
-});
+// Upcoming first (soonest at top), then past ones (most recent first).
+const byDate = (today) => (a, b) => {
+  const ua = a.date >= today;
+  const ub = b.date >= today;
+  if (ua !== ub) return ua ? -1 : 1;
+  return ua ? (a.date + a.slotTime).localeCompare(b.date + b.slotTime) : (b.date + b.slotTime).localeCompare(a.date + a.slotTime);
+};
 
-app.post('/api/bookings/payment-method', async (req, res) => {
-  const booking = findOwnBooking(req.body);
+app.post('/api/bookings/payment-method', requireUser, async (req, res) => {
+  const booking = findOwnBooking(req);
   if (booking.status === 'cancelled') fail(400, 'This booking is cancelled.');
   if (booking.paymentStatus === 'paid') fail(400, 'Payment for this booking is already received.');
   if (booking.paymentStatus === 'submitted') fail(400, 'Your UPI payment is already waiting for verification.');
@@ -519,8 +592,8 @@ app.post('/api/bookings/payment-method', async (req, res) => {
   res.json({ booking: customerView(booking) });
 });
 
-app.post('/api/bookings/payment', async (req, res) => {
-  const booking = findOwnBooking(req.body);
+app.post('/api/bookings/payment', requireUser, async (req, res) => {
+  const booking = findOwnBooking(req);
   if (booking.status !== 'confirmed' && booking.status !== 'completed') fail(400, 'Payment opens once the jatha confirms your booking.');
   if (!booking.amount) fail(400, 'The bill for this booking is not ready yet.');
   if (booking.paymentStatus === 'paid') fail(400, 'Payment for this booking is already received.');
@@ -545,11 +618,13 @@ app.get('/api/push/key', async (_req, res) => {
   res.json({ publicKey: pushPublicKey() });
 });
 
+// A logged-in customer or team member: notifications go to their account's mobile number.
 app.post('/api/push/subscribe', async (req, res) => {
   throttle(`push:${req.ip}`, 30);
-  const phone = str(req.body?.phone, 20);
-  const known = db.bookings.some((b) => samePhone(b.phone, phone)) || (db.people || []).some((p) => samePhone(p.phone, phone));
-  if (!known) fail(404, 'No bookings found for that phone number.');
+  const s = sessionOf(req);
+  if (!s) fail(401, 'Please log in to turn on notifications.');
+  const phone = s.role === 'user' ? s.user.phone : s.person.phone;
+  if (!phone) fail(400, 'Your account has no mobile number.');
   await addSubscription(phone, readSubscription(req.body?.subscription));
   res.json({ ok: true });
 });
@@ -573,8 +648,8 @@ app.get('/api/health', async (_req, res) => {
 });
 
 // Customers can only ask to cancel; the admin approves or rejects the request.
-app.post('/api/bookings/cancel-request', async (req, res) => {
-  const booking = findOwnBooking(req.body);
+app.post('/api/bookings/cancel-request', requireUser, async (req, res) => {
+  const booking = findOwnBooking(req);
   if (!isActive(booking)) fail(400, `This booking is already ${booking.status}.`);
   if (booking.date < todayKey()) fail(400, 'Past bookings cannot be cancelled.');
   if (booking.cancelRequest?.status === 'pending') fail(400, 'A cancellation request is already waiting for approval.');
@@ -586,13 +661,435 @@ app.post('/api/bookings/cancel-request', async (req, res) => {
   res.json({ booking: customerView(booking) });
 });
 
-app.post('/api/bookings/cancel-request/withdraw', async (req, res) => {
-  const booking = findOwnBooking(req.body);
+app.post('/api/bookings/cancel-request/withdraw', requireUser, async (req, res) => {
+  const booking = findOwnBooking(req);
   if (booking.cancelRequest?.status !== 'pending') fail(400, 'There is no pending cancellation request.');
   booking.cancelRequest = null;
   await save();
   tellAdmin('withdraw', 'Cancellation request withdrawn', `${booking.name} wants to keep ${slotText(booking)}`, booking.ref);
   res.json({ booking: customerView(booking) });
+});
+
+/* ---------------- chat (admin ↔ customer, admin ↔ team member) ---------------- */
+
+const threadOf = (kind, id) => `${kind}:${id}`; // "u:<user id>" or "m:<team member id>"
+function threadRecord(id) {
+  let t = db.threads.find((x) => x.id === id);
+  if (!t) db.threads.push((t = { id, adminReadAt: '', otherReadAt: '', lastAt: '' }));
+  return t;
+}
+// kind: text | offer (customer's price offer) | pay-request (team member asks for more bhet) | system
+function postMessage(thread, from, fields) {
+  const m = { id: uid(), thread, from, kind: 'text', text: '', at: new Date().toISOString(), ...fields };
+  db.messages.push(m);
+  const t = threadRecord(thread);
+  t.lastAt = m.at;
+  if (from === 'admin') t.adminReadAt = m.at;
+  else t.otherReadAt = m.at;
+  return m;
+}
+// side "admin" counts the customer's / member's messages, side "other" counts the admin's.
+function unreadIn(thread, side) {
+  const t = db.threads.find((x) => x.id === thread);
+  const since = (side === 'admin' ? t?.adminReadAt : t?.otherReadAt) || '';
+  return db.messages.filter((m) => m.thread === thread && (side === 'admin') === (m.from !== 'admin') && m.at > since).length;
+}
+function markRead(thread, side) {
+  if (!db.messages.some((m) => m.thread === thread)) return false;
+  const t = threadRecord(thread);
+  const last = t.lastAt || new Date().toISOString();
+  const key = side === 'admin' ? 'adminReadAt' : 'otherReadAt';
+  if (t[key] >= last) return false;
+  t[key] = last;
+  return true;
+}
+const messagesOf = (thread) => db.messages.filter((m) => m.thread === thread).slice(-300);
+function readChatText(body) {
+  const text = str(body?.text, 1000);
+  if (!text) fail(400, 'Type a message first.');
+  return text;
+}
+// The admin's devices hear about every customer / team message; the person hears about the admin's replies.
+function alertAdmin(title, body, url, tag) {
+  notifyAdmins({ title, body, url, tag }).catch(() => {});
+}
+function chatAlert(thread, m) {
+  const [kind, id] = thread.split(':');
+  const who = kind === 'u' ? db.users.find((u) => u.id === id) : personOf(id);
+  if (!who) return;
+  if (m.from === 'admin') {
+    notifyPhone(who.phone, { title: '💬 Message from the jatha', body: m.text, url: kind === 'u' ? '/account?chat=1' : '/team?chat=1', tag: `chat-${thread}` }).catch(() => {});
+  } else {
+    alertAdmin(`💬 ${who.name}${kind === 'm' ? ' (team)' : ''}`, m.text, `/admin?chat=${encodeURIComponent(thread)}`, `chat-${thread}`);
+  }
+}
+
+/* ---------------- logins: customers ("user") and team members ("member") ---------------- */
+
+const userView = (u) => ({ id: u.id, name: u.name, phone: u.phone, email: u.email || '', location: u.location || null, createdAt: u.createdAt });
+function readPhone(v) {
+  const d = digits(v);
+  if (d.length < 10 || d.length > 15) fail(400, 'Please enter your 10-digit mobile number.');
+  return d;
+}
+function readPassword(v) {
+  const problem = passwordProblem(v);
+  if (problem) fail(400, problem);
+  return String(v);
+}
+
+app.post('/api/auth/register', async (req, res) => {
+  throttle(`register:${req.ip}`, 10);
+  const name = str(req.body?.name, 80);
+  const phone = readPhone(req.body?.phone);
+  const password = readPassword(req.body?.password);
+  if (name.length < 2) fail(400, 'Please enter your name.');
+  if (db.users.some((u) => samePhone(u.phone, phone))) fail(409, 'An account with this mobile number already exists. Please log in.');
+  const user = { id: uid(), name, phone, email: '', location: null, tokenVersion: 0, passwordHash: await hashPassword(password), createdAt: new Date().toISOString() };
+  db.users.push(user);
+  await save();
+  alertAdmin('New sangat account', `${name} · ${phone}`, '/admin?tab=customers', `user-${user.id}`);
+  res.status(201).json({ token: auth.make('user', user.id, 0), role: 'user', name: user.name });
+});
+
+app.post('/api/auth/login', async (req, res) => {
+  throttle(`auth:${req.ip}`, 30);
+  const role = req.body?.role === 'member' ? 'member' : 'user';
+  const phone = readPhone(req.body?.phone);
+  throttle(`auth:${role}:${phoneKey(phone)}`, 10);
+  const account = (role === 'member' ? db.people : db.users).find((a) => a.passwordHash && samePhone(a.phone, phone));
+  if (!(await checkPassword(req.body?.password, account?.passwordHash))) {
+    fail(401, role === 'member' ? 'Incorrect mobile number or password. New team members get their first password from the admin.' : 'Incorrect mobile number or password.');
+  }
+  attempts.delete(`auth:${role}:${phoneKey(phone)}`);
+  res.json({ token: auth.make(role, account.id, account.tokenVersion || 0), role, name: account.name });
+});
+
+/* ---------- customer account ---------- */
+
+const myBookings = (user) => db.bookings.filter((b) => ownsBooking(user, b)).sort(byDate(todayKey()));
+
+app.get('/api/me', requireUser, async (req, res) => {
+  res.json({ user: userView(req.user), bookings: myBookings(req.user).map(customerView), unread: unreadIn(threadOf('u', req.user.id), 'other'), today: todayKey() });
+});
+
+app.put('/api/me', requireUser, async (req, res) => {
+  const u = req.user;
+  const b = req.body || {};
+  const name = 'name' in b ? str(b.name, 80) : u.name;
+  const email = 'email' in b ? str(b.email, 120) : u.email;
+  if (name.length < 2) fail(400, 'Please enter your name.');
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) fail(400, 'Please enter a valid email or leave it empty.');
+  Object.assign(u, { name, email, ...('location' in b && { location: readLocation(b.location) }) });
+  await save();
+  res.json({ user: userView(u) });
+});
+
+// Changing the password logs out every other device; this one gets a fresh token.
+async function changePassword(account, body, role) {
+  if (!(await checkPassword(body?.current, account.passwordHash))) fail(400, 'Your current password is not correct.');
+  account.passwordHash = await hashPassword(readPassword(body?.password));
+  account.tokenVersion = (account.tokenVersion || 0) + 1;
+  await save();
+  return auth.make(role, account.id, account.tokenVersion);
+}
+app.post('/api/me/password', requireUser, async (req, res) => {
+  throttle(`pw:${req.ip}`, 10);
+  res.json({ token: await changePassword(req.user, req.body, 'user') });
+});
+
+// The customer can add or correct the map location of an upcoming booking.
+app.put('/api/me/bookings/:ref/location', requireUser, async (req, res) => {
+  const booking = findOwnBooking(req, req.params.ref);
+  if (!isActive(booking) || booking.date < todayKey()) fail(400, 'Only upcoming bookings can be changed.');
+  const location = readLocation(req.body?.location);
+  if (!location) fail(400, 'Please choose the place on the map.');
+  booking.location = location;
+  booking.updatedAt = new Date().toISOString();
+  await save();
+  tellAdmin('location', 'Venue location added 📍', `${booking.name} · ${slotText(booking)} · ${location.label}`, booking.ref);
+  res.json({ booking: customerView(booking) });
+});
+
+// The customer offers what they would like to pay; the admin accepts it or sets the bill amount.
+app.post('/api/me/bookings/:ref/offer', requireUser, async (req, res) => {
+  const booking = findOwnBooking(req, req.params.ref);
+  if (!isActive(booking) || booking.date < todayKey()) fail(400, 'Offers can only be made on upcoming bookings.');
+  if (booking.paymentStatus !== 'unpaid') fail(400, 'Payment for this booking has already been made.');
+  const offer = readOffer(req.body?.amount, req.body?.note);
+  if (!offer) fail(400, 'Please enter the amount you would like to offer.');
+  booking.offer = offer;
+  postMessage(threadOf('u', req.user.id), 'user', {
+    kind: 'offer',
+    text: `I would like to offer ${rupee(offer.amount)} for ${booking.ref} (${slotText(booking)}).${offer.note ? ` ${offer.note}` : ''}`,
+    bookingId: booking.id,
+    bookingIds: [booking.id],
+    bookingRef: booking.ref,
+    amount: offer.amount,
+  });
+  await save();
+  tellAdmin('offer', `Offer: ${rupee(offer.amount)} 🙏`, `${booking.name} · ${slotText(booking)}${booking.amount ? ` · bill ${rupee(booking.amount)}` : ''}`, booking.ref);
+  res.json({ booking: customerView(booking) });
+});
+
+app.get('/api/me/chat', requireUser, async (req, res) => {
+  const thread = threadOf('u', req.user.id);
+  if (markRead(thread, 'other')) await save();
+  res.json({ messages: messagesOf(thread), phone: db.settings.phone });
+});
+
+app.post('/api/me/chat', requireUser, async (req, res) => {
+  throttle(`chat:${req.ip}`, 120);
+  const thread = threadOf('u', req.user.id);
+  const m = postMessage(thread, 'user', { text: readChatText(req.body) });
+  await save();
+  chatAlert(thread, m);
+  res.status(201).json({ messages: messagesOf(thread) });
+});
+
+/* ---------- team member dashboard ---------- */
+
+const docUrl = (doc) => doc && { ...doc, url: `/api/files/${doc.id}?${auth.fileQuery(doc.id)}` };
+// A team member's profile, as they and the admin see it (never the password).
+const memberView = (p) => ({
+  id: p.id,
+  name: p.name,
+  phone: p.phone || '',
+  address: p.address || '',
+  role: p.role || '',
+  skills: p.skills || [],
+  active: p.active !== false,
+  fatherName: p.fatherName || '',
+  experience: p.experience || '',
+  location: p.location || null,
+  bank: p.bank || { holder: '', account: '', ifsc: '', bankName: '' },
+  docs: Object.fromEntries(Object.entries(p.docs || {}).map(([k, d]) => [k, docUrl(d)])),
+  defaultPay: p.defaultPay ?? null,
+  hasPassword: !!p.passwordHash,
+  profileUpdatedAt: p.profileUpdatedAt || '',
+});
+const peopleView = () => db.people.map(memberView);
+
+function teamPayload(p) {
+  const duties = db.bookings.filter((b) => (b.assignees || []).some((a) => a.id === p.id)).sort(byDate(todayKey()));
+  return {
+    person: memberView(p),
+    duties: duties.map((b) => dutyView(b, p)),
+    leaves: db.leaves.filter((l) => l.personId === p.id).sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
+    teammates: db.people.filter((x) => x.id !== p.id && x.active).map((x) => ({ id: x.id, name: x.name, role: x.role || '' })),
+    unread: unreadIn(threadOf('m', p.id), 'other'),
+    roles: ROLES,
+    docKinds: DOC_KINDS,
+    today: todayKey(),
+  };
+}
+
+app.get('/api/team/me', requireMember, async (req, res) => {
+  res.json(teamPayload(req.person));
+});
+
+app.put('/api/team/profile', requireMember, async (req, res) => {
+  const p = req.person;
+  const b = req.body || {};
+  const name = str(b.name, 80);
+  if (name.length < 2) fail(400, 'Please enter your name.');
+  const bank = {
+    holder: str(b.bank?.holder, 80),
+    account: digits(b.bank?.account).slice(0, 20),
+    ifsc: str(b.bank?.ifsc, 11).toUpperCase(),
+    bankName: str(b.bank?.bankName, 80),
+  };
+  if (bank.account && bank.account.length < 6) fail(400, 'The bank account number looks too short.');
+  if (bank.ifsc && !/^[A-Z]{4}0[A-Z0-9]{6}$/.test(bank.ifsc)) fail(400, 'The IFSC code should look like SBIN0001234.');
+  Object.assign(p, {
+    name,
+    fatherName: str(b.fatherName, 80),
+    experience: str(b.experience, 300),
+    address: str(b.address, 300),
+    location: readLocation(b.location),
+    bank,
+    profileUpdatedAt: new Date().toISOString(),
+  });
+  await save();
+  alertAdmin('Team profile updated', `${p.name} updated their profile.`, '/admin?tab=team', `profile-${p.id}`);
+  res.json(teamPayload(p));
+});
+
+app.post(`${DOC_PATH}:kind`, express.json({ limit: '8mb' }), requireMember, async (req, res) => {
+  const kind = req.params.kind;
+  if (!DOC_KINDS[kind]) fail(404, 'Unknown document.');
+  const match = /^data:(image\/(?:png|jpeg|webp)|application\/pdf);base64,([A-Za-z0-9+/=]+)$/.exec(req.body?.dataUrl || '');
+  if (!match) fail(400, 'Please upload a photo (JPG, PNG, WebP) or a PDF.');
+  if (Buffer.byteLength(match[2], 'base64') > 5 * 1024 * 1024) fail(400, 'File is too large (max 5 MB).');
+  const p = req.person;
+  const id = uid();
+  await kv.set(`doc-${id}`, { type: match[1], data: match[2] });
+  const old = p.docs?.[kind];
+  p.docs = { ...p.docs, [kind]: { id, type: match[1], name: str(req.body.name, 120), at: new Date().toISOString() } };
+  p.profileUpdatedAt = new Date().toISOString();
+  await save();
+  if (old) await kv.set(`doc-${old.id}`, null);
+  alertAdmin('Team document uploaded', `${p.name}: ${DOC_KINDS[kind]}`, '/admin?tab=team', `doc-${p.id}-${kind}`);
+  res.json(teamPayload(p));
+});
+
+app.delete(`${DOC_PATH}:kind`, requireMember, async (req, res) => {
+  const p = req.person;
+  const old = p.docs?.[req.params.kind];
+  if (old) {
+    p.docs = Object.fromEntries(Object.entries(p.docs).filter(([k]) => k !== req.params.kind));
+    await save();
+    await kv.set(`doc-${old.id}`, null);
+  }
+  res.json(teamPayload(p));
+});
+
+// Team documents (Aadhaar, bank proof…) open only through a signed link given to that member or the admin.
+app.get('/api/files/:id', async (req, res) => {
+  const id = req.params.id;
+  if (!/^[a-f0-9]{16}$/.test(id) || !auth.fileOk(id, req.query.exp, req.query.sig)) fail(403, 'This link has expired. Reload the page and open it again.');
+  const file = await kv.get(`doc-${id}`);
+  if (!file) fail(404, 'Not found.');
+  res.set('Cache-Control', 'private, max-age=3600').type(file.type).send(Buffer.from(file.data, 'base64'));
+});
+
+function findDuty(req) {
+  const booking = db.bookings.find((b) => b.id === req.params.id);
+  const mine = booking?.assignees?.find((a) => a.id === req.person.id);
+  if (!mine) fail(404, 'This sewa is not assigned to you.');
+  return { booking, mine };
+}
+
+app.post('/api/team/duties/:id/confirm', requireMember, async (req, res) => {
+  const { booking, mine } = findDuty(req);
+  if (!isActive(booking) || booking.date < todayKey()) fail(400, 'This sewa is no longer upcoming.');
+  Object.assign(mine, { state: 'confirmed', confirmedAt: new Date().toISOString() });
+  await save();
+  tellAdmin('duty-ok', `${req.person.name} confirmed ✅`, slotText(booking), booking.ref);
+  res.json(teamPayload(req.person));
+});
+
+// A team member may ask to be taken off a sewa, but not within 2 days of it.
+app.post('/api/team/duties/:id/cancel-request', requireMember, async (req, res) => {
+  const { booking, mine } = findDuty(req);
+  if (!isActive(booking)) fail(400, `This sewa is already ${booking.status}.`);
+  if (booking.date <= addDaysKey(2)) fail(400, 'A sewa can’t be cancelled within 2 days of the program. Please call the admin.');
+  if (mine.cancelRequest?.status === 'pending') fail(400, 'Your cancellation request is already waiting for the admin.');
+  const reason = str(req.body?.reason, 500);
+  if (reason.length < 3) fail(400, 'Please give the reason.');
+  mine.cancelRequest = { status: 'pending', reason, at: new Date().toISOString(), note: '' };
+  await save();
+  tellAdmin('duty-cancel', `${req.person.name} asks to be taken off`, `${slotText(booking)}. Reason: ${reason}`, booking.ref);
+  res.json(teamPayload(req.person));
+});
+
+app.post('/api/team/duties/:id/cancel-request/withdraw', requireMember, async (req, res) => {
+  const { mine } = findDuty(req);
+  if (mine.cancelRequest?.status !== 'pending') fail(400, 'There is no pending request.');
+  mine.cancelRequest = null;
+  await save();
+  res.json(teamPayload(req.person));
+});
+
+// Asking for a different bhet goes into the chat; the admin can set it from there.
+app.post('/api/team/duties/:id/pay-request', requireMember, async (req, res) => {
+  const { booking, mine } = findDuty(req);
+  if (booking.status === 'cancelled') fail(400, 'This sewa was cancelled.');
+  const amount = readAmount(req.body?.amount);
+  const note = str(req.body?.note, 300);
+  const thread = threadOf('m', req.person.id);
+  for (const m of db.messages) if (m.thread === thread && m.kind === 'pay-request' && m.bookingId === booking.id && m.status === 'pending') m.status = 'replaced';
+  const m = postMessage(thread, 'member', {
+    kind: 'pay-request',
+    text: `Please make my bhet ${rupee(amount)} for ${booking.ref} (${slotText(booking)})${mine.pay != null ? ` — now ${rupee(mine.pay)}` : ''}.${note ? ` ${note}` : ''}`,
+    bookingId: booking.id,
+    bookingRef: booking.ref,
+    amount,
+    status: 'pending',
+  });
+  await save();
+  chatAlert(thread, m);
+  res.json(teamPayload(req.person));
+});
+
+app.post('/api/team/leaves', requireMember, async (req, res) => {
+  const p = req.person;
+  const from = str(req.body?.from, 10);
+  const to = str(req.body?.to, 10) || from;
+  if (!DATE_RE.test(from) || !DATE_RE.test(to)) fail(400, 'Choose the dates of your leave.');
+  if (from < todayKey()) fail(400, 'Leave can’t start in the past.');
+  if (to < from) fail(400, 'The last day must be on or after the first day.');
+  if (to > addDaysKey(365)) fail(400, 'That is too far ahead.');
+  const reason = str(req.body?.reason, 300);
+  if (reason.length < 3) fail(400, 'Please give the reason for your leave.');
+  const replacementId = str(req.body?.replacementId, 40);
+  const replacement = replacementId ? db.people.find((x) => x.id === replacementId && x.active && x.id !== p.id) : null;
+  if (replacementId && !replacement) fail(400, 'Choose who will do your sewa from the active team members.');
+  if (db.leaves.some((l) => l.personId === p.id && l.status !== 'rejected' && l.from <= to && l.to >= from)) fail(400, 'You already have leave on some of these dates.');
+  const leave = { id: uid(), personId: p.id, personName: p.name, from, to, reason, replacementId: replacement?.id || '', status: 'pending', note: '', createdAt: new Date().toISOString() };
+  db.leaves.push(leave);
+  await save();
+  const affected = db.bookings.filter((b) => isActive(b) && b.date >= from && b.date <= to && (b.assignees || []).some((a) => a.id === p.id)).length;
+  alertAdmin(
+    `${p.name} asked for leave`,
+    `${shortDate(from)}${to !== from ? ` – ${shortDate(to)}` : ''} · ${affected} sewa${affected === 1 ? '' : 's'} affected${replacement ? ` · suggests ${replacement.name}` : ''}`,
+    '/admin?tab=leave',
+    `leave-${leave.id}`,
+  );
+  res.status(201).json(teamPayload(p));
+});
+
+app.delete('/api/team/leaves/:id', requireMember, async (req, res) => {
+  const leave = db.leaves.find((l) => l.id === req.params.id && l.personId === req.person.id);
+  if (!leave) fail(404, 'Leave request not found.');
+  if (leave.status !== 'pending') fail(400, 'Only a request that is still waiting can be withdrawn. Message the admin to change approved leave.');
+  db.leaves = db.leaves.filter((l) => l !== leave);
+  await save();
+  res.json(teamPayload(req.person));
+});
+
+app.get('/api/team/chat', requireMember, async (req, res) => {
+  const thread = threadOf('m', req.person.id);
+  if (markRead(thread, 'other')) await save();
+  res.json({ messages: messagesOf(thread), phone: db.settings.phone });
+});
+
+app.post('/api/team/chat', requireMember, async (req, res) => {
+  throttle(`chat:${req.ip}`, 120);
+  const thread = threadOf('m', req.person.id);
+  const m = postMessage(thread, 'member', { text: readChatText(req.body) });
+  await save();
+  chatAlert(thread, m);
+  res.status(201).json({ messages: messagesOf(thread) });
+});
+
+app.post('/api/team/password', requireMember, async (req, res) => {
+  throttle(`pw:${req.ip}`, 10);
+  res.json({ token: await changePassword(req.person, req.body, 'member') });
+});
+
+/* ---------- place search for the map location picker ---------- */
+
+app.get('/api/geo/search', async (req, res) => {
+  throttle(`geo:${req.ip}`, 300);
+  const q = str(req.query.q, 120);
+  if (q.length < 3) return res.json({ places: [] });
+  try {
+    res.json({ places: await searchPlaces(q) });
+  } catch (e) {
+    console.error('[sewa] Place search failed:', e.message);
+    fail(502, 'Place search is not available right now. Use “My current location”, or try again shortly.');
+  }
+});
+
+app.get('/api/geo/reverse', async (req, res) => {
+  throttle(`geo:${req.ip}`, 300);
+  const { lat, lng } = readLocation({ lat: req.query.lat, lng: req.query.lng });
+  try {
+    res.json({ label: await reversePlace(lat, lng) });
+  } catch {
+    res.json({ label: '' });
+  }
 });
 
 /* ---------------- admin API ---------------- */
@@ -629,7 +1126,12 @@ app.get('/api/admin/data', async (_req, res) => {
     settings: db.settings,
     services: db.services,
     categories: db.categories || [],
-    people: db.people || [],
+    people: peopleView(),
+    users: db.users.map((u) => ({ ...userView(u), bookings: db.bookings.filter((b) => ownsBooking(u, b)).length })),
+    leaves: db.leaves,
+    chats: threadsSummary(),
+    roles: ROLES,
+    docKinds: DOC_KINDS,
     slots: db.slots,
     blockedDates: db.blockedDates,
     blockedTimes: db.blockedTimes || [],
@@ -656,9 +1158,10 @@ app.put('/api/admin/settings', async (req, res) => {
   for (const key of ['cashEnabled', 'upiEnabled', 'customTimeEnabled']) {
     if (key in b) s[key] = !!b[key];
   }
-  for (const key of ['yearsOfSewa', 'programsDone', 'citiesCovered', 'maxAdvanceDays']) {
-    if (key in b) s[key] = Math.max(0, Math.min(100000, Math.round(Number(b[key]) || 0)));
+  for (const key of ['yearsOfSewa', 'programsDone', 'citiesCovered', 'maxAdvanceDays', 'offerMin', 'commissionAbove']) {
+    if (key in b) s[key] = Math.max(0, Math.min(10000000, Math.round(Number(b[key]) || 0)));
   }
+  if ('commissionRate' in b) s.commissionRate = Math.max(0, Math.min(100, Number(b.commissionRate) || 0));
   if (Array.isArray(b.gallery)) s.gallery = b.gallery.map((u) => str(u, 600)).filter(Boolean).slice(0, 40);
   if (Array.isArray(b.testimonials)) {
     s.testimonials = b.testimonials
@@ -711,7 +1214,7 @@ app.delete('/api/admin/services/:id', async (req, res) => {
   for (const c of db.categories || []) c.serviceIds = c.serviceIds.filter((x) => x !== id);
   for (const p of db.people || []) p.skills = (p.skills || []).filter((k) => k.serviceId !== id);
   await save();
-  res.json({ services: db.services, categories: db.categories, people: db.people });
+  res.json({ services: db.services, categories: db.categories, people: peopleView() });
 });
 
 /* ---------- categories ---------- */
@@ -750,14 +1253,14 @@ app.put('/api/admin/categories/:id', async (req, res) => {
   // A person can't keep a skill for a sewa that is no longer in this category.
   for (const p of db.people || []) p.skills = (p.skills || []).filter((k) => k.categoryId !== req.params.id || db.categories[idx].serviceIds.includes(k.serviceId));
   await save();
-  res.json({ categories: db.categories, people: db.people });
+  res.json({ categories: db.categories, people: peopleView() });
 });
 
 app.delete('/api/admin/categories/:id', async (req, res) => {
   db.categories = (db.categories || []).filter((c) => c.id !== req.params.id);
   for (const p of db.people || []) p.skills = (p.skills || []).filter((k) => k.categoryId !== req.params.id);
   await save();
-  res.json({ categories: db.categories, people: db.people });
+  res.json({ categories: db.categories, people: peopleView() });
 });
 
 app.put('/api/admin/categories-order', async (req, res) => {
@@ -780,28 +1283,45 @@ const readPerson = (b, existing = {}) => {
     .map((k) => ({ categoryId: str(k?.categoryId, 80), serviceId: str(k?.serviceId, 80) }))
     .filter((k) => serviceIds.has(k.serviceId) && (!k.categoryId || catById.get(k.categoryId)?.serviceIds.includes(k.serviceId)))
     .filter((k) => !seen.has(k.categoryId + '|' + k.serviceId) && seen.add(k.categoryId + '|' + k.serviceId));
-  return { ...existing, name, phone: str(b.phone, 20), address: str(b.address, 300), skills, active: b.active !== false };
+  const phone = str(b.phone, 20);
+  if (phone && db.people.some((p) => p.id !== existing.id && samePhone(p.phone, phone))) fail(400, 'Another team member already has this mobile number.');
+  const pay = b.defaultPay === '' || b.defaultPay == null ? null : Math.max(0, Math.min(10000000, Math.round(Number(b.defaultPay) || 0)));
+  return { ...existing, name, phone, address: str(b.address, 300), role: ROLES[b.role] ? b.role : '', defaultPay: pay, skills, active: b.active !== false };
 };
 
+// The admin sets (or resets) a team member's login password; it logs them out everywhere else.
+async function applyPassword(person, password) {
+  if (!password) return;
+  if (!person.phone) fail(400, 'Add a mobile number first — team members log in with it.');
+  person.passwordHash = await hashPassword(readPassword(password));
+  person.tokenVersion = (person.tokenVersion || 0) + 1;
+}
+
 app.post('/api/admin/people', async (req, res) => {
-  db.people = [...(db.people || []), { id: uid(), ...readPerson(req.body || {}) }];
+  const person = { id: uid(), ...readPerson(req.body || {}) };
+  await applyPassword(person, req.body?.password);
+  db.people = [...(db.people || []), person];
   await save();
-  res.status(201).json({ people: db.people });
+  res.status(201).json({ people: peopleView() });
 });
 
 app.put('/api/admin/people/:id', async (req, res) => {
   const idx = (db.people || []).findIndex((p) => p.id === req.params.id);
   if (idx < 0) fail(404, 'Person not found.');
-  db.people[idx] = readPerson(req.body || {}, db.people[idx]);
+  const person = readPerson(req.body || {}, db.people[idx]);
+  await applyPassword(person, req.body?.password);
+  db.people[idx] = person;
   await save();
-  res.json({ people: db.people });
+  res.json({ people: peopleView() });
 });
 
 app.delete('/api/admin/people/:id', async (req, res) => {
   // Bookings keep the name they were assigned with, so history stays readable.
+  const person = db.people.find((p) => p.id === req.params.id);
   db.people = (db.people || []).filter((p) => p.id !== req.params.id);
   await save();
-  res.json({ people: db.people });
+  await Promise.all(Object.values(person?.docs || {}).map((d) => kv.set(`doc-${d.id}`, null)));
+  res.json({ people: peopleView() });
 });
 
 // Assign team members to one booking (one time slot). Only people with a matching skill are allowed.
@@ -809,11 +1329,15 @@ app.patch('/api/admin/bookings/:id/assign', async (req, res) => {
   const booking = db.bookings.find((b) => b.id === req.params.id);
   if (!booking) fail(404, 'Booking not found.');
   const ids = Array.isArray(req.body?.personIds) ? [...new Set(req.body.personIds)] : [];
+  // People already on the booking keep their bhet and confirmation; new ones start with their usual bhet.
+  const current = new Map((booking.assignees || []).map((a) => [a.id, a]));
   const assignees = ids.map((id) => {
     const person = (db.people || []).find((p) => p.id === id);
     if (!person) fail(400, 'That team member no longer exists.');
+    if (current.has(id)) return { ...current.get(id), name: person.name };
     if (!canDo(person, booking)) fail(400, `${person.name} does not do ${booking.serviceName}${booking.categoryName ? ` in ${booking.categoryName}` : ''}.`);
-    return { id: person.id, name: person.name };
+    if (leaveOn(id, booking.date)) fail(400, `${person.name} is on leave on ${shortDate(booking.date)}.`);
+    return { id: person.id, name: person.name, pay: person.defaultPay ?? null, state: 'assigned' };
   });
   const before = (booking.assignees || []).map((a) => a.id);
   booking.assignees = assignees;
@@ -914,12 +1438,8 @@ app.patch('/api/admin/bookings/:id', async (req, res) => {
     Object.assign(booking, { cancelReason: reason, cancelledBy: 'admin', cancelledAt: new Date().toISOString() });
   }
   if (status === 'confirmed') {
-    booking.amount = amount;
-    if (!booking.billNo) {
-      db.meta.billSeq = (db.meta.billSeq || 0) + 1;
-      booking.billNo = `${new Date().getFullYear()}-${String(db.meta.billSeq).padStart(4, '0')}`;
-    }
-    booking.billedAt = new Date().toISOString();
+    billBooking(booking, amount);
+    settleOffer(booking, amount);
   }
   booking.status = status;
   booking.updatedAt = new Date().toISOString();
@@ -983,6 +1503,237 @@ app.patch('/api/admin/bookings/:id/payment', async (req, res) => {
   res.json({ booking });
 });
 
+
+function billBooking(booking, amount) {
+  booking.amount = amount;
+  if (!booking.billNo) {
+    db.meta.billSeq = (db.meta.billSeq || 0) + 1;
+    booking.billNo = `${new Date().getFullYear()}-${String(db.meta.billSeq).padStart(4, '0')}`;
+  }
+  booking.billedAt = new Date().toISOString();
+}
+
+// Setting the bill answers a waiting offer: accepted when the amounts match, otherwise countered.
+function settleOffer(booking, amount) {
+  const offer = booking.offer;
+  if (offer?.status !== 'pending') return;
+  Object.assign(offer, { status: amount === offer.amount ? 'accepted' : 'countered', counter: amount, answeredAt: new Date().toISOString() });
+  if (!booking.userId) return;
+  const text =
+    offer.status === 'accepted'
+      ? `Your offer of ${rupee(offer.amount)} for ${booking.ref} is accepted 🙏`
+      : `For ${booking.ref} the bill is ${rupee(amount)} (your offer was ${rupee(offer.amount)}).`;
+  postMessage(threadOf('u', booking.userId), 'admin', { kind: 'system', text, bookingId: booking.id, bookingRef: booking.ref });
+}
+
+/* ---------- admin: offers, team bhet, duty cancellations, replacements ---------- */
+
+const findBooking = (id) => db.bookings.find((b) => b.id === id) || fail(404, 'Booking not found.');
+const findAssignee = (booking, personId) => (booking.assignees || []).find((a) => a.id === personId) || fail(404, 'That person is not on this booking.');
+
+// Accept the customer's offer as the bill (confirming a pending booking), or decline it with a message.
+app.patch('/api/admin/bookings/:id/offer', async (req, res) => {
+  const booking = findBooking(req.params.id);
+  const offer = booking.offer;
+  if (!offer) fail(400, 'This booking has no offer.');
+  if (!isActive(booking)) fail(400, `This booking is ${booking.status}.`);
+  const prevStatus = booking.status;
+  if (req.body?.action === 'accept') {
+    if (booking.paymentStatus === 'paid') fail(400, 'This booking is already paid.');
+    offer.status = 'pending'; // so settleOffer records it as accepted
+    billBooking(booking, offer.amount);
+    settleOffer(booking, offer.amount);
+    booking.status = 'confirmed';
+  } else if (req.body?.action === 'decline') {
+    const note = str(req.body.note, 300);
+    Object.assign(offer, { status: 'declined', note: note || offer.note, reply: note, answeredAt: new Date().toISOString() });
+    if (booking.userId) {
+      const m = postMessage(threadOf('u', booking.userId), 'admin', {
+        kind: 'system',
+        text: `About your offer of ${rupee(offer.amount)} for ${booking.ref}: ${note || 'we are not able to accept this amount. Please message us to talk about it.'}`,
+        bookingId: booking.id,
+        bookingRef: booking.ref,
+      });
+      chatAlert(m.thread, m);
+    }
+  } else {
+    fail(400, 'Choose accept or decline.');
+  }
+  booking.updatedAt = new Date().toISOString();
+  await save();
+  if (req.body.action === 'accept') notifyBooking(booking, prevStatus === 'confirmed' ? 'billUpdated' : 'confirmed');
+  res.json({ booking });
+});
+
+// Bhet (payment) for one team member on one booking. Answers their pending request for it, if any.
+app.patch('/api/admin/bookings/:id/assignees/:personId', async (req, res) => {
+  const booking = findBooking(req.params.id);
+  const a = findAssignee(booking, req.params.personId);
+  const raw = req.body?.pay;
+  const pay = raw === '' || raw == null ? null : Math.max(0, Math.min(10000000, Math.round(Number(raw))));
+  if (pay !== null && !Number.isFinite(pay)) fail(400, 'Enter the amount in rupees.');
+  const changed = a.pay !== pay;
+  a.pay = pay;
+  const thread = threadOf('m', a.id);
+  for (const m of db.messages) if (m.thread === thread && m.kind === 'pay-request' && m.bookingId === booking.id && m.status === 'pending') Object.assign(m, { status: 'answered', answer: pay });
+  if (changed && pay !== null) postMessage(thread, 'admin', { kind: 'system', text: `Your bhet for ${booking.ref} (${slotText(booking)}) is now ${rupee(pay)}.`, bookingId: booking.id, bookingRef: booking.ref });
+  booking.updatedAt = new Date().toISOString();
+  await save();
+  if (changed && pay !== null) notifyPerson(personOf(a.id), 'pay', booking, { pay });
+  res.json({ booking });
+});
+
+// A team member asked to be taken off this booking: approve (removes them) or reject.
+app.patch('/api/admin/bookings/:id/assignees/:personId/cancel', async (req, res) => {
+  const booking = findBooking(req.params.id);
+  const a = findAssignee(booking, req.params.personId);
+  if (a.cancelRequest?.status !== 'pending') fail(400, 'There is no pending request.');
+  const person = personOf(a.id);
+  const note = str(req.body?.note, 300);
+  if (req.body?.action === 'approve') {
+    booking.assignees = booking.assignees.filter((x) => x.id !== a.id);
+    notifyPerson(person, 'cancelApproved', booking);
+  } else if (req.body?.action === 'reject') {
+    a.cancelRequest = { ...a.cancelRequest, status: 'rejected', note };
+    notifyPerson(person, 'cancelRejected', booking, { note });
+  } else {
+    fail(400, 'Choose approve or reject.');
+  }
+  booking.updatedAt = new Date().toISOString();
+  await save();
+  res.json({ booking });
+});
+
+// Put another team member in someone's place on a booking (e.g. while they are on leave). The bhet stays the same.
+function replaceAssignee(booking, fromId, toId) {
+  const idx = (booking.assignees || []).findIndex((a) => a.id === fromId);
+  if (idx < 0) fail(400, 'That person is not on this booking.');
+  const to = db.people.find((p) => p.id === toId);
+  if (!to) fail(400, 'Choose who should take their place.');
+  if (!to.active) fail(400, `${to.name} is inactive.`);
+  if (booking.assignees.some((a) => a.id === toId)) fail(400, `${to.name} is already on this booking.`);
+  if (!canDo(to, booking)) fail(400, `${to.name} does not do ${booking.serviceName}${booking.categoryName ? ` in ${booking.categoryName}` : ''}.`);
+  if (leaveOn(toId, booking.date)) fail(400, `${to.name} is on leave on ${shortDate(booking.date)}.`);
+  const before = booking.assignees.map((a) => a.id);
+  const from = booking.assignees[idx];
+  booking.assignees[idx] = { id: to.id, name: to.name, pay: from.pay ?? to.defaultPay ?? null, state: 'assigned', replaces: from.name };
+  booking.updatedAt = new Date().toISOString();
+  return before;
+}
+
+app.post('/api/admin/bookings/:id/replace', async (req, res) => {
+  const booking = findBooking(req.params.id);
+  const before = replaceAssignee(booking, str(req.body?.fromId, 40), str(req.body?.toId, 40));
+  await save();
+  teamChanged(booking, before);
+  res.json({ booking });
+});
+
+/* ---------- admin: leave ---------- */
+
+// Approve (optionally putting replacements on the affected sewas) or reject a leave request.
+app.patch('/api/admin/leaves/:id', async (req, res) => {
+  const leave = db.leaves.find((l) => l.id === req.params.id);
+  if (!leave) fail(404, 'Leave request not found.');
+  const action = req.body?.action;
+  if (!['approve', 'reject', 'cancel'].includes(action)) fail(400, 'Choose approve or reject.');
+  const note = str(req.body?.note, 300);
+  const changed = [];
+  const skipped = [];
+  if (action === 'approve') {
+    const replacements = req.body?.replacements && typeof req.body.replacements === 'object' ? req.body.replacements : {};
+    const affected = db.bookings.filter((b) => isActive(b) && b.date >= leave.from && b.date <= leave.to && (b.assignees || []).some((a) => a.id === leave.personId));
+    for (const b of affected) {
+      const toId = str(replacements[b.id] ?? leave.replacementId, 40);
+      if (!toId) continue;
+      try {
+        const before = replaceAssignee(b, leave.personId, toId);
+        changed.push({ booking: b, before });
+      } catch (e) {
+        skipped.push(`${b.ref}: ${e.message}`);
+      }
+    }
+  }
+  Object.assign(leave, { status: action === 'approve' ? 'approved' : action === 'reject' ? 'rejected' : 'cancelled', note, decidedAt: new Date().toISOString() });
+  await save();
+  for (const { booking, before } of changed) teamChanged(booking, before);
+  const person = personOf(leave.personId);
+  const when = `${shortDate(leave.from)}${leave.to !== leave.from ? ` – ${shortDate(leave.to)}` : ''}`;
+  const title = { approve: 'Leave approved 🙏', reject: 'Leave not approved', cancel: 'Leave cancelled' }[action];
+  if (person?.phone) notifyPhone(person.phone, { title, body: `${when}${note ? ` · ${note}` : ''}`, url: '/team', tag: `leave-${leave.id}` }).catch(() => {});
+  res.json({ leaves: db.leaves, bookings: changed.map((c) => c.booking), skipped });
+});
+
+/* ---------- admin: chat ---------- */
+
+function threadsSummary() {
+  return db.threads
+    .filter((t) => t.lastAt)
+    .map((t) => {
+      const [kind, id] = t.id.split(':');
+      const who = kind === 'u' ? db.users.find((u) => u.id === id) : personOf(id);
+      const last = db.messages.findLast((m) => m.thread === t.id);
+      return {
+        id: t.id,
+        kind: kind === 'u' ? 'user' : 'member',
+        name: who?.name || 'Removed account',
+        phone: who?.phone || '',
+        role: kind === 'm' ? ROLES[who?.role] || '' : '',
+        lastAt: t.lastAt,
+        last: last ? { text: last.text, from: last.from, kind: last.kind } : null,
+        unread: unreadIn(t.id, 'admin'),
+      };
+    })
+    .sort((a, b) => b.lastAt.localeCompare(a.lastAt));
+}
+
+function chatTarget(thread) {
+  const [kind, id] = String(thread).split(':');
+  const who = kind === 'u' ? db.users.find((u) => u.id === id) : kind === 'm' ? personOf(id) : null;
+  if (!who) fail(404, 'That account no longer exists.');
+  return { kind: kind === 'u' ? 'user' : 'member', who };
+}
+
+app.get('/api/admin/chats', async (_req, res) => {
+  res.json({ chats: threadsSummary() });
+});
+
+app.get('/api/admin/chats/:thread', async (req, res) => {
+  const thread = req.params.thread;
+  const { kind, who } = chatTarget(thread);
+  if (markRead(thread, 'admin')) await save();
+  res.json({ messages: messagesOf(thread), with: { kind, name: who.name, phone: who.phone || '', role: ROLES[who.role] || '' } });
+});
+
+app.post('/api/admin/chats/:thread', async (req, res) => {
+  const thread = req.params.thread;
+  chatTarget(thread);
+  const m = postMessage(thread, 'admin', { text: readChatText(req.body) });
+  await save();
+  chatAlert(thread, m);
+  res.status(201).json({ messages: messagesOf(thread), chats: threadsSummary() });
+});
+
+/* ---------- admin: customer accounts ---------- */
+
+app.post('/api/admin/users/:id/password', async (req, res) => {
+  const user = db.users.find((u) => u.id === req.params.id);
+  if (!user) fail(404, 'Account not found.');
+  user.passwordHash = await hashPassword(readPassword(req.body?.password));
+  user.tokenVersion = (user.tokenVersion || 0) + 1;
+  await save();
+  res.json({ ok: true });
+});
+
+app.delete('/api/admin/users/:id', async (req, res) => {
+  // Bookings stay (they keep the name and number); only the login and its chat are removed.
+  const thread = threadOf('u', req.params.id);
+  db.users = db.users.filter((u) => u.id !== req.params.id);
+  db.messages = db.messages.filter((m) => m.thread !== thread);
+  db.threads = db.threads.filter((t) => t.id !== thread);
+  await save();
+  res.json({ ok: true });
+});
 
 /* ---------- admin: Gurpurab ---------- */
 

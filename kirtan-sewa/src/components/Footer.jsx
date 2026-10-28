@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom';
 import { useSite } from './SiteContext';
 import { useGoTo } from './useGoTo';
+import { rupees } from '../lib/money';
 
 export default function Footer() {
   const { site } = useSite();
@@ -27,12 +28,18 @@ export default function Footer() {
         <div className="footer-links">
           <button onClick={() => goTo('sewa')}>Sewa</button>
           <button onClick={() => goTo('book')}>Book a date</button>
-          <Link to="/manage">Manage booking</Link>
+          <Link to="/account">My account</Link>
+          <Link to="/login?as=team">Team login</Link>
           <Link to="/admin">Admin</Link>
         </div>
         <p className="footer-copy">
           © {new Date().getFullYear()} {s?.siteName}. Made with sewa bhav.
         </p>
+        {s?.commissionRate > 0 && (
+          <p className="footer-fine">
+            * A {s.commissionRate}% service commission applies to bookings above {rupees(s.commissionAbove || 0)}.
+          </p>
+        )}
       </div>
     </footer>
   );

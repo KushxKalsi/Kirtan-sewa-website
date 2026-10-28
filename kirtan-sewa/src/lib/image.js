@@ -21,3 +21,13 @@ export function fileToDataUrl(file, max = 1000, type = 'image/png', quality = 0.
     img.src = URL.createObjectURL(file);
   });
 }
+
+/** A file as it is (e.g. a PDF), as a data: URL. */
+export function readDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(new Error('Could not read that file.'));
+    reader.readAsDataURL(file);
+  });
+}

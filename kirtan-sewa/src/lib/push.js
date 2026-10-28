@@ -53,10 +53,10 @@ async function subscribeBrowser() {
   return sub;
 }
 
-/** Customer: link this browser to their phone number so they hear about their bookings. */
-export async function enableNotifications(phone) {
+/** Logged-in customer or team member: notify this browser about their account (client = userApi / teamApi). */
+export async function enableNotifications(client, phone) {
   const sub = await subscribeBrowser();
-  await api.pushSubscribe(phone, sub.toJSON());
+  await client.pushSubscribe(sub.toJSON());
   const digits = String(phone).replace(/\D/g, '').slice(-10);
   writeStore(KEY, [...new Set([...readStore(KEY, []), digits])]);
 }
