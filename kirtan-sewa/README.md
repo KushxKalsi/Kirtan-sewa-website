@@ -1,6 +1,6 @@
 # Kirtan Sewa — portfolio & booking website
 
-React + Framer Motion + Lenis front end, with a small Express API that stores everything in `data/db.json`.
+React + Framer Motion + Lenis front end, with a small Express API. Data lives in Postgres tables (when `DATABASE_URL` is set) or in `data/db.json` locally.
 
 ## Run it
 
@@ -28,7 +28,8 @@ folder on persistent storage and back it up. Set `DATA_DIR=/some/path` to store 
 | `PORT`           | Port for the server                       | `5174`         |
 | `DATA_DIR`       | Folder for `db.json`                      | `./data`       |
 | `TOKEN_SECRET`   | Signs admin sessions (auto-generated)     | stored in db   |
-| `DATABASE_URL`   | Postgres connection string; when set, data goes to Postgres instead of `DATA_DIR` | — |
+| `DATABASE_URL`   | Postgres connection string; when set, data goes to Postgres tables instead of `DATA_DIR` | — |
+| `PHOTON_URL`     | Place search service for the map picker   | `https://photon.komoot.io` |
 | `KEEP_ALIVE_URL` | Public address to ping every 10 min (Render sets `RENDER_EXTERNAL_URL` itself) | — |
 | `KEEP_ALIVE`     | Set to `off` to disable the keep-awake ping | on             |
 
@@ -60,8 +61,11 @@ empty, it copies `data/db.json` into it. Upload the UPI QR again afterwards.
   group ID. Either all the slots are booked or none are.
 - **Calendar**: anyone can see which slots are booked, what sewa each is for, and the venue address.
   Visitors must choose their sewa first. Nothing is pre-selected.
-- **`/manage`**: customers enter only their phone number to see all their bookings, bills and payments.
-  They can **request** a cancellation with a reason. The booking stays active until you approve it.
+- **`/login`**: customers (sangat) and team members log in with their mobile number and password. Customers can
+  create an account there or in the last booking step; team members get their first password from the admin.
+- **`/account`** (customers): their bookings, bills and payments, map location, price offers, cancellation
+  requests, and a chat with the jatha. `/manage` now redirects here.
+- **`/team`** (team members): their sewas, profile and documents, leave and a chat with the admin.
 - **`/admin`**:
   - **Bookings**: confirm, complete, cancel with a reason, restore or delete. The **Cancel requests** filter lists
     customers' cancellation requests, which you can **Approve** (this frees the slot) or **Reject** (with an optional message).
@@ -162,3 +166,58 @@ to verify, cancellation requests and withdrawals, and switches between UPI and c
    another way. The **Collected** card shows the total received.
 
 The uploaded QR image is saved in `data/uploads/`.
+
+## Logins, accounts and chat
+
+- **Customers** must be logged in to send a booking. The booking is linked to the account and its mobile number;
+  older bookings made with the same number show up in the account too. Forgotten password: admin → **Sangat
+  accounts** → key button sets a new one (there is no SMS, so tell them on the phone).
+- **Team members** log in at **Team login** (footer) with the mobile number saved in admin → Team. Set their
+  password in the Team form (it can be reset there any time). Changing a password logs out other devices.
+- **Chat:** every customer and team member has one conversation with the admin, with a **Call** button on both
+  sides. Admin → **Chat** lists them with unread counts; the + button starts a new one. Each new message is a phone
+  notification for the other side (if they turned notifications on).
+
+## Offers and commission
+
+- A customer can offer their own amount, at least ₹1,500 (Site settings → Payments → "offer their own amount
+  from"), while booking or later from their account. It appears on the booking and in the chat. **Accept** makes it
+  the bill (and confirms a pending booking); **Set another amount** opens the usual bill form; **Decline** sends
+  your message to their chat.
+- **Commission:** 10% of each bill above ₹3,500 (both editable in Site settings → Payments). Amounts show only in
+  the admin Bookings tab (per booking and in total). The site footer carries one line about it in small print.
+
+## Team: roles, profile, sewas, bhet and leave
+
+- Roles: **Head Ragi**, **Side Ragi**, **Tabla** (set in admin → Team; filter by role there).
+- Team members fill in their profile: name, father's name, experience, address, map location, bank account, and
+  upload the jatha head photo, jatha photo, Aadhaar card and bank passbook / cancelled cheque (photo or PDF, 5 MB).
+  Documents open only through short-lived signed links, for that member and the admin (Team → ID card button).
+- **Sewas:** they see upcoming and done sewas, with their bhet and totals. They **confirm** each sewa (you see
+  "✓" on the booking), or ask to be taken off — not within 2 days of the program. You approve or reject that on
+  the booking.
+- **Bhet:** set it per person on each booking (a person's "usual bhet" fills it in when they're assigned). If they
+  ask for a different amount it lands in the chat, where you can set any amount directly.
+- **Leave:** they pick the dates, give a reason and may suggest who does their sewas. Admin → **Leave** shows the
+  affected sewas with a "who takes their place" choice for each (nearest first). Approving hands them over, keeping
+  the bhet, and notifies everyone. People on approved leave can't be assigned on those days, and any booking can
+  also be handed to someone else with **Replace** under its team.
+
+## Map location and nearest team member
+
+- In the booking form the customer types the venue and picks the exact place from the suggestions (or uses their
+  current location, or pastes a Google Maps link). A Google map preview shows the pin. They can add or change it
+  later from their account.
+- Team members pin where they are based in their profile.
+- On a booking, the people who can do that sewa are listed **nearest first** with the distance (straight line), and
+  each assigned person has a link to directions.
+
+## Database tables (Postgres)
+
+One table per kind of record, each with `id`, a few typed columns for searching and reporting, the full record in
+`data` (jsonb) and `updated_at`: `bookings`, `booking_assignments` (who does each booking, bhet, confirmed),
+`users`, `team_members`, `leave_requests`, `chat_messages`, `chat_threads`, `services`, `categories`,
+`time_slots`, `blocked_dates`, `blocked_times`, `gurpurabs`, `settings`, `push_subscriptions`, `app_meta`, and
+`files` (UPI QR, Gurpurab pictures, team documents, as bytea). Password hashes are kept only in their own column.
+Only rows that changed are written. On the first start after upgrading, the data in the old single `sewa_store`
+table is copied into the new tables automatically; `sewa_store` is left untouched as a backup.

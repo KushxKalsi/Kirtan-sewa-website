@@ -17,14 +17,14 @@ self.addEventListener('push', (event) => {
       tag: data.tag,
       ...(data.image && { image: data.image }), // big picture (Android Chrome), e.g. the Gurpurab poster
       renotify: !!data.tag,
-      data: { url: data.url || '/manage' },
+      data: { url: data.url || '/account' },
     }),
   );
 });
 
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
-  const target = new URL(event.notification.data?.url || '/manage', self.location.origin).href;
+  const target = new URL(event.notification.data?.url || '/account', self.location.origin).href;
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windows) => {
       for (const w of windows) {

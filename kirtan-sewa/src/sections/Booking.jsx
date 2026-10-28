@@ -1,23 +1,26 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { addDays, endOfMonth, format, startOfMonth } from 'date-fns';
-import { ArrowLeft, ArrowRight, CalendarDays, CalendarHeart, Check, Clock, Loader2, Sparkles, CircleAlert, MapPin, MousePointerClick, Plus, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, CalendarDays, CalendarHeart, Check, Clock, Loader2, LogOut, Sparkles, CircleAlert, MapPin, MousePointerClick, Plus, Tag, X } from 'lucide-react';
 import Calendar from '../components/Calendar';
 import SplitText from '../components/SplitText';
 import Reveal from '../components/Reveal';
 import BookingSuccess from '../components/BookingSuccess';
+import AuthForm from '../components/AuthForm';
+import LocationPicker from '../components/LocationPicker';
+import IntlTours from '../components/IntlTours';
+import { useAuth } from '../components/AuthContext';
 import { useSite } from '../components/SiteContext';
 import { useToast } from '../components/Toast';
 import { api } from '../lib/api';
 import { fromKey, prettyDate, rangeTo12, slotTime, toKey } from '../lib/date';
-import { rememberBooking } from '../lib/storage';
 import { serviceIcon } from '../lib/icons';
 import { scrollToId } from '../lib/scroll';
 import { ease } from '../lib/motion';
-import { PAY_OPTIONS } from '../lib/money';
+import { PAY_OPTIONS, rupees } from '../lib/money';
 
 const nowHHMM = () => format(new Date(), 'HH:mm');
-const emptyForm = { name: '', phone: '', email: '', address: '', notes: '', paymentMethod: '' };
+const emptyForm = { name: '', email: '', address: '', location: null, notes: '', paymentMethod: '', offer: '', offerNote: '' };
 
 const MAX_ITEMS = 20;
 const CUSTOM = 'custom';
@@ -35,6 +38,7 @@ const panelAnim = {
 
 export default function Booking({ preselect }) {
   const { site } = useSite();
+  const { session, user, logout } = useAuth();
   const toast = useToast();
   const services = useMemo(() => site?.services || [], [site]);
   const slots = useMemo(() => site?.slots || [], [site]);
@@ -55,6 +59,10 @@ export default function Booking({ preselect }) {
   const [blockedTimes, setBlockedTimes] = useState([]); // only the admin makes a time unavailable
   const [loadingAvail, setLoadingAvail] = useState(false);
   const [form, setForm] = useState(emptyForm);
+  // Booking needs a sangat login; the name starts from the account.
+  useEffect(() => {
+    if (session?.role === 'user' && session.name) setForm((f) => (f.name ? f : { ...f, name: session.name }));
+  }, [session]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [result, setResult] = useState(null);
@@ -243,8 +251,7 @@ export default function Booking({ preselect }) {
     if (payMethods.length && !payMethods.includes(form.paymentMethod)) return setError('Please choose how you would like to pay — UPI or cash.');
     setSubmitting(true);
     try {
-      const { bookings } = await api.createBooking({ items: selection, ...form });
-      bookings.forEach((b) => rememberBooking(b, form.phone));
+      const { bookings } = await user.createBooking({ items: selection, ...form });
       setResult(bookings);
       setSelection([]); // clear first, so the refresh below doesn't treat our own new bookings as taken
       setStep('success');
@@ -253,13 +260,14 @@ export default function Booking({ preselect }) {
     } catch (err) {
       setError(err.message);
       if (err.status === 409) loadAvailability();
+      if (err.status === 401) setError('Please log in again to send your request.');
     } finally {
       setSubmitting(false);
     }
   };
 
   const reset = () => {
-    setForm(emptyForm);
+    setForm({ ...emptyForm, name: session?.name || '' });
     setDate('');
     setSelection([]);
     setResult(null);
@@ -331,6 +339,9 @@ export default function Booking({ preselect }) {
           <SplitText className="section-title" text="Check availability & book your date" highlight={[3, 4, 5]} />
           <Reveal delay={0.1}>
             <p className="section-lead">Every booked slot shows on the calendar in real time. Choose the type of kirtan and the sewa, then as many dates and times as you need — and book them all at once.</p>
+          </Reveal>
+          <Reveal delay={0.15}>
+            <IntlTours compact />
           </Reveal>
         </div>
 
@@ -445,7 +456,28 @@ export default function Booking({ preselect }) {
             <AnimatePresence mode="wait">
               {step === 'success' && result ? (
                 <motion.div key="success" {...panelAnim}>
-                  <BookingSuccess bookings={result} phone={form.phone} onAgain={reset} />
+                  <BookingSuccess bookings={result} phone={result[0]?.phone} onAgain={reset} />
+                </motion.div>
+              ) : step === 'details' && selection.length && session?.role !== 'user' ? (
+                <motion.div key="login" className="details-form" {...panelAnim}>
+                  <button type="button" className="back-link" onClick={() => setStep('pick')}>
+                    <ArrowLeft size={16} /> Change dates or times
+                  </button>
+                  <h3 className="panel-title">Log in to send your request</h3>
+                  {basket(false)}
+                  {session?.role === 'member' ? (
+                    <>
+                      <p className="panel-sub">You are logged in as a team member. To book, log out and log in (or create an account) as sangat.</p>
+                      <button type="button" className="btn btn-ghost" onClick={logout}>
+                        <LogOut size={17} /> Log out
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <p className="panel-sub">Your bookings, bills and messages with the jatha are kept in your account. New here? Create one with your mobile number — it takes a few seconds.</p>
+                      <AuthForm role="user" startWith="register" />
+                    </>
+                  )}
                 </motion.div>
               ) : step === 'details' && selection.length ? (
                 <motion.form key="details" className="details-form" onSubmit={submit} {...panelAnim}>
@@ -457,22 +489,42 @@ export default function Booking({ preselect }) {
                   <motion.div className="form-stack" initial="hidden" animate="show" variants={{ hidden: {}, show: { transition: { staggerChildren: 0.06, delayChildren: 0.1 } } }}>
                     {[
                       { k: 'name', label: 'Full name *', type: 'text', auto: 'name', required: true },
-                      { k: 'phone', label: 'Phone / WhatsApp *', type: 'tel', auto: 'tel', required: true, mode: 'tel' },
                       { k: 'email', label: 'Email (optional)', type: 'email', auto: 'email' },
                     ].map((f) => (
                       <motion.label key={f.k} className="field" variants={{ hidden: { opacity: 0, y: 16 }, show: { opacity: 1, y: 0 } }}>
-                        <input type={f.type} value={form[f.k]} onChange={set(f.k)} placeholder=" " autoComplete={f.auto} required={f.required} inputMode={f.mode} />
+                        <input type={f.type} value={form[f.k]} onChange={set(f.k)} placeholder=" " autoComplete={f.auto} required={f.required} />
                         <span>{f.label}</span>
                       </motion.label>
                     ))}
+                    <motion.p className="fine-print" variants={{ hidden: { opacity: 0, y: 16 }, show: { opacity: 1, y: 0 } }}>
+                      The jatha will contact you on your account’s mobile number.
+                    </motion.p>
                     <motion.label className="field" variants={{ hidden: { opacity: 0, y: 16 }, show: { opacity: 1, y: 0 } }}>
                       <textarea value={form.address} onChange={set('address')} placeholder=" " rows={2} required autoComplete="street-address" />
-                      <span>Venue address *</span>
+                      <span>Venue address (house no., street, area) *</span>
                     </motion.label>
+                    <motion.div variants={{ hidden: { opacity: 0, y: 16 }, show: { opacity: 1, y: 0 } }}>
+                      <span className="label">
+                        <MapPin size={13} /> Pin the venue on Google Maps (recommended)
+                      </span>
+                      <LocationPicker value={form.location} onChange={(location) => setForm((f) => ({ ...f, location }))} label="Search the venue and pick it from the list" hint="This helps the jatha find the place and send the nearest team." />
+                    </motion.div>
                     <motion.label className="field" variants={{ hidden: { opacity: 0, y: 16 }, show: { opacity: 1, y: 0 } }}>
                       <textarea value={form.notes} onChange={set('notes')} placeholder=" " rows={2} />
                       <span>Occasion / special requests (optional)</span>
                     </motion.label>
+                    <motion.div className="offer-box" variants={{ hidden: { opacity: 0, y: 16 }, show: { opacity: 1, y: 0 } }}>
+                      <span className="label">
+                        <Tag size={13} /> Your offer (optional)
+                      </span>
+                      <p className="fine-print">
+                        Tell the jatha what you would like to give{selection.length > 1 ? ' for each booking' : ''} — at least {rupees(Number(settings.offerMin) || 0)}. They will accept it or reply in your chat.
+                      </p>
+                      <label className="field amount-field">
+                        <input type="number" inputMode="numeric" min={Number(settings.offerMin) || 0} step="1" value={form.offer} onChange={set('offer')} placeholder=" " />
+                        <span>Amount (₹)</span>
+                      </label>
+                    </motion.div>
                   </motion.div>
 
                   {payMethods.length > 0 && (
@@ -494,7 +546,7 @@ export default function Booking({ preselect }) {
                           );
                         })}
                       </div>
-                      <p className="fine-print">You pay after the jatha confirms and sends your bill. You can change this later under “Manage booking”.</p>
+                      <p className="fine-print">You pay after the jatha confirms and sends your bill. You can change this later under “My account”.</p>
                     </div>
                   )}
 
@@ -511,7 +563,7 @@ export default function Booking({ preselect }) {
                     {submitting ? 'Booking…' : selection.length > 1 ? `Request all ${selection.length} bookings` : 'Confirm booking request'}
                   </button>
                   <p className="fine-print">
-                    This is a request — the time is booked once the jatha confirms it. After that, the sewa and venue address are shown on the public calendar so the sangat knows where the jatha is. Manage your booking anytime with your phone number.
+                    This is a request — the time is booked once the jatha confirms it. After that, the sewa and venue address are shown on the public calendar so the sangat knows where the jatha is. Manage your bookings and chat with the jatha under “My account”.
                   </p>
                 </motion.form>
               ) : date ? (

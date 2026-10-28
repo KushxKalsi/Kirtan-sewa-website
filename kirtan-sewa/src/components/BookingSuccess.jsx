@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Check, Copy, MessageCircle, Plus, Settings2 } from 'lucide-react';
 import { useSite } from './SiteContext';
+import { useAuth } from './AuthContext';
 import NotifyButton from './NotifyButton';
 import { prettyDate, rangeTo12 } from '../lib/date';
 import { ease } from '../lib/motion';
@@ -14,6 +15,7 @@ const BURST = Array.from({ length: 18 }, (_, i) => {
 });
 
 export default function BookingSuccess({ bookings, phone, onAgain }) {
+  const { user } = useAuth();
   const booking = bookings[0];
   const many = bookings.length > 1;
   const { site } = useSite();
@@ -109,10 +111,10 @@ export default function BookingSuccess({ bookings, phone, onAgain }) {
         )}
 
         <p className="fine-print">
-          You can view {many ? 'these bookings' : 'this booking'} anytime under “Manage booking” using just your phone number. Once the jatha confirms, bills and payment details appear there too.
+          {many ? 'These bookings are' : 'This booking is'} saved in your account. Once the jatha confirms, bills and payment details appear there too — and you can chat with the jatha from there.
         </p>
 
-        <NotifyButton phone={phone} />
+        <NotifyButton phone={phone} client={user} />
 
         <div className="success-actions">
           {wa && (
@@ -120,8 +122,8 @@ export default function BookingSuccess({ bookings, phone, onAgain }) {
               <MessageCircle size={18} /> Send on WhatsApp
             </a>
           )}
-          <Link className="btn btn-ghost" to={`/manage?phone=${encodeURIComponent(phone || '')}`}>
-            <Settings2 size={18} /> Manage / cancel
+          <Link className="btn btn-ghost" to="/account">
+            <Settings2 size={18} /> My bookings
           </Link>
           <button className="btn btn-ghost" onClick={onAgain}>
             <Plus size={18} /> Book another

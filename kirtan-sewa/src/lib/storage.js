@@ -16,12 +16,3 @@ export function writeStore(key, value) {
     /* ignore */
   }
 }
-
-const MY_BOOKINGS = 'sewa.myBookings';
-export const getMyBookings = () => readStore(MY_BOOKINGS, []);
-export const getMyPhones = () => [...new Set(getMyBookings().map((b) => b.phone).filter(Boolean))];
-export function rememberBooking(booking, phone) {
-  const list = getMyBookings().filter((b) => b.ref !== booking.ref);
-  list.unshift({ ref: booking.ref, phone, serviceName: booking.serviceName, date: booking.date });
-  writeStore(MY_BOOKINGS, list.slice(0, 8));
-}

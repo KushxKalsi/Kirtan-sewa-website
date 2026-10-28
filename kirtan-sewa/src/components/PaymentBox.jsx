@@ -3,7 +3,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { Banknote, Check, CircleAlert, CircleCheck, Copy, FileText, Hourglass, Loader2, Smartphone } from 'lucide-react';
 import { useSite } from './SiteContext';
 import { BillModal } from './Bill';
-import { api } from '../lib/api';
+import { useAuth } from './AuthContext';
 import { PAYMENT_LABEL, PAY_OPTIONS, enabledMethods, rupees, upiLink } from '../lib/money';
 import { ease } from '../lib/motion';
 
@@ -18,8 +18,9 @@ const STATUS = {
  * - always shows whether it is paid, and lets them pick / change UPI or cash until they have paid
  * - once the jatha confirms and sends the bill: UPI shows the QR + "I have paid"; cash shows what to bring
  */
-export default function PaymentBox({ booking, phone, onUpdated }) {
+export default function PaymentBox({ booking, onUpdated }) {
   const { site } = useSite();
+  const { user } = useAuth();
   const s = site?.settings || {};
   const methods = enabledMethods(s);
   const [utr, setUtr] = useState('');
@@ -47,10 +48,10 @@ export default function PaymentBox({ booking, phone, onUpdated }) {
       setBusy('');
     }
   };
-  const choose = (m) => m !== booking.paymentMethod && run(m, () => api.setPaymentMethod(booking.ref, phone, m));
+  const choose = (m) => m !== booking.paymentMethod && run(m, () => user.setPaymentMethod(booking.ref, m));
   const submitUtr = (e) => {
     e.preventDefault();
-    run('utr', () => api.submitPayment(booking.ref, phone, utr));
+    run('utr', () => user.submitPayment(booking.ref, utr));
   };
   const copyUpi = async () => {
     try {

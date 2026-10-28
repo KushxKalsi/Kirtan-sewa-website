@@ -77,8 +77,8 @@ export default function Hero({ ready }) {
             </button>
           </Magnetic>
           <Magnetic>
-            <Link className="btn btn-ghost" to="/manage">
-              <ClipboardList size={18} /> Manage booking
+            <Link className="btn btn-ghost" to="/account">
+              <ClipboardList size={18} /> My bookings
             </Link>
           </Magnetic>
         </motion.div>

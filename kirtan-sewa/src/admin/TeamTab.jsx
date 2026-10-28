@@ -1,15 +1,18 @@
 import { useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { BellRing, Eye, EyeOff, Loader2, MapPin, Pencil, Phone, Plus, Save, Trash2, UserRound } from 'lucide-react';
+import { BellRing, CalendarOff, Eye, EyeOff, FileText, IdCard, KeyRound, Loader2, MapPin, MessagesSquare, Pencil, Phone, Plus, Save, Trash2, UserRound } from 'lucide-react';
 import Modal from '../components/Modal';
 import { ease } from '../lib/motion';
+import { mapsLink } from '../lib/geo';
+import { rupees } from '../lib/money';
+import { prettyDate } from '../lib/date';
 
-const blank = { name: '', phone: '', address: '', skills: [], active: true };
+const blank = { name: '', phone: '', address: '', role: '', defaultPay: '', password: '', skills: [], active: true };
 const phoneKey = (p) => String(p || '').replace(/\D/g, '').slice(-10);
 const skillKey = (k) => `${k.categoryId}|${k.serviceId}`;
 
 /** Team members and what each one does (sewa within a category). Only matching people can be assigned. */
-export default function TeamTab({ data, api, patch, toast }) {
+export default function TeamTab({ data, api, patch, toast, openChat }) {
   const people = data.people || [];
   const categories = data.categories || [];
   const { services, bookings } = data;
@@ -17,6 +20,12 @@ export default function TeamTab({ data, api, patch, toast }) {
   const [form, setForm] = useState(blank);
   const [saving, setSaving] = useState(false);
   const [deleteFor, setDeleteFor] = useState(null);
+  const [viewing, setViewing] = useState(null);
+  const [roleFilter, setRoleFilter] = useState('');
+  const roles = data.roles || {};
+  const docKinds = data.docKinds || {};
+  const onLeaveToday = (id) => (data.leaves || []).find((l) => l.personId === id && l.status === 'approved' && l.from <= data.today && l.to >= data.today);
+  const shown = roleFilter ? people.filter((p) => (p.role || 'none') === roleFilter) : people;
 
   const serviceName = (id) => services.find((s) => s.id === id)?.name || 'Removed sewa';
   // Skill groups: one per category (its sewas); without categories, just the sewas.
@@ -42,7 +51,7 @@ export default function TeamTab({ data, api, patch, toast }) {
     setEditing('new');
   };
   const openEdit = (p) => {
-    setForm({ ...blank, ...p });
+    setForm({ ...blank, ...p, defaultPay: p.defaultPay ?? '', password: '' });
     setEditing(p);
   };
   const save = async (e) => {
@@ -79,7 +88,7 @@ export default function TeamTab({ data, api, patch, toast }) {
         <div>
           <h2>Team</h2>
           <p>
-            Add the people who do the sewa and tick what each one does. When you assign people to a booking, only those who do that sewa in that category are listed. Team members can open <strong>Manage booking</strong>, enter their own phone number to see their sewas, and turn on notifications.
+            Add the people who do the sewa, their role (head ragi, side ragi, tabla) and what each one does. Give each a login password: they log in at <strong>Team login</strong> with their mobile number to see and confirm their sewas, fill in their profile and documents, ask for leave and chat with you.
           </p>
         </div>
         <button className="btn btn-primary btn-sm" onClick={openNew}>
@@ -87,11 +96,22 @@ export default function TeamTab({ data, api, patch, toast }) {
         </button>
       </div>
 
+      {people.length > 0 && (
+        <div className="filter-pills">
+          {[{ id: '', label: `All (${people.length})` }, ...Object.entries(roles).map(([id, label]) => ({ id, label: `${label} (${people.filter((p) => p.role === id).length})` })), { id: 'none', label: 'No role' }].map((f) => (
+            <button key={f.id} className={roleFilter === f.id ? 'active' : ''} onClick={() => setRoleFilter(f.id)}>
+              {roleFilter === f.id && <motion.span layoutId="role-pill" className="pill-bg" transition={{ type: 'spring', stiffness: 400, damping: 34 }} />}
+              <span>{f.label}</span>
+            </button>
+          ))}
+        </div>
+      )}
+
       {people.length === 0 && <div className="admin-empty glass">No team members yet. Add people to start assigning them to bookings.</div>}
 
       <motion.ul className="admin-services" layout>
         <AnimatePresence initial={false}>
-          {people.map((p) => {
+          {shown.map((p) => {
             const summary = skillSummary(p);
             const upcoming = upcomingFor(p.id);
             return (
@@ -114,6 +134,19 @@ export default function TeamTab({ data, api, patch, toast }) {
                     </p>
                   )}
                   <div className="skill-chips">
+                    {p.role && <span className="chip role-chip">{roles[p.role]}</span>}
+                    {!p.hasPassword && <span className="chip warn-chip">No login password yet</span>}
+                    {p.defaultPay != null && <span className="chip">Usual bhet {rupees(p.defaultPay)}</span>}
+                    {onLeaveToday(p.id) && (
+                      <span className="chip warn-chip">
+                        <CalendarOff size={12} /> On leave till {prettyDate(onLeaveToday(p.id).to, 'd MMM')}
+                      </span>
+                    )}
+                    {Object.keys(p.docs || {}).length > 0 && (
+                      <span className="chip">
+                        <FileText size={12} /> {Object.keys(p.docs).length}/{Object.keys(docKinds).length} documents
+                      </span>
+                    )}
                     {summary.length ? summary.map((t) => <span className="chip" key={t}>{t}</span>) : <span className="chip warn-chip">No skills ticked — can't be assigned</span>}
                     {upcoming > 0 && <span className="chip">{upcoming} upcoming</span>}
                     {p.phone && notifyOn.has(phoneKey(p.phone)) && (
@@ -125,6 +158,14 @@ export default function TeamTab({ data, api, patch, toast }) {
                   </div>
                 </div>
                 <div className="as-actions">
+                  <button className="icon-btn" onClick={() => setViewing(p)} aria-label="Profile and documents" title="Profile and documents">
+                    <IdCard size={16} />
+                  </button>
+                  {openChat && (
+                    <button className="icon-btn" onClick={() => openChat(`m:${p.id}`)} aria-label="Chat" title="Chat">
+                      <MessagesSquare size={16} />
+                    </button>
+                  )}
                   <button className="icon-btn" onClick={() => run(() => api.updatePerson(p.id, { ...p, active: !p.active }), p.active ? 'Marked inactive — not offered for new assignments.' : 'Active again.')} aria-label={p.active ? 'Mark inactive' : 'Mark active'}>
                     {p.active ? <Eye size={16} /> : <EyeOff size={16} />}
                   </button>
@@ -153,6 +194,29 @@ export default function TeamTab({ data, api, patch, toast }) {
               <input className="input" type="tel" value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} />
             </label>
           </div>
+          <div className="grid-2">
+            <label>
+              <span className="label">Role in the jatha</span>
+              <select className="input" value={form.role} onChange={(e) => setForm((f) => ({ ...f, role: e.target.value }))}>
+                <option value="">—</option>
+                {Object.entries(roles).map(([id, label]) => (
+                  <option key={id} value={id}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <span className="label">Usual bhet per sewa (₹, optional)</span>
+              <input className="input" type="number" min="0" value={form.defaultPay} onChange={(e) => setForm((f) => ({ ...f, defaultPay: e.target.value }))} placeholder="Set per booking" />
+            </label>
+          </div>
+          <label>
+            <span className="label">
+              <KeyRound size={13} /> {editing !== 'new' && editing?.hasPassword ? 'New login password (leave empty to keep the current one)' : 'Login password (6+ characters) — give it to them'}
+            </span>
+            <input className="input" type="text" value={form.password} onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))} autoComplete="new-password" minLength={6} placeholder={editing !== 'new' && editing?.hasPassword ? '••••••' : 'e.g. their own choice'} />
+          </label>
           <label>
             <span className="label">Address (shown to the customer with their name)</span>
             <textarea className="input" rows={2} value={form.address} onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))} placeholder="e.g. Model Town, Ludhiana" />
@@ -195,6 +259,61 @@ export default function TeamTab({ data, api, patch, toast }) {
             </button>
           </div>
         </form>
+      </Modal>
+
+      <Modal open={!!viewing} onClose={() => setViewing(null)} title={viewing?.name} subtitle={viewing && [roles[viewing.role], viewing.phone].filter(Boolean).join(' · ')} wide>
+        {viewing && (
+          <div className="person-profile">
+            <dl className="success-details">
+              <div>
+                <dt>Father’s name</dt>
+                <dd>{viewing.fatherName || '—'}</dd>
+              </div>
+              <div>
+                <dt>Experience</dt>
+                <dd>{viewing.experience || '—'}</dd>
+              </div>
+              <div>
+                <dt>Address</dt>
+                <dd>{viewing.address || '—'}</dd>
+              </div>
+              <div>
+                <dt>Map location</dt>
+                <dd>
+                  {viewing.location ? (
+                    <a href={mapsLink(viewing.location)} target="_blank" rel="noreferrer">
+                      <MapPin size={13} /> {viewing.location.label || 'Open map'}
+                    </a>
+                  ) : (
+                    'Not added'
+                  )}
+                </dd>
+              </div>
+              <div>
+                <dt>Bank account</dt>
+                <dd>{viewing.bank?.account ? [viewing.bank.holder, viewing.bank.account, viewing.bank.ifsc, viewing.bank.bankName].filter(Boolean).join(' · ') : 'Not added'}</dd>
+              </div>
+            </dl>
+            <div className="doc-grid">
+              {Object.entries(docKinds).map(([kind, label]) => {
+                const doc = viewing.docs?.[kind];
+                return (
+                  <div key={kind} className={`doc-slot glass ${doc ? 'has' : ''}`}>
+                    {doc ? (
+                      <a className={`doc-thumb ${doc.type === 'application/pdf' ? 'pdf' : ''}`} href={doc.url} target="_blank" rel="noreferrer">
+                        {doc.type === 'application/pdf' ? <FileText size={34} /> : <img src={doc.url} alt={label} loading="lazy" />}
+                      </a>
+                    ) : (
+                      <span className="doc-thumb empty">—</span>
+                    )}
+                    <strong>{label}</strong>
+                    <span className="muted">{doc ? 'Tap to open' : 'Not uploaded'}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </Modal>
 
       <Modal open={!!deleteFor} onClose={() => setDeleteFor(null)} title={`Remove ${deleteFor?.name}?`} subtitle="Bookings they were assigned to keep their name. To keep them for later, mark them inactive instead.">
