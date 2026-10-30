@@ -11,13 +11,14 @@ const STATUS = { pending: 'Waiting for you', approved: 'Approved', rejected: 'Re
 const active = (b) => b.status === 'pending' || b.status === 'confirmed';
 const canDo = (p, b) => p.active && (p.skills || []).some((k) => k.serviceId === b.serviceId && (!b.categoryId || k.categoryId === b.categoryId));
 
-/** Team members' leave: approve with replacements for their sewas, or reject. */
+/** Team bookings: a member asks for a Head Ragi / Side Ragi / Tabla in their place; the admin assigns the people, or rejects. */
 export default function LeaveTab({ data, api, setData, toast, openChat }) {
   const { today } = data;
   const people = data.people || [];
   const roles = data.roles || {};
   const [filter, setFilter] = useState('current');
-  const [picks, setPicks] = useState({}); // leave id -> { booking id: person id }
+  const [picks, setPicks] = useState({}); // leave id -> { booking id: person id } (replacing by hand after approval)
+  const [assign, setAssign] = useState({}); // leave id -> { request index: person id }
   const [busy, setBusy] = useState('');
   const [rejectFor, setRejectFor] = useState(null);
   const [note, setNote] = useState('');
@@ -36,20 +37,34 @@ export default function LeaveTab({ data, api, setData, toast, openChat }) {
       .filter((p) => p.id !== leavePersonId && canDo(p, b) && !onLeave(p.id, b.date) && !(b.assignees || []).some((a) => a.id === p.id))
       .map((p) => ({ p, km: distanceKm(b.location, p.location) }))
       .sort((x, y) => (x.km ?? 1e9) - (y.km ?? 1e9));
-  const pickFor = (l, b) => {
-    const chosen = picks[l.id]?.[b.id];
-    if (chosen !== undefined) return chosen;
-    // Start with the teammate they booked for this sewa (older requests had one suggestion for all).
-    const booked = (l.picks || []).find((x) => x.bookingId === b.id)?.personId ?? l.replacementId;
-    return options(b, l.personId).some((o) => o.p.id === booked) ? booked : '';
+  const pickFor = (l, b) => picks[l.id]?.[b.id] ?? '';
+  // Who can be assigned to a request: free that day (and able to do the sewa, if it is one) — the role asked for first, then nearest.
+  const candidates = (l, x) => {
+    const b = x.bookingId && data.bookings.find((y) => y.id === x.bookingId);
+    const where = b?.location || l.location;
+    return people
+      .filter((p) => p.active && !p.pending && p.id !== l.personId && !onLeave(p.id, x.date) && (!b || (canDo(p, b) && !(b.assignees || []).some((a) => a.id === p.id && a.id !== l.personId))))
+      .map((p) => ({ p, km: distanceKm(where, p.location) }))
+      .sort((m, n) => (m.p.role === x.role ? 0 : 1) - (n.p.role === x.role ? 0 : 1) || (m.km ?? 1e9) - (n.km ?? 1e9));
+  };
+  const assignedFor = (l, i) => assign[l.id]?.[i] ?? l.picks?.[i]?.personId ?? '';
+  const requestWhat = (x) => {
+    const b = x.bookingId && data.bookings.find((y) => y.id === x.bookingId);
+    const when = `${format(fromKey(x.date), 'EEE d MMM')}, ${x.start ? rangeTo12(`${x.start} – ${x.end}`) : 'whole day'}`;
+    return b ? `${b.serviceName} · ${when} · ${b.name}` : when;
   };
 
   const mergeBookings = (list) => setData((d) => ({ ...d, bookings: d.bookings.map((b) => list.find((x) => x.id === b.id) || b) }));
   const decide = async (l, action, extra = {}) => {
     setBusy(l.id + action);
     try {
-      const replacements = action === 'approve' ? Object.fromEntries(affected(l).map((b) => [b.id, pickFor(l, b)])) : undefined;
-      const res = await api.decideLeave(l.id, { action, replacements, ...extra });
+      let body = { action, ...extra };
+      if (action === 'approve') {
+        const missing = (l.picks || []).findIndex((_, i) => !assignedFor(l, i));
+        if (missing >= 0) throw new Error(`Choose who goes as ${roles[l.picks[missing].role] || 'the teammate'} for ${requestWhat(l.picks[missing])}.`);
+        body = { ...body, assign: Object.fromEntries((l.picks || []).map((_, i) => [i, assignedFor(l, i)])) };
+      }
+      const res = await api.decideLeave(l.id, body);
       setData((d) => ({ ...d, leaves: res.leaves }));
       mergeBookings(res.bookings);
       toast(action === 'approve' ? `Team booking approved${res.bookings.length ? ` — ${res.bookings.length} sewa${res.bookings.length > 1 ? 's' : ''} handed over` : ''}.` : action === 'reject' ? 'Team booking rejected.' : 'Team booking cancelled.');
@@ -81,7 +96,7 @@ export default function LeaveTab({ data, api, setData, toast, openChat }) {
       <div className="admin-section-head">
         <div>
           <h2>Team bookings</h2>
-          <p>Team members book teammates (Head Ragi, Side Ragi or Tabla) to go in their place and offer each one a bhet. Approving hands their sewas to the people chosen (at the bhet offered) and notifies everyone. While their booking runs they can’t be assigned themselves.</p>
+          <p>Team members ask for a Head Ragi, Side Ragi or Tabla to go in their place and offer the bhet. Assign a person to each request and approve: their sewas go to the people you chose (at the bhet offered) and everyone is notified. While their booking runs they can’t be assigned themselves.</p>
         </div>
       </div>
       <div className="filter-pills">
@@ -100,7 +115,8 @@ export default function LeaveTab({ data, api, setData, toast, openChat }) {
         <AnimatePresence initial={false}>
           {leaves.map((l) => {
             const p = personOf(l.personId);
-            const list = l.status === 'pending' || l.status === 'approved' ? affected(l) : [];
+            // After approval: any of their sewas still with them (e.g. added later) can be handed over by hand.
+            const list = l.status === 'approved' ? affected(l) : [];
             return (
               <motion.li key={l.id} layout className={`glass leave-card l-${l.status}`} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.35, ease }}>
                 <div className="leave-card-head">
@@ -119,14 +135,6 @@ export default function LeaveTab({ data, api, setData, toast, openChat }) {
                       “{l.reason}” · asked {format(new Date(l.createdAt), 'd MMM')}
                       {l.replacementId && !l.picks && ` · suggests ${personOf(l.replacementId)?.name || 'someone removed'}`}
                     </span>
-                    {(l.picks || [])
-                      .filter((x) => !x.bookingId)
-                      .map((x, i) => (
-                        <span key={i}>
-                          Booked {personOf(x.personId)?.name || 'someone removed'} · {prettyDate(x.date, 'EEE, d MMM')}
-                          {x.start ? ` · ${rangeTo12(`${x.start} – ${x.end}`)}` : ' · whole day'} · ₹{x.pay}
-                        </span>
-                      ))}
                     {l.location && (
                       <a className="muted" href={mapsLink(l.location)} target="_blank" rel="noreferrer">
                         <MapPin size={12} /> Teammates should go to: {l.location.label || 'map pin'}
@@ -142,24 +150,52 @@ export default function LeaveTab({ data, api, setData, toast, openChat }) {
                   )}
                 </div>
 
+                {(l.picks || []).length > 0 && (
+                  <div className="leave-duties">
+                    <p className="label">{l.status === 'pending' ? 'What they need — assign a person to each' : 'Assigned'}</p>
+                    {l.picks.map((x, i) => {
+                      const opts = l.status === 'pending' ? candidates(l, x) : [];
+                      const match = opts.filter((o) => o.p.role === x.role);
+                      const others = opts.filter((o) => o.p.role !== x.role);
+                      const option = ({ p: o, km }) => (
+                        <option key={o.id} value={o.id}>
+                          {o.name}
+                          {o.role ? ` — ${roles[o.role]}` : ''}
+                          {km != null ? ` · ${kmText(km)}` : ''}
+                        </option>
+                      );
+                      return (
+                        <div key={i} className="leave-duty">
+                          <span>
+                            <strong>{roles[x.role] || 'Teammate'}</strong> · ₹{x.pay} · {requestWhat(x)}
+                          </span>
+                          {l.status === 'pending' ? (
+                            <select className="input" value={assignedFor(l, i)} onChange={(e) => setAssign((a) => ({ ...a, [l.id]: { ...a[l.id], [i]: e.target.value } }))}>
+                              <option value="">{opts.length ? `Choose the ${roles[x.role] || 'person'}…` : 'Nobody is free for this'}</option>
+                              {match.length > 0 && <optgroup label={roles[x.role]}>{match.map(option)}</optgroup>}
+                              {others.length > 0 && <optgroup label="Other roles">{others.map(option)}</optgroup>}
+                            </select>
+                          ) : (
+                            <span className="muted">{x.personId ? `→ ${personOf(x.personId)?.name || 'someone removed'}` : '—'}</span>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
                 {list.length > 0 && (
                   <div className="leave-duties">
-                    <p className="label">{l.status === 'pending' ? 'Their sewas in these days — who should take their place?' : 'Still assigned to them during this booking'}</p>
+                    <p className="label">Still assigned to them during this booking</p>
                     {list.map((b) => {
                       const opts = options(b, l.personId);
-                      const booked = (l.picks || []).find((x) => x.bookingId === b.id);
                       return (
                         <div key={b.id} className="leave-duty">
                           <span>
                             <strong>{b.serviceName}</strong> · {format(fromKey(b.date), 'EEE d MMM')}, {rangeTo12(b.slotTime)} · {b.name}
                           </span>
-                          {booked && (
-                            <span className="muted">
-                              They booked {personOf(booked.personId)?.name || 'someone removed'} for ₹{booked.pay} (gets this bhet if you keep them)
-                            </span>
-                          )}
                           <select className="input" value={pickFor(l, b)} onChange={(e) => setPicks((x) => ({ ...x, [l.id]: { ...x[l.id], [b.id]: e.target.value } }))}>
-                            <option value="">{opts.length ? 'Keep as is / decide later' : 'Nobody else can do this sewa'}</option>
+                            <option value="">{opts.length ? 'Choose who takes their place…' : 'Nobody else can do this sewa'}</option>
                             {opts.map(({ p: o, km }) => (
                               <option key={o.id} value={o.id}>
                                 {o.name}
@@ -168,11 +204,9 @@ export default function LeaveTab({ data, api, setData, toast, openChat }) {
                               </option>
                             ))}
                           </select>
-                          {l.status === 'approved' && (
-                            <button className="btn btn-ghost btn-sm" onClick={() => replaceNow(l, b)} disabled={!!busy}>
-                              {busy === b.id ? <Loader2 size={14} className="spin" /> : <Repeat size={14} />} Replace
-                            </button>
-                          )}
+                          <button className="btn btn-ghost btn-sm" onClick={() => replaceNow(l, b)} disabled={!!busy}>
+                            {busy === b.id ? <Loader2 size={14} className="spin" /> : <Repeat size={14} />} Replace
+                          </button>
                         </div>
                       );
                     })}
@@ -183,8 +217,7 @@ export default function LeaveTab({ data, api, setData, toast, openChat }) {
                   {l.status === 'pending' && (
                     <>
                       <button className="btn btn-primary btn-sm" onClick={() => decide(l, 'approve')} disabled={!!busy}>
-                        {busy === l.id + 'approve' ? <Loader2 size={15} className="spin" /> : <Check size={15} />} Approve
-                        {list.length > 0 ? ' & hand over' : ''}
+                        {busy === l.id + 'approve' ? <Loader2 size={15} className="spin" /> : <Check size={15} />} Assign & approve
                       </button>
                       <button
                         className="btn btn-ghost btn-sm danger-text"
