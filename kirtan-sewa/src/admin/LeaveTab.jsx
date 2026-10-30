@@ -134,6 +134,7 @@ export default function LeaveTab({ data, api, setData, toast, openChat }) {
                       “{l.reason}” · asked {format(new Date(l.createdAt), 'd MMM')}
                       {l.replacementId && !l.picks && ` · suggests ${personOf(l.replacementId)?.name || 'someone removed'}`}
                     </span>
+                    {l.paymentMethod && <span className="muted">Pays the bhet by {l.paymentMethod === 'upi' ? 'UPI' : 'cash'}</span>}
                     {l.location && (
                       <a className="muted" href={mapsLink(l.location)} target="_blank" rel="noreferrer">
                         <MapPin size={12} /> Teammates should go to: {l.location.label || 'map pin'}
