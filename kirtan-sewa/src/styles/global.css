@@ -494,19 +494,6 @@ input[type='time']::-webkit-calendar-picker-indicator {
   color: var(--danger-text);
   font-size: 14px;
 }
-.form-ok {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  padding: 12px 14px;
-  border-radius: 12px;
-  background: rgba(61, 220, 151, 0.1);
-  border: 1px solid rgba(61, 220, 151, 0.35);
-  color: var(--success);
-  font-size: 14px;
-  text-align: left;
-}
-
 /* ---------- badges ---------- */
 .badge {
   display: inline-flex;

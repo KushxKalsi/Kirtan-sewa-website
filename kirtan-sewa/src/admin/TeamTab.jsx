@@ -111,10 +111,20 @@ export default function TeamTab({ data, api, patch, toast, openChat }) {
                 <div>
                   <strong>{p.name}</strong>
                   <span className="muted">
-                    {[roles[p.role], p.phone, p.createdAt && `signed up ${prettyDate(p.createdAt.slice(0, 10), 'd MMM')}`].filter(Boolean).join(' · ')}
+                    {[
+                      roles[p.role],
+                      p.phone,
+                      `${Object.keys(p.docs || {}).length}/${Object.keys(docKinds).length} documents`,
+                      p.createdAt && `signed up ${prettyDate(p.createdAt.slice(0, 10), 'd MMM')}`,
+                    ]
+                      .filter(Boolean)
+                      .join(' · ')}
                   </span>
                 </div>
                 <div className="as-actions">
+                  <button className="btn btn-ghost btn-sm" onClick={() => setViewing(p)}>
+                    <IdCard size={15} /> Documents
+                  </button>
                   <button className="btn btn-primary btn-sm" onClick={() => openEdit(p)}>
                     <Check size={15} /> Approve
                   </button>

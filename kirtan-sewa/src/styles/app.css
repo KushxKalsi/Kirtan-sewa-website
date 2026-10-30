@@ -4207,6 +4207,60 @@ input:focus-visible + .tick {
   font-weight: 500;
   opacity: 0.8;
 }
+.replace-pick {
+  margin-top: 10px;
+}
+
+/* team account waiting for the admin */
+.verifying {
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+  text-align: center;
+}
+.verifying h2 {
+  margin: 0;
+  font-size: 22px;
+}
+.verifying p {
+  margin: 0;
+}
+.verifying-icon {
+  display: grid;
+  place-items: center;
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  color: #1a1206;
+  background: var(--grad-gold);
+}
+.verifying-steps {
+  list-style: none;
+  margin: 4px 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+}
+.verifying-steps li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  font-size: 14px;
+}
+.verifying-steps li.done svg {
+  color: var(--success);
+}
+.verifying-steps li.now {
+  border-color: var(--stroke-gold);
+  color: var(--gold);
+  font-weight: 600;
+}
+
 /* team sign-up: Head Ragi / Side Ragi / Tabla */
 .auth-switch.jatha-roles {
   grid-template-columns: repeat(3, 1fr);
@@ -4216,6 +4270,26 @@ input:focus-visible + .tick {
 }
 .auth-form .field-group {
   overflow: hidden;
+}
+.doc-grid.signup-docs {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.signup-docs .doc-slot {
+  padding: 8px;
+  font-size: 12.5px;
+}
+.signup-docs .doc-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+.auth-form .req {
+  color: var(--danger-text);
+  font-style: normal;
 }
 
 /* ---------- international tours ---------- */
