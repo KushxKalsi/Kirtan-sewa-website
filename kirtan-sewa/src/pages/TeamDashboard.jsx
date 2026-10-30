@@ -319,16 +319,81 @@ function Duties({ data, team, apply, toast }) {
   );
 }
 
+const LEAVE_MIN_PAY = 200; // the least bhet per sewa they can offer the teammate going in their place
+const DAY_MS = 24 * 60 * 60 * 1000;
+// When a leave really starts: the first affected sewa, or the start of the first day (same rule as the server).
+const leaveStart = (from, sewas) => {
+  const times = sewas.map((d) => fromKey(`${d.date}T${(d.slotTime || '').split('–')[0].trim() || '00:00'}`).getTime()).filter(Number.isFinite);
+  return times.length ? Math.min(...times) : fromKey(from).getTime();
+};
+
+/** Who goes in their place for one sewa: role (Head Ragi / Side Ragi / Tabla) → teammate → the bhet offered. */
+function SewaCover({ duty, pick, set, teammates, roles, onCopy }) {
+  const role = pick.role;
+  const choices = teammates.filter((t) => t.role === role);
+  const chosen = teammates.find((t) => t.id === pick.personId);
+  return (
+    <div className="sewa-cover glass">
+      <div className="sewa-cover-head">
+        <strong>{duty.serviceName}</strong>
+        <span className="muted">
+          {prettyDate(duty.date, 'EEE, d MMM')} · {duty.slotLabel} · {rangeTo12(duty.slotTime)}
+        </span>
+      </div>
+      <div className="slot-checks">
+        {Object.entries(roles).map(([id, label]) => (
+          <button type="button" key={id} className={`check-pill ${role === id ? 'active' : ''}`} onClick={() => set({ role: id, personId: '' })}>
+            {label} ({teammates.filter((t) => t.role === id).length})
+          </button>
+        ))}
+      </div>
+      <div className="replace-people">
+        {choices.length === 0 && <p className="muted">No other {roles[role]} in the team yet — choose another role.</p>}
+        {choices.map((t) => (
+          <button type="button" key={t.id} className={`replace-person glass ${pick.personId === t.id ? 'active' : ''}`} onClick={() => set({ personId: pick.personId === t.id ? '' : t.id })}>
+            <UserRound size={18} />
+            <span>
+              <strong>{t.name}</strong>
+              <small>{roles[t.role]}</small>
+            </span>
+            {pick.personId === t.id && <Check size={18} />}
+          </button>
+        ))}
+      </div>
+      {chosen && (
+        <label>
+          <span className="label">
+            <HandCoins size={13} /> Bhet you offer {chosen.name} for this sewa (₹, at least {LEAVE_MIN_PAY}) *
+          </span>
+          <input className="input" type="number" inputMode="numeric" min={LEAVE_MIN_PAY} step="1" value={pick.pay} onChange={(e) => set({ pay: e.target.value })} placeholder={`e.g. ${LEAVE_MIN_PAY * 5}`} required />
+        </label>
+      )}
+      {onCopy && chosen && (
+        <button type="button" className="link-btn" onClick={onCopy}>
+          Same person and bhet for all my sewas in these days
+        </button>
+      )}
+    </div>
+  );
+}
+
+/** Leave = booking teammates in your place (one per sewa, with the bhet you offer), then the admin approves. */
 function Leave({ data, team, apply, toast }) {
   const { today, duties, leaves, teammates, roles } = data;
-  // Who takes their place: first the role (Head Ragi / Side Ragi / Tabla, starting with their own), then a person in it.
-  const [replaceRole, setReplaceRole] = useState(roles[data.person.role] ? data.person.role : Object.keys(roles)[0]);
-  const choices = teammates.filter((t) => t.role === replaceRole);
-  const blankLeave = { from: '', to: '', reason: '', replacementId: '', location: null };
+  const bookedMe = data.bookedMe || [];
+  const ownRole = roles[data.person.role] ? data.person.role : Object.keys(roles)[0];
+  const blankLeave = { from: '', to: '', reason: '', location: null };
   const [form, setForm] = useState(blankLeave);
+  const [picks, setPicks] = useState({}); // duty id -> { role, personId, pay }
   const [busy, setBusy] = useState('');
   const to = form.to || form.from;
-  const affected = form.from ? duties.filter((d) => live(d) && d.date >= form.from && d.date <= to) : [];
+  const affected = form.from ? duties.filter((d) => live(d) && d.date >= form.from && d.date <= to).sort((a, b) => (a.date + a.slotTime).localeCompare(b.date + b.slotTime)) : [];
+  const emergency = !!form.from && leaveStart(form.from, affected) - Date.now() < DAY_MS;
+  const pickOf = (id) => ({ role: ownRole, personId: '', pay: '', ...picks[id] });
+  const setPick = (id, patch) => setPicks((all) => ({ ...all, [id]: { ...pickOf(id), ...patch } }));
+  const copyToAll = (id) => setPicks((all) => ({ ...all, ...Object.fromEntries(affected.map((d) => [d.id, { ...pickOf(id) }])) }));
+  const nameOf = (id) => teammates.find((t) => t.id === id)?.name || 'a team member';
+  const dutyOf = (id) => duties.find((d) => d.id === id);
 
   const run = async (key, fn, msg) => {
     setBusy(key);
@@ -345,8 +410,18 @@ function Leave({ data, team, apply, toast }) {
   };
   const submit = async (e) => {
     e.preventDefault();
-    if (await run('new', () => team.requestLeave({ ...form, to }), 'Leave request sent to the admin.')) setForm(blankLeave);
+    for (const d of affected) {
+      const pk = pickOf(d.id);
+      if (!pk.personId) return toast(`Choose who goes in your place for ${d.serviceName} on ${prettyDate(d.date, 'd MMM')}.`, 'error');
+      if (!(Number(pk.pay) >= LEAVE_MIN_PAY)) return toast(`Offer at least ₹${LEAVE_MIN_PAY} for ${d.serviceName} on ${prettyDate(d.date, 'd MMM')}.`, 'error');
+    }
+    const body = { ...form, to, picks: affected.map((d) => ({ bookingId: d.id, personId: pickOf(d.id).personId, pay: Number(pickOf(d.id).pay) })) };
+    if (await run('new', () => team.requestLeave(body), emergency ? 'Emergency leave request sent to the admin.' : 'Leave request sent to the admin.')) {
+      setForm(blankLeave);
+      setPicks({});
+    }
   };
+  const canWithdraw = (l) => l.status === 'pending' && new Date(l.startsAt || fromKey(l.from)).getTime() - Date.now() >= DAY_MS;
 
   return (
     <div className="leave-grid">
@@ -362,49 +437,39 @@ function Leave({ data, team, apply, toast }) {
             <input className="input" type="date" min={form.from || today} value={form.to} onChange={(e) => setForm((f) => ({ ...f, to: e.target.value }))} />
           </label>
         </div>
+        {form.from && (
+          <p className={`leave-affected ${affected.length ? 'warn' : ''}`}>
+            {affected.length
+              ? `You have ${affected.length} sewa${affected.length > 1 ? 's' : ''} in these days. Book a teammate for ${affected.length > 1 ? 'each one — they can be different people' : 'it'}.`
+              : 'You have no sewas on these days.'}
+          </p>
+        )}
+        {emergency && (
+          <p className="leave-emergency">
+            <CircleAlert size={16} /> This starts in less than 1 day, so it will be sent as an <strong>emergency</strong> request. It can’t be withdrawn once sent.
+          </p>
+        )}
         <label className="field">
           <textarea value={form.reason} onChange={(e) => setForm((f) => ({ ...f, reason: e.target.value }))} placeholder=" " rows={2} required minLength={3} />
           <span>Reason *</span>
         </label>
-        <div>
-          <span className="label">Who can do my sewas? (optional)</span>
-          <div className="slot-checks">
-            {Object.entries(roles).map(([id, label]) => (
-              <button
-                type="button"
-                key={id}
-                className={`check-pill ${replaceRole === id ? 'active' : ''}`}
-                onClick={() => {
-                  setReplaceRole(id);
-                  setForm((f) => ({ ...f, replacementId: '' }));
-                }}
-              >
-                {label} ({teammates.filter((t) => t.role === id).length})
-              </button>
+        {affected.length > 0 && (
+          <div className="sewa-covers">
+            <span className="label">Who can do my sewas? *</span>
+            {affected.map((d, i) => (
+              <SewaCover key={d.id} duty={d} pick={pickOf(d.id)} set={(patch) => setPick(d.id, patch)} teammates={teammates} roles={roles} onCopy={i === 0 && affected.length > 1 ? () => copyToAll(d.id) : null} />
             ))}
           </div>
-          <select className="input replace-pick" value={form.replacementId} onChange={(e) => setForm((f) => ({ ...f, replacementId: e.target.value }))}>
-            <option value="">{choices.length ? 'Let the admin choose' : `No other ${roles[replaceRole]} yet — the admin will choose`}</option>
-            {choices.map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.name}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <span className="label">Where should they go? (optional)</span>
-          <LocationPicker value={form.location} onChange={(location) => setForm((f) => ({ ...f, location }))} label="Search the place on the map" hint="Pick the place where the person taking your place should go." />
-        </div>
-        {form.from && (
-          <p className={`leave-affected ${affected.length ? 'warn' : ''}`}>
-            {affected.length
-              ? `You have ${affected.length} sewa${affected.length > 1 ? 's' : ''} in these days: ${affected.map((d) => `${d.serviceName} ${prettyDate(d.date, 'd MMM')}`).join(', ')}. ${form.replacementId ? 'Your choice will take your place once the admin approves.' : 'The admin will put someone in your place.'}`
-              : 'You have no sewas on these days.'}
-          </p>
         )}
+        {affected.length > 0 && (
+          <div>
+            <span className="label">Where should they go? (optional)</span>
+            <LocationPicker value={form.location} onChange={(location) => setForm((f) => ({ ...f, location }))} label="Search the place on the map" hint="Pick the place where the people taking your place should go." />
+          </div>
+        )}
+        <p className="fine-print">Leave must be asked at least 1 day before it starts; later requests go as emergencies. A request can’t be withdrawn within 1 day of its start.</p>
         <button className="btn btn-primary" disabled={!!busy}>
-          {busy === 'new' ? <Loader2 size={17} className="spin" /> : <CalendarOff size={17} />} Send leave request
+          {busy === 'new' ? <Loader2 size={17} className="spin" /> : <CalendarOff size={17} />} {emergency ? 'Send emergency request' : affected.length ? 'Book & send leave request' : 'Send leave request'}
         </button>
       </form>
 
@@ -417,24 +482,63 @@ function Leave({ data, team, apply, toast }) {
               <strong>
                 {prettyDate(l.from, 'd MMM yyyy')}
                 {l.to !== l.from && ` – ${prettyDate(l.to, 'd MMM yyyy')}`}
+                {l.emergency && <em className="emergency-tag">Emergency</em>}
               </strong>
               <span>{l.reason}</span>
-              {l.replacementId && <span className="muted">Suggested: {teammates.find((t) => t.id === l.replacementId)?.name || 'a team member'}</span>}
+              {(l.picks || []).map((x) => {
+                const d = dutyOf(x.bookingId);
+                return (
+                  <span key={x.bookingId} className="muted">
+                    {d ? `${d.serviceName} ${prettyDate(d.date, 'd MMM')} ${rangeTo12(d.slotTime)}: ` : ''}
+                    {nameOf(x.personId)} · ₹{x.pay}
+                  </span>
+                );
+              })}
+              {l.replacementId && !l.picks && <span className="muted">Suggested: {nameOf(l.replacementId)}</span>}
               {l.location && (
                 <a className="muted" href={mapsLink(l.location)} target="_blank" rel="noreferrer">
                   <MapPin size={12} /> {l.location.label || 'Open map'}
                 </a>
               )}
               {l.note && <span className="muted">Admin: {l.note}</span>}
+              {l.status === 'pending' && !canWithdraw(l) && <span className="muted">Can’t be withdrawn within 1 day of the start — message the admin.</span>}
             </div>
             <span className={`pay-tag ${l.status === 'approved' ? 'pay-paid' : l.status === 'pending' ? 'pay-submitted' : 'req-tag'}`}>{LEAVE_TEXT[l.status]}</span>
-            {l.status === 'pending' && (
+            {canWithdraw(l) && (
               <button className="icon-btn" onClick={() => run(l.id, () => team.withdrawLeave(l.id), 'Leave request withdrawn.')} aria-label="Withdraw" disabled={!!busy}>
                 {busy === l.id ? <Loader2 size={16} className="spin" /> : <Trash2 size={16} />}
               </button>
             )}
           </div>
         ))}
+
+        {bookedMe.length > 0 && (
+          <>
+            <h3>Teammates who booked you</h3>
+            {bookedMe.map((l) => (
+              <div key={l.id} className={`glass leave-item l-${l.status}`}>
+                <div>
+                  <strong>
+                    {l.name}
+                    {l.emergency && <em className="emergency-tag">Emergency</em>}
+                  </strong>
+                  {l.sewas.map((x, i) => (
+                    <span key={i}>
+                      {x.serviceName} · {prettyDate(x.date, 'EEE, d MMM')}
+                      {x.slotTime && ` · ${rangeTo12(x.slotTime)}`} · ₹{x.pay}
+                    </span>
+                  ))}
+                  {l.location && (
+                    <a className="muted" href={mapsLink(l.location)} target="_blank" rel="noreferrer">
+                      <MapPin size={12} /> {l.location.label || 'Open map'}
+                    </a>
+                  )}
+                </div>
+                <span className={`pay-tag ${l.status === 'approved' ? 'pay-paid' : 'pay-submitted'}`}>{l.status === 'approved' ? 'Approved — on your sewas' : 'Waiting for admin'}</span>
+              </div>
+            ))}
+          </>
+        )}
       </div>
     </div>
   );

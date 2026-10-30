@@ -24,9 +24,11 @@ export default function LeaveTab({ data, api, setData, toast, openChat }) {
   const personOf = (id) => people.find((p) => p.id === id);
   const onLeave = (personId, date) => (data.leaves || []).some((l) => l.personId === personId && l.status === 'approved' && l.from <= date && l.to >= date);
 
+  const rank = (l) => (l.status === 'pending' ? (l.emergency ? 0 : 1) : 2);
   const leaves = [...(data.leaves || [])]
     .filter((l) => (filter === 'current' ? l.status === 'pending' || (l.status === 'approved' && l.to >= today) : true))
-    .sort((a, b) => (a.status === 'pending') !== (b.status === 'pending') ? (a.status === 'pending' ? -1 : 1) : a.from.localeCompare(b.from));
+    // Waiting requests first (emergencies at the very top), then by date.
+    .sort((a, b) => rank(a) - rank(b) || a.from.localeCompare(b.from));
   const affected = (l) => data.bookings.filter((b) => active(b) && b.date >= l.from && b.date <= l.to && (b.assignees || []).some((a) => a.id === l.personId)).sort((a, b) => (a.date + a.slotTime).localeCompare(b.date + b.slotTime));
   // Who could take the place: does this sewa, not on leave that day, not already on the booking — nearest first.
   const options = (b, leavePersonId) =>
@@ -37,7 +39,9 @@ export default function LeaveTab({ data, api, setData, toast, openChat }) {
   const pickFor = (l, b) => {
     const chosen = picks[l.id]?.[b.id];
     if (chosen !== undefined) return chosen;
-    return options(b, l.personId).some((o) => o.p.id === l.replacementId) ? l.replacementId : '';
+    // Start with the teammate they booked for this sewa (older requests had one suggestion for all).
+    const booked = (l.picks || []).find((x) => x.bookingId === b.id)?.personId ?? l.replacementId;
+    return options(b, l.personId).some((o) => o.p.id === booked) ? booked : '';
   };
 
   const mergeBookings = (list) => setData((d) => ({ ...d, bookings: d.bookings.map((b) => list.find((x) => x.id === b.id) || b) }));
@@ -105,6 +109,7 @@ export default function LeaveTab({ data, api, setData, toast, openChat }) {
                     <strong>
                       {p?.name || l.personName}
                       {p?.role && <small className="muted"> · {roles[p.role]}</small>}
+                      {l.emergency && <em className="emergency-tag">Emergency</em>}
                     </strong>
                     <span>
                       {prettyDate(l.from, 'EEE, d MMM yyyy')}
@@ -112,7 +117,7 @@ export default function LeaveTab({ data, api, setData, toast, openChat }) {
                     </span>
                     <span className="muted">
                       “{l.reason}” · asked {format(new Date(l.createdAt), 'd MMM')}
-                      {l.replacementId && ` · suggests ${personOf(l.replacementId)?.name || 'someone removed'}`}
+                      {l.replacementId && !l.picks && ` · suggests ${personOf(l.replacementId)?.name || 'someone removed'}`}
                     </span>
                     {l.location && (
                       <a className="muted" href={mapsLink(l.location)} target="_blank" rel="noreferrer">
@@ -134,11 +139,17 @@ export default function LeaveTab({ data, api, setData, toast, openChat }) {
                     <p className="label">{l.status === 'pending' ? 'Their sewas in these days — who should take their place?' : 'Still assigned to them during leave'}</p>
                     {list.map((b) => {
                       const opts = options(b, l.personId);
+                      const booked = (l.picks || []).find((x) => x.bookingId === b.id);
                       return (
                         <div key={b.id} className="leave-duty">
                           <span>
                             <strong>{b.serviceName}</strong> · {format(fromKey(b.date), 'EEE d MMM')}, {rangeTo12(b.slotTime)} · {b.name}
                           </span>
+                          {booked && (
+                            <span className="muted">
+                              They booked {personOf(booked.personId)?.name || 'someone removed'} for ₹{booked.pay} (gets this bhet if you keep them)
+                            </span>
+                          )}
                           <select className="input" value={pickFor(l, b)} onChange={(e) => setPicks((x) => ({ ...x, [l.id]: { ...x[l.id], [b.id]: e.target.value } }))}>
                             <option value="">{opts.length ? 'Keep as is / decide later' : 'Nobody else can do this sewa'}</option>
                             {opts.map(({ p: o, km }) => (
