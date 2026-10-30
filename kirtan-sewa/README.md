@@ -201,15 +201,14 @@ The uploaded QR image is saved in `data/uploads/`.
   the booking.
 - **Bhet:** set it per person on each booking (a person's "usual bhet" fills it in when they're assigned). If they
   ask for a different amount it lands in the chat, where you can set any amount directly.
-- **Team booking** (the old "leave"): a team member books teammates to go in their place. They pick the days and say
-  why, then for each teammate choose a role (Head Ragi / Side Ragi / Tabla), the person and the bhet they offer (at
-  least ₹200). If they have sewas in those days, each sewa gets its own teammate (different sewas, even on one day,
-  can go to different people); otherwise they add as many teammates as they need, each on a day and optional time.
-  One person can't be booked twice at the same time. They can add a map pin for where to go. Booked teammates are
-  notified and see it under **Team booking**. A booking starting in less than 1 day is still sent, marked
-  **Emergency**, and one can't be withdrawn within 1 day of its start. Admin → **Team bookings** shows each sewa with
-  the booked teammate pre-chosen (or anyone else, nearest first). Approving hands the sewas over (the booked teammate
-  gets the bhet offered) and notifies everyone. People on approved leave can't be assigned on those days, and any booking can
+- **Team booking** (the old "leave"): a team member asks for someone to go in their place. They pick the days and
+  say why, then for each request choose **Head Ragi, Side Ragi or Tabla** and the bhet they offer (at least ₹200) —
+  they don't choose the person. If they have sewas in those days, each sewa gets its own request; otherwise they add
+  as many requests as they need, each on a day and optional time. They can add a map pin for where to go. A request
+  starting in less than 1 day is still sent, marked **Emergency**, and one can't be withdrawn within 1 day of its
+  start. Admin → **Team bookings** lists each request with a choice of people (the role asked for first, nearest
+  first); **Assign & approve** needs a person for every request, hands the sewas over at the bhet offered (one person
+  can't be in two places at once) and notifies everyone. Assigned people see it on their **Team booking** page. People on approved leave can't be assigned on those days, and any booking can
   also be handed to someone else with **Replace** under its team.
 
 ## Map location and nearest team member

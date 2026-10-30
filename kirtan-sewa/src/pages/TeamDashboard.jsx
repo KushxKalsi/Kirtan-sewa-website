@@ -328,53 +328,39 @@ const bookingStart = (from, items) => {
 const dutyStart = (d) => (d.slotTime || '').split('–')[0].trim();
 const pickTime = (x) => (x.start ? ` · ${rangeTo12(`${x.start} – ${x.end}`)}` : ' · whole day');
 
-/** One teammate to book: role (Head Ragi / Side Ragi / Tabla) → teammate → the bhet offered. */
-function BookTeammate({ title, subtitle, pick, set, teammates, roles, children, onCopy, onRemove }) {
-  const choices = teammates.filter((t) => t.role === pick.role);
-  const chosen = teammates.find((t) => t.id === pick.personId);
+/** One request: which role they need (Head Ragi / Side Ragi / Tabla) and the bhet offered. The admin picks the person. */
+function RoleRequest({ title, subtitle, pick, set, roles, children, onCopy, onRemove }) {
   return (
     <div className="sewa-cover glass">
       <div className="sewa-cover-head">
         <strong>{title}</strong>
         {subtitle && <span className="muted">{subtitle}</span>}
         {onRemove && (
-          <button type="button" className="icon-btn danger-text" onClick={onRemove} aria-label="Remove this teammate">
+          <button type="button" className="icon-btn danger-text" onClick={onRemove} aria-label="Remove this request">
             <Trash2 size={15} />
           </button>
         )}
       </div>
       {children}
-      <div className="slot-checks">
-        {Object.entries(roles).map(([id, label]) => (
-          <button type="button" key={id} className={`check-pill ${pick.role === id ? 'active' : ''}`} onClick={() => set({ role: id, personId: '' })}>
-            {label} ({teammates.filter((t) => t.role === id).length})
-          </button>
-        ))}
+      <div>
+        <span className="label">Who do you need? *</span>
+        <div className="slot-checks">
+          {Object.entries(roles).map(([id, label]) => (
+            <button type="button" key={id} className={`check-pill ${pick.role === id ? 'active' : ''}`} onClick={() => set({ role: id })}>
+              {label}
+            </button>
+          ))}
+        </div>
       </div>
-      <div className="replace-people">
-        {choices.length === 0 && <p className="muted">No other {roles[pick.role]} in the team yet — choose another role.</p>}
-        {choices.map((t) => (
-          <button type="button" key={t.id} className={`replace-person glass ${pick.personId === t.id ? 'active' : ''}`} onClick={() => set({ personId: pick.personId === t.id ? '' : t.id })}>
-            <UserRound size={18} />
-            <span>
-              <strong>{t.name}</strong>
-              <small>{roles[t.role]}</small>
-            </span>
-            {pick.personId === t.id && <Check size={18} />}
-          </button>
-        ))}
-      </div>
-      {chosen && (
-        <label>
-          <span className="label">
-            <HandCoins size={13} /> Bhet you offer {chosen.name} (₹, at least {LEAVE_MIN_PAY}) *
-          </span>
-          <input className="input" type="number" inputMode="numeric" min={LEAVE_MIN_PAY} step="1" value={pick.pay} onChange={(e) => set({ pay: e.target.value })} placeholder={`e.g. ${LEAVE_MIN_PAY * 5}`} required />
-        </label>
-      )}
-      {onCopy && chosen && (
+      <label>
+        <span className="label">
+          <HandCoins size={13} /> Bhet you offer (₹, at least {LEAVE_MIN_PAY}) *
+        </span>
+        <input className="input" type="number" inputMode="numeric" min={LEAVE_MIN_PAY} step="1" value={pick.pay} onChange={(e) => set({ pay: e.target.value })} placeholder={`e.g. ${LEAVE_MIN_PAY * 5}`} required />
+      </label>
+      {onCopy && (
         <button type="button" className="link-btn" onClick={onCopy}>
-          Same person and bhet for all my sewas in these days
+          Same for all my sewas in these days
         </button>
       )}
     </div>
@@ -382,25 +368,25 @@ function BookTeammate({ title, subtitle, pick, set, teammates, roles, children, 
 }
 
 /**
- * Team booking: a team member books teammates to go in their place, each with the bhet they offer; the admin approves.
- * With sewas in those days each sewa gets a teammate; otherwise they add teammates by day and time.
+ * Team booking: a team member asks for a Head Ragi, Side Ragi or Tabla to go in their place, with the bhet they offer;
+ * the admin assigns the people. With sewas in those days each sewa gets a request; otherwise they ask by day and time.
  */
 function TeamBooking({ data, team, apply, toast }) {
   const { today, duties, leaves, teammates, roles } = data;
   const bookedMe = data.bookedMe || [];
   const ownRole = roles[data.person.role] ? data.person.role : Object.keys(roles)[0];
   const blankForm = { from: '', to: '', reason: '', location: null };
-  const newExtra = (date = '') => ({ key: Math.random().toString(36).slice(2), role: ownRole, personId: '', pay: '', date, start: '', end: '' });
+  const newExtra = (date = '') => ({ key: Math.random().toString(36).slice(2), role: ownRole, pay: '', date, start: '', end: '' });
   const [form, setForm] = useState(blankForm);
-  const [picks, setPicks] = useState({}); // duty id -> { role, personId, pay }
-  const [extras, setExtras] = useState(() => [newExtra()]); // teammates booked by day/time when they have no sewas
+  const [picks, setPicks] = useState({}); // duty id -> { role, pay }
+  const [extras, setExtras] = useState(() => [newExtra()]); // requests by day/time when they have no sewas
   const [busy, setBusy] = useState('');
   const to = form.to || form.from;
   const affected = form.from ? duties.filter((d) => live(d) && d.date >= form.from && d.date <= to).sort((a, b) => (a.date + a.slotTime).localeCompare(b.date + b.slotTime)) : [];
   const general = form.from && !affected.length;
   const items = affected.length ? affected.map((d) => ({ date: d.date, start: dutyStart(d) })) : extras.map((x) => ({ date: x.date || form.from, start: x.start }));
   const emergency = !!form.from && bookingStart(form.from, items) - Date.now() < DAY_MS;
-  const pickOf = (id) => ({ role: ownRole, personId: '', pay: '', ...picks[id] });
+  const pickOf = (id) => ({ role: ownRole, pay: '', ...picks[id] });
   const setPick = (id, patch) => setPicks((all) => ({ ...all, [id]: { ...pickOf(id), ...patch } }));
   const copyToAll = (id) => setPicks((all) => ({ ...all, ...Object.fromEntries(affected.map((d) => [d.id, { ...pickOf(id) }])) }));
   const setExtra = (key, patch) => setExtras((list) => list.map((x) => (x.key === key ? { ...x, ...patch } : x)));
@@ -425,21 +411,17 @@ function TeamBooking({ data, team, apply, toast }) {
     let body;
     if (affected.length) {
       for (const d of affected) {
-        const pk = pickOf(d.id);
-        const what = `${d.serviceName} on ${prettyDate(d.date, 'd MMM')}`;
-        if (!pk.personId) return toast(`Choose the teammate for ${what}.`, 'error');
-        if (!(Number(pk.pay) >= LEAVE_MIN_PAY)) return toast(`Offer at least ₹${LEAVE_MIN_PAY} for ${what}.`, 'error');
+        if (!(Number(pickOf(d.id).pay) >= LEAVE_MIN_PAY)) return toast(`Offer at least ₹${LEAVE_MIN_PAY} for ${d.serviceName} on ${prettyDate(d.date, 'd MMM')}.`, 'error');
       }
-      body = { ...form, to, picks: affected.map((d) => ({ bookingId: d.id, personId: pickOf(d.id).personId, pay: Number(pickOf(d.id).pay) })) };
+      body = { ...form, to, picks: affected.map((d) => ({ bookingId: d.id, role: pickOf(d.id).role, pay: Number(pickOf(d.id).pay) })) };
     } else {
       for (const [i, x] of extras.entries()) {
-        if (!x.personId) return toast(`Choose teammate ${i + 1}.`, 'error');
-        if (!(Number(x.pay) >= LEAVE_MIN_PAY)) return toast(`Offer at least ₹${LEAVE_MIN_PAY} to teammate ${i + 1}.`, 'error');
-        if ((x.start || x.end) && !(x.start && x.end && x.end > x.start)) return toast(`Teammate ${i + 1}: enter both times (end after start), or leave both empty for the whole day.`, 'error');
+        if (!(Number(x.pay) >= LEAVE_MIN_PAY)) return toast(`Offer at least ₹${LEAVE_MIN_PAY} for request ${i + 1}.`, 'error');
+        if ((x.start || x.end) && !(x.start && x.end && x.end > x.start)) return toast(`Request ${i + 1}: enter both times (end after start), or leave both empty for the whole day.`, 'error');
       }
-      body = { ...form, to, picks: extras.map((x) => ({ personId: x.personId, pay: Number(x.pay), date: x.date || form.from, start: x.start, end: x.end })) };
+      body = { ...form, to, picks: extras.map((x) => ({ role: x.role, pay: Number(x.pay), date: x.date || form.from, start: x.start, end: x.end })) };
     }
-    if (await run('new', () => team.requestLeave(body), emergency ? 'Emergency team booking sent to the admin.' : 'Team booking sent to the admin.')) {
+    if (await run('new', () => team.requestLeave(body), emergency ? 'Emergency request sent to the admin.' : 'Request sent — the admin will assign the people.')) {
       setForm(blankForm);
       setPicks({});
       setExtras([newExtra()]);
@@ -449,14 +431,15 @@ function TeamBooking({ data, team, apply, toast }) {
   const pickLine = (x) => {
     const d = x.bookingId && dutyOf(x.bookingId);
     const what = d ? `${d.serviceName} ${prettyDate(d.date, 'd MMM')} ${rangeTo12(d.slotTime)}` : `${prettyDate(x.date, 'd MMM')}${pickTime(x)}`;
-    return `${what}: ${nameOf(x.personId)} · ₹${x.pay}`;
+    const who = x.personId ? ` → ${nameOf(x.personId)}` : '';
+    return `${what}: ${roles[x.role] || 'Teammate'} · ₹${x.pay}${who}`;
   };
 
   return (
     <div className="leave-grid">
       <form className="glass profile-card" onSubmit={submit}>
-        <h3>Book a teammate</h3>
-        <p className="muted">Need someone in your place? Choose the days, then book Head Ragi, Side Ragi or Tabla teammates and offer their bhet.</p>
+        <h3>Request a team member</h3>
+        <p className="muted">Need someone in your place? Choose the days, say whether you need a Head Ragi, Side Ragi or Tabla and offer their bhet. The admin assigns the person.</p>
         <div className="grid-2">
           <label>
             <span className="label">First day *</span>
@@ -470,32 +453,30 @@ function TeamBooking({ data, team, apply, toast }) {
         {form.from && (
           <p className={`leave-affected ${affected.length ? 'warn' : ''}`}>
             {affected.length
-              ? `You have ${affected.length} sewa${affected.length > 1 ? 's' : ''} in these days. Book a teammate for ${affected.length > 1 ? 'each one — they can be different people' : 'it'}.`
-              : 'You have no sewas on these days. Book the teammates you need below — add more for other times.'}
+              ? `You have ${affected.length} sewa${affected.length > 1 ? 's' : ''} in these days. Say who you need for ${affected.length > 1 ? 'each one' : 'it'}.`
+              : 'You have no sewas on these days. Add what you need below — add more for other times.'}
           </p>
         )}
         {emergency && (
           <p className="leave-emergency">
-            <CircleAlert size={16} /> This starts in less than 1 day, so it will be sent as an <strong>emergency</strong> booking. It can’t be withdrawn once sent.
+            <CircleAlert size={16} /> This starts in less than 1 day, so it will be sent as an <strong>emergency</strong> request. It can’t be withdrawn once sent.
           </p>
         )}
         <label className="field">
           <textarea value={form.reason} onChange={(e) => setForm((f) => ({ ...f, reason: e.target.value }))} placeholder=" " rows={2} required minLength={3} />
-          <span>Why do you need a teammate? *</span>
+          <span>Why do you need someone? *</span>
         </label>
 
-        {!form.from && <p className="muted">Choose the first day to book teammates.</p>}
+        {!form.from && <p className="muted">Choose the first day to continue.</p>}
         {affected.length > 0 && (
           <div className="sewa-covers">
-            <span className="label">Teammates for my sewas *</span>
             {affected.map((d, i) => (
-              <BookTeammate
+              <RoleRequest
                 key={d.id}
                 title={d.serviceName}
                 subtitle={`${prettyDate(d.date, 'EEE, d MMM')} · ${d.slotLabel} · ${rangeTo12(d.slotTime)}`}
                 pick={pickOf(d.id)}
                 set={(patch) => setPick(d.id, patch)}
-                teammates={teammates}
                 roles={roles}
                 onCopy={i === 0 && affected.length > 1 ? () => copyToAll(d.id) : null}
               />
@@ -504,9 +485,8 @@ function TeamBooking({ data, team, apply, toast }) {
         )}
         {general && (
           <div className="sewa-covers">
-            <span className="label">Teammates to book *</span>
             {extras.map((x, i) => (
-              <BookTeammate key={x.key} title={`Teammate ${i + 1}`} pick={x} set={(patch) => setExtra(x.key, patch)} teammates={teammates} roles={roles} onRemove={extras.length > 1 ? () => setExtras((list) => list.filter((y) => y.key !== x.key)) : null}>
+              <RoleRequest key={x.key} title={`Request ${i + 1}`} pick={x} set={(patch) => setExtra(x.key, patch)} roles={roles} onRemove={extras.length > 1 ? () => setExtras((list) => list.filter((y) => y.key !== x.key)) : null}>
                 <div className="pick-when">
                   <label>
                     <span className="label">Day</span>
@@ -521,22 +501,22 @@ function TeamBooking({ data, team, apply, toast }) {
                     <input className="input" type="time" value={x.end} onChange={(e) => setExtra(x.key, { end: e.target.value })} />
                   </label>
                 </div>
-              </BookTeammate>
+              </RoleRequest>
             ))}
             <button type="button" className="btn btn-ghost btn-sm add-teammate" onClick={() => setExtras((list) => [...list, newExtra(list.at(-1)?.date || '')])}>
-              <UsersRound size={15} /> Add another teammate
+              <UsersRound size={15} /> Add another (ragi or tabla, another time)
             </button>
           </div>
         )}
         {form.from && (
           <div>
             <span className="label">Where should they go? (optional)</span>
-            <LocationPicker value={form.location} onChange={(location) => setForm((f) => ({ ...f, location }))} label="Search the place on the map" hint="Pick the place where the teammates you book should go." />
+            <LocationPicker value={form.location} onChange={(location) => setForm((f) => ({ ...f, location }))} label="Search the place on the map" hint="Pick the place where the people the admin assigns should go." />
           </div>
         )}
-        <p className="fine-print">Book at least 1 day before; later bookings go as emergencies. A booking can’t be withdrawn within 1 day of its start.</p>
+        <p className="fine-print">Ask at least 1 day before; later requests go as emergencies. A request can’t be withdrawn within 1 day of its start.</p>
         <button className="btn btn-primary" disabled={!!busy}>
-          {busy === 'new' ? <Loader2 size={17} className="spin" /> : <UsersRound size={17} />} {emergency ? 'Send emergency booking' : 'Book & send to admin'}
+          {busy === 'new' ? <Loader2 size={17} className="spin" /> : <UsersRound size={17} />} {emergency ? 'Send emergency request' : 'Send request to admin'}
         </button>
       </form>
 
@@ -564,11 +544,12 @@ function TeamBooking({ data, team, apply, toast }) {
                 </a>
               )}
               {l.note && <span className="muted">Admin: {l.note}</span>}
+              {l.status === 'pending' && <span className="muted">The admin will assign the people.</span>}
               {l.status === 'pending' && !canWithdraw(l) && <span className="muted">Can’t be withdrawn within 1 day of the start — message the admin.</span>}
             </div>
             <span className={`pay-tag ${l.status === 'approved' ? 'pay-paid' : l.status === 'pending' ? 'pay-submitted' : 'req-tag'}`}>{LEAVE_TEXT[l.status]}</span>
             {canWithdraw(l) && (
-              <button className="icon-btn" onClick={() => run(l.id, () => team.withdrawLeave(l.id), 'Team booking withdrawn.')} aria-label="Withdraw" disabled={!!busy}>
+              <button className="icon-btn" onClick={() => run(l.id, () => team.withdrawLeave(l.id), 'Request withdrawn.')} aria-label="Withdraw" disabled={!!busy}>
                 {busy === l.id ? <Loader2 size={16} className="spin" /> : <Trash2 size={16} />}
               </button>
             )}
@@ -577,19 +558,20 @@ function TeamBooking({ data, team, apply, toast }) {
 
         {bookedMe.length > 0 && (
           <>
-            <h3>Teammates who booked you</h3>
+            <h3>You’re booked for a teammate</h3>
             {bookedMe.map((l) => (
-              <div key={l.id} className={`glass leave-item l-${l.status}`}>
+              <div key={l.id} className="glass leave-item l-approved">
                 <div>
                   <strong>
-                    {l.name}
+                    In place of {l.name}
                     {l.emergency && <em className="emergency-tag">Emergency</em>}
                   </strong>
                   {l.sewas.map((x, i) => (
                     <span key={i}>
                       {x.serviceName ? `${x.serviceName} · ` : ''}
                       {prettyDate(x.date, 'EEE, d MMM')}
-                      {pickTime(x)} · ₹{x.pay}
+                      {pickTime(x)}
+                      {x.role ? ` · as ${roles[x.role]}` : ''} · ₹{x.pay}
                     </span>
                   ))}
                   {l.location && (
@@ -598,7 +580,7 @@ function TeamBooking({ data, team, apply, toast }) {
                     </a>
                   )}
                 </div>
-                <span className={`pay-tag ${l.status === 'approved' ? 'pay-paid' : 'pay-submitted'}`}>{l.status === 'approved' ? 'Approved — you’re booked' : 'Waiting for admin'}</span>
+                <span className="pay-tag pay-paid">Assigned by admin</span>
               </div>
             ))}
           </>

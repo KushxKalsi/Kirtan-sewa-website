@@ -937,7 +937,7 @@ function teamPayload(p) {
     leaves: db.leaves.filter((l) => l.personId === p.id).sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
     // Teammates who booked this person to go in their place.
     bookedMe: db.leaves
-      .filter((l) => ['pending', 'approved'].includes(l.status) && l.to >= todayKey() && (l.picks || []).some((x) => x.personId === p.id))
+      .filter((l) => l.status === 'approved' && l.to >= todayKey() && (l.picks || []).some((x) => x.personId === p.id))
       .map((l) => ({
         id: l.id,
         name: personOf(l.personId)?.name || l.personName,
@@ -948,7 +948,7 @@ function teamPayload(p) {
           .filter((x) => x.personId === p.id)
           .map((x) => {
             const b = x.bookingId && db.bookings.find((y) => y.id === x.bookingId);
-            return { serviceName: b?.serviceName || '', date: x.date || b?.date || l.from, start: x.start || '', end: x.end || '', pay: x.pay };
+            return { serviceName: b?.serviceName || '', role: x.role || '', date: x.date || b?.date || l.from, start: x.start || '', end: x.end || '', pay: x.pay };
           }),
       })),
     teammates: db.people.filter((x) => x.id !== p.id && x.active).map((x) => ({ id: x.id, name: x.name, role: x.role || '' })),
@@ -1085,8 +1085,9 @@ app.post('/api/team/duties/:id/pay-request', requireMember, async (req, res) => 
   res.json(teamPayload(req.person));
 });
 
-/* Team booking (stored as "leaves"): a team member books teammates to go in their place, each with the bhet they offer.
- * With sewas in those days, every sewa gets its own teammate; otherwise they book one or more teammates by date and time.
+/* Team booking (stored as "leaves"): a team member asks for a Head Ragi, Side Ragi or Tabla to go in their place, with
+ * the bhet they offer; the admin assigns the people. With sewas in those days, every sewa gets its own request;
+ * otherwise they ask for one or more by day and time.
  * Less than a day's notice still goes through, marked as an emergency; within a day of the start it can't be withdrawn. */
 const LEAVE_NOTICE_MS = 24 * 60 * 60 * 1000;
 const LEAVE_MIN_PAY = 200; // least bhet they can offer a teammate
@@ -1110,40 +1111,33 @@ app.post('/api/team/leaves', requireMember, async (req, res) => {
   if (db.leaves.some((l) => l.personId === p.id && ['pending', 'approved'].includes(l.status) && l.from <= to && l.to >= from)) fail(400, 'You already have a team booking on some of these dates.');
   const sewas = db.bookings.filter((b) => isActive(b) && b.date >= from && b.date <= to && (b.assignees || []).some((a) => a.id === p.id));
   const given = Array.isArray(req.body?.picks) ? req.body.picks.slice(0, 40) : [];
+  // Each request: which role they need and the bhet they offer. The admin chooses the person.
   const readPick = (pick, what) => {
-    if (!pick?.personId) fail(400, `Choose the teammate for ${what}.`);
-    const person = db.people.find((x) => x.id === str(pick.personId, 40) && x.active && !x.pending && x.id !== p.id);
-    if (!person) fail(400, `Choose the teammate for ${what} from the active team members.`);
+    const role = str(pick?.role, 20);
+    if (!ROLES[role]) fail(400, `Choose Head Ragi, Side Ragi or Tabla for ${what}.`);
     const pay = Math.round(Number(pick.pay));
     if (!Number.isFinite(pay) || pay < LEAVE_MIN_PAY) fail(400, `Offer at least ₹${LEAVE_MIN_PAY} for ${what}.`);
     if (pay > 1000000) fail(400, 'That amount is too large.');
-    return { person, personId: person.id, pay };
+    return { role, pay };
   };
   let picks;
   if (sewas.length) {
-    // Every sewa in these days gets a teammate (different sewas, even on one day, can go to different people).
+    // Every sewa in these days gets its own request (different sewas, even on one day, can need different people).
     picks = sewas.map((b) => {
       const [start, end] = rangeOf(b);
-      const pick = readPick(given.find((x) => x?.bookingId === b.id), `${b.serviceName} on ${shortDate(b.date)} (${b.slotTime})`);
-      return { ...pick, bookingId: b.id, date: b.date, start, end };
+      return { ...readPick(given.find((x) => x?.bookingId === b.id), `${b.serviceName} on ${shortDate(b.date)} (${b.slotTime})`), bookingId: b.id, date: b.date, start, end };
     });
   } else {
-    // No sewas of their own: book one or more teammates, each on a day (and time) within these dates.
-    if (!given.length) fail(400, 'Book at least one teammate.');
+    // No sewas of their own: ask for one or more people, each on a day (and time) within these dates.
+    if (!given.length) fail(400, 'Ask for at least one Head Ragi, Side Ragi or Tabla.');
     picks = given.map((g, i) => {
       const date = str(g?.date, 10) || from;
-      if (!DATE_RE.test(date) || date < from || date > to) fail(400, `Teammate ${i + 1}: choose a day between the first and last day.`);
+      if (!DATE_RE.test(date) || date < from || date > to) fail(400, `Request ${i + 1}: choose a day between the first and last day.`);
       const start = str(g?.start, 5);
       const end = str(g?.end, 5);
-      if ((start || end) && !(TIME_RE.test(start) && TIME_RE.test(end) && end > start)) fail(400, `Teammate ${i + 1}: enter a start and end time (end after start), or leave both empty for the whole day.`);
-      return { ...readPick(g, `teammate ${i + 1}`), date, start, end };
+      if ((start || end) && !(TIME_RE.test(start) && TIME_RE.test(end) && end > start)) fail(400, `Request ${i + 1}: enter a start and end time (end after start), or leave both empty for the whole day.`);
+      return { ...readPick(g, `request ${i + 1}`), date, start, end };
     });
-  }
-  // One person can't be in two places at once (no time = the whole day).
-  const span = (x) => [x.start || '00:00', x.end || '24:00'];
-  for (const [i, x] of picks.entries()) {
-    const clash = picks.slice(i + 1).find((y) => y.personId === x.personId && y.date === x.date && overlaps(...span(x), ...span(y)));
-    if (clash) fail(400, `${x.person.name} is booked twice at the same time on ${shortDate(x.date)}. Choose someone else for one of them.`);
   }
   const location = readLocation(req.body?.location); // where the people taking their place should go
   const startsAt = leaveStartsAt(from, picks);
@@ -1155,7 +1149,7 @@ app.post('/api/team/leaves', requireMember, async (req, res) => {
     from,
     to,
     reason,
-    picks: picks.map(({ bookingId, personId, pay, date, start, end }) => ({ ...(bookingId && { bookingId }), personId, pay, date, start, end })),
+    picks,
     location,
     emergency,
     startsAt: startsAt.toISOString(),
@@ -1166,23 +1160,13 @@ app.post('/api/team/leaves', requireMember, async (req, res) => {
   db.leaves.push(leave);
   await save();
   const when = `${shortDate(from)}${to !== from ? ` – ${shortDate(to)}` : ''}`;
-  const names = [...new Set(picks.map((x) => x.person.name))];
+  const wanted = picks.map((x) => ROLES[x.role]).join(', ');
   alertAdmin(
-    `${emergency ? '🚨 Emergency: ' : ''}${p.name} made a team booking`,
-    `${when}${sewas.length ? ` · ${sewas.length} of their sewa${sewas.length === 1 ? '' : 's'}` : ''} · booked ${names.join(', ')}${location ? ` · at ${location.label || 'a map pin'}` : ''}`,
+    `${emergency ? '🚨 Emergency: ' : ''}${p.name} needs ${wanted}`,
+    `${when}${sewas.length ? ` · for ${sewas.length} of their sewa${sewas.length === 1 ? '' : 's'}` : ''} · assign the people${location ? ` · at ${location.label || 'a map pin'}` : ''}`,
     '/admin?tab=leave',
     `leave-${leave.id}`,
   );
-  for (const person of new Set(picks.map((x) => x.person))) {
-    const mine = picks.filter((x) => x.person === person);
-    if (!person.phone) continue;
-    notifyPhone(person.phone, {
-      title: `${emergency ? '🚨 ' : ''}${p.name} booked you in their place`,
-      body: `${mine.map((x) => `${pickWhen(x)} · ₹${x.pay}`).join('; ')} · waiting for the admin's approval`,
-      url: '/team',
-      tag: `leave-${leave.id}`,
-    }).catch(() => {});
-  }
   res.status(201).json(teamPayload(p));
 });
 
@@ -1798,20 +1782,33 @@ app.patch('/api/admin/leaves/:id', async (req, res) => {
   const changed = [];
   const skipped = [];
   if (action === 'approve') {
-    const replacements = req.body?.replacements && typeof req.body.replacements === 'object' ? req.body.replacements : {};
-    const affected = db.bookings.filter((b) => isActive(b) && b.date >= leave.from && b.date <= leave.to && (b.assignees || []).some((a) => a.id === leave.personId));
-    for (const b of affected) {
-      const pick = (leave.picks || []).find((x) => x.bookingId === b.id);
-      const toId = str(replacements[b.id] ?? pick?.personId ?? leave.replacementId, 40);
-      if (!toId) continue;
+    // The admin assigns a person to every request (by its position); each gets the bhet that was offered.
+    const assign = req.body?.assign && typeof req.body.assign === 'object' ? req.body.assign : {};
+    const chosen = (leave.picks || []).map((x, i) => {
+      const id = str(assign[i] ?? x.personId ?? '', 40);
+      const what = `${ROLES[x.role] || 'the teammate'} on ${pickWhen(x)}`;
+      if (!id) fail(400, `Choose who goes as ${what}.`);
+      const who = db.people.find((q) => q.id === id && q.active && !q.pending && q.id !== leave.personId);
+      if (!who) fail(400, `Choose an active team member as ${what}.`);
+      if (leaveOn(id, x.date)) fail(400, `${who.name} is away (team booking) on ${shortDate(x.date)}.`);
+      return { ...x, personId: id, name: who.name };
+    });
+    // One person can't be in two places at once (no time = the whole day).
+    const span = (x) => [x.start || '00:00', x.end || '24:00'];
+    for (const [i, x] of chosen.entries()) {
+      const clash = chosen.slice(i + 1).find((y) => y.personId === x.personId && y.date === x.date && overlaps(...span(x), ...span(y)));
+      if (clash) fail(400, `${x.name} would be in two places at once on ${shortDate(x.date)}. Choose someone else for one of them.`);
+    }
+    for (const x of chosen.filter((c) => c.bookingId)) {
+      const b = db.bookings.find((y) => y.id === x.bookingId);
+      if (!b || !isActive(b) || !(b.assignees || []).some((a) => a.id === leave.personId)) continue; // already changed by hand
       try {
-        // The teammate they booked for this sewa gets the bhet they were offered.
-        const before = replaceAssignee(b, leave.personId, toId, pick?.personId === toId ? pick.pay : undefined);
-        changed.push({ booking: b, before });
+        changed.push({ booking: b, before: replaceAssignee(b, leave.personId, x.personId, x.pay) });
       } catch (e) {
         skipped.push(`${b.ref}: ${e.message}`);
       }
     }
+    leave.picks = chosen.map(({ name: _, ...x }) => x);
   }
   Object.assign(leave, { status: action === 'approve' ? 'approved' : action === 'reject' ? 'rejected' : 'cancelled', note, decidedAt: new Date().toISOString() });
   await save();
@@ -1820,9 +1817,9 @@ app.patch('/api/admin/leaves/:id', async (req, res) => {
   const when = `${shortDate(leave.from)}${leave.to !== leave.from ? ` – ${shortDate(leave.to)}` : ''}`;
   const title = { approve: 'Team booking approved 🙏', reject: 'Team booking not approved', cancel: 'Team booking cancelled' }[action];
   if (person?.phone) notifyPhone(person.phone, { title, body: `${when}${note ? ` · ${note}` : ''}`, url: '/team', tag: `leave-${leave.id}` }).catch(() => {});
-  // Teammates booked without one of the sewas (those hear about it through the sewa itself).
+  // People assigned to requests without a sewa (those on a sewa hear about it through the sewa itself).
   if (action !== 'reject') {
-    for (const id of new Set((leave.picks || []).filter((x) => !x.bookingId).map((x) => x.personId))) {
+    for (const id of new Set((leave.picks || []).filter((x) => !x.bookingId && x.personId).map((x) => x.personId))) {
       const mine = leave.picks.filter((x) => x.personId === id);
       const who = personOf(id);
       if (who?.phone) {
