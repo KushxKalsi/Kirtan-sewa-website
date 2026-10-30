@@ -156,6 +156,7 @@ export default function BookingsTab({ data, api, patch, toast }) {
   const roles = data.roles || {};
   const peopleIds = new Set(people.map((p) => p.id));
   const personById = (id) => people.find((p) => p.id === id);
+  // An approved team booking on that date — shown as a note only; it never blocks assigning.
   const leaveOn = (personId, date) => (data.leaves || []).find((l) => l.personId === personId && l.status === 'approved' && l.from <= date && l.to >= date);
   // The admin's commission: a share of bills above a set amount. Shown here only — never to customers or the team.
   const rate = Number(settings.commissionRate) || 0;
@@ -605,11 +606,11 @@ export default function BookingsTab({ data, api, patch, toast }) {
                               .filter((p) => canDo(p, b))
                               .map((p) => ({ p, km: distanceKm(b.location, p.location), leave: leaveOn(p.id, b.date) }))
                               .sort((x, y) => (x.km ?? 1e9) - (y.km ?? 1e9) || x.p.name.localeCompare(y.p.name));
-                            const nearest = eligible.find((c) => c.km != null && !c.leave)?.p.id;
+                            const nearest = eligible.find((c) => c.km != null)?.p.id;
                             const eligibleIds = new Set(eligible.map((c) => c.p.id));
                             const others = (b.assignees || []).filter((a) => !eligibleIds.has(a.id)); // assigned earlier, no longer matching
                             const keep = (ids) => ids.filter((id) => peopleIds.has(id));
-                            const candidates = eligible.filter((c) => !assignedIds.includes(c.p.id) && !c.leave);
+                            const candidates = eligible.filter((c) => !assignedIds.includes(c.p.id));
                             return (
                               <div className="assign-box">
                                 <div className="assign-head">
@@ -632,15 +633,15 @@ export default function BookingsTab({ data, api, patch, toast }) {
                                       <button
                                         type="button"
                                         key={p.id}
-                                        className={`check-pill ${on ? 'active' : ''} ${leave && !on ? 'on-leave' : ''}`}
+                                        className={`check-pill ${on ? 'active' : ''}`}
                                         onClick={() => setAssignees(b, keep(on ? assignedIds.filter((x) => x !== p.id) : [...assignedIds, p.id]))}
-                                        disabled={!!busy || (!!leave && !on)}
-                                        title={leave ? `Away (team booking) ${prettyDate(leave.from, 'd MMM')} – ${prettyDate(leave.to, 'd MMM')}` : undefined}
+                                        disabled={!!busy}
+                                        title={leave ? `Has a team booking ${prettyDate(leave.from, 'd MMM')} – ${prettyDate(leave.to, 'd MMM')}` : undefined}
                                       >
                                         {on ? <Check size={13} /> : <UserRound size={13} />} {p.name}
                                         {p.role && <small className="pill-role">{roles[p.role]}</small>}
                                         {km != null && <small className={`pill-km ${p.id === nearest ? 'nearest' : ''}`}>{p.id === nearest ? `Nearest · ${kmText(km)}` : kmText(km)}</small>}
-                                        {leave && <small className="pill-leave">Away</small>}
+                                        {leave && <small className="pill-leave">Team booking</small>}
                                         {!km && p.address && <small className="pill-address">{p.address}</small>}
                                       </button>
                                     );
