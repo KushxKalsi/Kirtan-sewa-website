@@ -181,7 +181,7 @@ export default function TeamTab({ data, api, patch, toast, openChat }) {
                     {p.defaultPay != null && <span className="chip">Usual bhet {rupees(p.defaultPay)}</span>}
                     {onLeaveToday(p.id) && (
                       <span className="chip warn-chip">
-                        <CalendarOff size={12} /> On leave till {prettyDate(onLeaveToday(p.id).to, 'd MMM')}
+                        <CalendarOff size={12} /> Away (team booking) till {prettyDate(onLeaveToday(p.id).to, 'd MMM')}
                       </span>
                     )}
                     {Object.keys(p.docs || {}).length > 0 && (

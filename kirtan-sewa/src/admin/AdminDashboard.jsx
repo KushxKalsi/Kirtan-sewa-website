@@ -21,7 +21,7 @@ import { ease } from '../lib/motion';
 const TABS = [
   { id: 'bookings', label: 'Bookings', icon: CalendarDays },
   { id: 'chat', label: 'Chat', icon: MessagesSquare },
-  { id: 'leave', label: 'Leave', icon: CalendarOff },
+  { id: 'leave', label: 'Team bookings', icon: CalendarOff },
   { id: 'customers', label: 'Sangat accounts', icon: HeartHandshake },
   { id: 'categories', label: 'Categories', icon: LayoutGrid },
   { id: 'services', label: 'Sewa services', icon: Layers },

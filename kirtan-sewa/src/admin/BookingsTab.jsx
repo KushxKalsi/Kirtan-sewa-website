@@ -635,12 +635,12 @@ export default function BookingsTab({ data, api, patch, toast }) {
                                         className={`check-pill ${on ? 'active' : ''} ${leave && !on ? 'on-leave' : ''}`}
                                         onClick={() => setAssignees(b, keep(on ? assignedIds.filter((x) => x !== p.id) : [...assignedIds, p.id]))}
                                         disabled={!!busy || (!!leave && !on)}
-                                        title={leave ? `On leave ${prettyDate(leave.from, 'd MMM')} – ${prettyDate(leave.to, 'd MMM')}` : undefined}
+                                        title={leave ? `Away (team booking) ${prettyDate(leave.from, 'd MMM')} – ${prettyDate(leave.to, 'd MMM')}` : undefined}
                                       >
                                         {on ? <Check size={13} /> : <UserRound size={13} />} {p.name}
                                         {p.role && <small className="pill-role">{roles[p.role]}</small>}
                                         {km != null && <small className={`pill-km ${p.id === nearest ? 'nearest' : ''}`}>{p.id === nearest ? `Nearest · ${kmText(km)}` : kmText(km)}</small>}
-                                        {leave && <small className="pill-leave">On leave</small>}
+                                        {leave && <small className="pill-leave">Away</small>}
                                         {!km && p.address && <small className="pill-address">{p.address}</small>}
                                       </button>
                                     );

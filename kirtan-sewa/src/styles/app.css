@@ -4231,8 +4231,31 @@ input:focus-visible + .tick {
 .sewa-cover .replace-people {
   margin-top: 0;
 }
-.sewa-cover .link-btn {
+.sewa-cover .link-btn,
+.add-teammate {
   justify-self: start;
+}
+.sewa-cover-head {
+  position: relative;
+  padding-right: 36px;
+}
+.sewa-cover-head .icon-btn {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+}
+.pick-when {
+  display: grid;
+  grid-template-columns: 1.3fr 1fr 1fr;
+  gap: 8px;
+}
+@media (max-width: 480px) {
+  .pick-when {
+    grid-template-columns: 1fr 1fr;
+  }
+  .pick-when label:first-child {
+    grid-column: 1 / -1;
+  }
 }
 .replace-people {
   display: grid;
