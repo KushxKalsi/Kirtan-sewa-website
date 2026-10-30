@@ -112,7 +112,7 @@ export default function ChatTab({ data, api, setData, toast, initialThread, open
 
   const q = query.trim().toLowerCase();
   const shown = q ? chats.filter((c) => [c.name, c.phone].some((v) => v?.toLowerCase().includes(q))) : chats;
-  const everyone = [...(data.users || []).map((u) => ({ id: `u:${u.id}`, label: `${u.name} · ${u.phone} (sangat)` })), ...(data.people || []).map((p) => ({ id: `m:${p.id}`, label: `${p.name}${p.phone ? ` · ${p.phone}` : ''} (team)` }))];
+  const everyone = [...(data.users || []).map((u) => ({ id: `u:${u.id}`, label: `${u.name} · ${u.phone} (sangat)` })), ...(data.people || []).filter((p) => !p.pending).map((p) => ({ id: `m:${p.id}`, label: `${p.name}${p.phone ? ` · ${p.phone}` : ''} (team)` }))];
 
   return (
     <div className="admin-section chat-admin">

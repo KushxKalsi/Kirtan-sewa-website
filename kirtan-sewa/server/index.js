@@ -137,7 +137,7 @@ function sessionOf(req) {
   }
   if (s?.role === 'member') {
     const person = db.people.find((p) => p.id === s.id);
-    return person && person.passwordHash && (person.tokenVersion || 0) === s.version ? { role: 'member', person } : null;
+    return person && person.passwordHash && !person.pending && (person.tokenVersion || 0) === s.version ? { role: 'member', person } : null;
   }
   return null;
 }
@@ -752,6 +752,26 @@ app.post('/api/auth/register', async (req, res) => {
   res.status(201).json({ token: auth.make('user', user.id, 0), role: 'user', name: user.name });
 });
 
+// Team members sign up themselves; the account waits (inactive) until the admin approves it.
+app.post('/api/auth/register-team', async (req, res) => {
+  throttle(`register:${req.ip}`, 10);
+  const name = str(req.body?.name, 80);
+  const phone = readPhone(req.body?.phone);
+  const password = readPassword(req.body?.password);
+  const role = str(req.body?.role, 20);
+  if (name.length < 2) fail(400, 'Please enter your name.');
+  if (!ROLES[role]) fail(400, 'Please choose your role: Head Ragi, Side Ragi or Tabla.');
+  const existing = db.people.find((p) => samePhone(p.phone, phone));
+  if (existing?.pending) fail(409, 'You have already signed up with this number. Please wait for the admin to approve it.');
+  if (existing?.passwordHash) fail(409, 'A team account with this mobile number already exists. Please log in.');
+  if (existing) fail(409, 'This number is already on the team list. Ask the admin for your password.');
+  const person = { id: uid(), name, phone, address: '', role, defaultPay: null, skills: [], active: false, pending: true, tokenVersion: 0, passwordHash: await hashPassword(password), createdAt: new Date().toISOString() };
+  db.people.push(person);
+  await save();
+  alertAdmin('New team sign-up — approve?', `${name} · ${ROLES[role]} · ${phone}`, '/admin?tab=team', `member-${person.id}`);
+  res.status(201).json({ pending: true });
+});
+
 app.post('/api/auth/login', async (req, res) => {
   throttle(`auth:${req.ip}`, 30);
   const role = req.body?.role === 'member' ? 'member' : 'user';
@@ -759,8 +779,9 @@ app.post('/api/auth/login', async (req, res) => {
   throttle(`auth:${role}:${phoneKey(phone)}`, 10);
   const account = (role === 'member' ? db.people : db.users).find((a) => a.passwordHash && samePhone(a.phone, phone));
   if (!(await checkPassword(req.body?.password, account?.passwordHash))) {
-    fail(401, role === 'member' ? 'Incorrect mobile number or password. New team members get their first password from the admin.' : 'Incorrect mobile number or password.');
+    fail(401, role === 'member' ? 'Incorrect mobile number or password. New to the team? Create an account first.' : 'Incorrect mobile number or password.');
   }
+  if (account.pending) fail(403, 'Your account is waiting for the admin to approve it. You can log in once it is approved.');
   attempts.delete(`auth:${role}:${phoneKey(phone)}`);
   res.json({ token: auth.make(role, account.id, account.tokenVersion || 0), role, name: account.name });
 });
@@ -859,6 +880,8 @@ const memberView = (p) => ({
   role: p.role || '',
   skills: p.skills || [],
   active: p.active !== false,
+  pending: !!p.pending,
+  createdAt: p.createdAt || '',
   fatherName: p.fatherName || '',
   experience: p.experience || '',
   location: p.location || null,
@@ -1286,8 +1309,15 @@ const readPerson = (b, existing = {}) => {
   const phone = str(b.phone, 20);
   if (phone && db.people.some((p) => p.id !== existing.id && samePhone(p.phone, phone))) fail(400, 'Another team member already has this mobile number.');
   const pay = b.defaultPay === '' || b.defaultPay == null ? null : Math.max(0, Math.min(10000000, Math.round(Number(b.defaultPay) || 0)));
-  return { ...existing, name, phone, address: str(b.address, 300), role: ROLES[b.role] ? b.role : '', defaultPay: pay, skills, active: b.active !== false };
+  return { ...existing, name, phone, address: str(b.address, 300), role: ROLES[b.role] ? b.role : '', defaultPay: pay, skills, active: !existing.pending && b.active !== false };
 };
+
+// Approving a sign-up makes the person a normal (active) team member who can log in.
+function approve(person, b) {
+  if (!b.approve || !person.pending) return person;
+  const { pending: _, ...rest } = person;
+  return { ...rest, active: true, approvedAt: new Date().toISOString() };
+}
 
 // The admin sets (or resets) a team member's login password; it logs them out everywhere else.
 async function applyPassword(person, password) {
@@ -1308,10 +1338,12 @@ app.post('/api/admin/people', async (req, res) => {
 app.put('/api/admin/people/:id', async (req, res) => {
   const idx = (db.people || []).findIndex((p) => p.id === req.params.id);
   if (idx < 0) fail(404, 'Person not found.');
-  const person = readPerson(req.body || {}, db.people[idx]);
+  const wasPending = db.people[idx].pending;
+  const person = approve(readPerson(req.body || {}, db.people[idx]), req.body || {});
   await applyPassword(person, req.body?.password);
   db.people[idx] = person;
   await save();
+  if (wasPending && !person.pending) notifyPhone(person.phone, { title: 'Your team account is approved 🙏', body: 'You can now log in to see your sewas.', url: '/team', tag: `approved-${person.id}` }).catch(() => {});
   res.json({ people: peopleView() });
 });
 

@@ -25,6 +25,7 @@ export const api = {
   searchPlaces: (q) => request(`/geo/search?q=${encodeURIComponent(q)}`),
   reversePlace: (lat, lng) => request(`/geo/reverse?lat=${lat}&lng=${lng}`),
   register: (body) => request('/auth/register', { method: 'POST', body }),
+  registerTeam: (body) => request('/auth/register-team', { method: 'POST', body }),
   login: (body) => request('/auth/login', { method: 'POST', body }),
 };
 

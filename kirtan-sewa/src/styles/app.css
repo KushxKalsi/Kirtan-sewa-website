@@ -2689,6 +2689,39 @@
   border-radius: 20px;
   box-shadow: none;
 }
+/* team sign-ups waiting for the admin's approval */
+.team-waiting {
+  margin-bottom: 20px;
+  padding: 16px 18px;
+  border-radius: 20px;
+  border: 1px solid var(--stroke-gold);
+}
+.team-waiting h3 {
+  margin: 0 0 10px;
+  font-size: 16px;
+}
+.team-waiting ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+.team-waiting li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.team-waiting li > div:first-child {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.team-waiting .muted {
+  font-size: 13px;
+}
 .admin-bookings,
 .admin-services {
   list-style: none;
@@ -4173,6 +4206,16 @@ input:focus-visible + .tick {
   font-size: 11.5px;
   font-weight: 500;
   opacity: 0.8;
+}
+/* team sign-up: Head Ragi / Side Ragi / Tabla */
+.auth-switch.jatha-roles {
+  grid-template-columns: repeat(3, 1fr);
+}
+.auth-switch.jatha-roles button {
+  padding: 9px 6px;
+}
+.auth-form .field-group {
+  overflow: hidden;
 }
 
 /* ---------- international tours ---------- */

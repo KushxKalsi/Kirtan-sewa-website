@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { BellRing, CalendarOff, Eye, EyeOff, FileText, IdCard, KeyRound, Loader2, MapPin, MessagesSquare, Pencil, Phone, Plus, Save, Trash2, UserRound } from 'lucide-react';
+import { BellRing, CalendarOff, Check, Eye, EyeOff, FileText, IdCard, KeyRound, Loader2, MapPin, MessagesSquare, Pencil, Phone, Plus, Save, Trash2, UserRound, X } from 'lucide-react';
 import Modal from '../components/Modal';
 import { ease } from '../lib/motion';
 import { mapsLink } from '../lib/geo';
@@ -13,7 +13,9 @@ const skillKey = (k) => `${k.categoryId}|${k.serviceId}`;
 
 /** Team members and what each one does (sewa within a category). Only matching people can be assigned. */
 export default function TeamTab({ data, api, patch, toast, openChat }) {
-  const people = data.people || [];
+  // Sign-ups from the login page wait here until the admin approves them.
+  const waiting = (data.people || []).filter((p) => p.pending);
+  const people = (data.people || []).filter((p) => !p.pending);
   const categories = data.categories || [];
   const { services, bookings } = data;
   const [editing, setEditing] = useState(null);
@@ -57,7 +59,11 @@ export default function TeamTab({ data, api, patch, toast, openChat }) {
   const save = async (e) => {
     e.preventDefault();
     setSaving(true);
-    const ok = await run(() => (editing === 'new' ? api.addPerson(form) : api.updatePerson(editing.id, form)), editing === 'new' ? 'Team member added.' : 'Saved.');
+    const approving = editing !== 'new' && editing.pending;
+    const ok = await run(
+      () => (editing === 'new' ? api.addPerson(form) : api.updatePerson(editing.id, { ...form, approve: approving })),
+      editing === 'new' ? 'Team member added.' : approving ? `${form.name} approved — they can log in now.` : 'Saved.',
+    );
     setSaving(false);
     if (ok) setEditing(null);
   };
@@ -88,13 +94,39 @@ export default function TeamTab({ data, api, patch, toast, openChat }) {
         <div>
           <h2>Team</h2>
           <p>
-            Add the people who do the sewa, their role (head ragi, side ragi, tabla) and what each one does. Give each a login password: they log in at <strong>Team login</strong> with their mobile number to see and confirm their sewas, fill in their profile and documents, ask for leave and chat with you.
+            Team members create their own account on the login page (as Head Ragi, Side Ragi or Tabla); approve them here and tick the sewas they do. You can also add someone yourself and give them a password. They log in with their mobile number to see and confirm their sewas, fill in their profile and documents, ask for leave and chat with you.
           </p>
         </div>
         <button className="btn btn-primary btn-sm" onClick={openNew}>
           <Plus size={16} /> Add person
         </button>
       </div>
+
+      {waiting.length > 0 && (
+        <div className="team-waiting glass">
+          <h3>Waiting for approval ({waiting.length})</h3>
+          <ul>
+            {waiting.map((p) => (
+              <li key={p.id}>
+                <div>
+                  <strong>{p.name}</strong>
+                  <span className="muted">
+                    {[roles[p.role], p.phone, p.createdAt && `signed up ${prettyDate(p.createdAt.slice(0, 10), 'd MMM')}`].filter(Boolean).join(' · ')}
+                  </span>
+                </div>
+                <div className="as-actions">
+                  <button className="btn btn-primary btn-sm" onClick={() => openEdit(p)}>
+                    <Check size={15} /> Approve
+                  </button>
+                  <button className="btn btn-ghost btn-sm" onClick={() => setDeleteFor(p)}>
+                    <X size={15} /> Reject
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {people.length > 0 && (
         <div className="filter-pills">
@@ -107,7 +139,7 @@ export default function TeamTab({ data, api, patch, toast, openChat }) {
         </div>
       )}
 
-      {people.length === 0 && <div className="admin-empty glass">No team members yet. Add people to start assigning them to bookings.</div>}
+      {people.length === 0 && !waiting.length && <div className="admin-empty glass">No team members yet. Add people to start assigning them to bookings.</div>}
 
       <motion.ul className="admin-services" layout>
         <AnimatePresence initial={false}>
@@ -182,7 +214,7 @@ export default function TeamTab({ data, api, patch, toast, openChat }) {
         </AnimatePresence>
       </motion.ul>
 
-      <Modal open={!!editing} onClose={() => setEditing(null)} title={editing === 'new' ? 'Add a team member' : 'Edit team member'} wide>
+      <Modal open={!!editing} onClose={() => setEditing(null)} title={editing === 'new' ? 'Add a team member' : editing?.pending ? `Approve ${editing.name}` : 'Edit team member'} subtitle={editing?.pending ? 'Check their details and tick the sewas they do, then approve. They can log in straight after.' : undefined} wide>
         <form className="admin-form" onSubmit={save}>
           <div className="grid-2">
             <label>
@@ -245,17 +277,19 @@ export default function TeamTab({ data, api, patch, toast, openChat }) {
               ))}
             </div>
           </div>
-          <label className="switch-row">
-            <input type="checkbox" checked={form.active} onChange={(e) => setForm((f) => ({ ...f, active: e.target.checked }))} />
-            <span className="switch" />
-            Active (can be assigned)
-          </label>
+          {!editing?.pending && (
+            <label className="switch-row">
+              <input type="checkbox" checked={form.active} onChange={(e) => setForm((f) => ({ ...f, active: e.target.checked }))} />
+              <span className="switch" />
+              Active (can be assigned)
+            </label>
+          )}
           <div className="modal-actions">
             <button type="button" className="btn btn-ghost" onClick={() => setEditing(null)}>
               Cancel
             </button>
             <button className="btn btn-primary" disabled={saving}>
-              {saving ? <Loader2 size={17} className="spin" /> : <Save size={17} />} Save
+              {saving ? <Loader2 size={17} className="spin" /> : editing?.pending ? <Check size={17} /> : <Save size={17} />} {editing?.pending ? 'Approve' : 'Save'}
             </button>
           </div>
         </form>
@@ -316,18 +350,23 @@ export default function TeamTab({ data, api, patch, toast, openChat }) {
         )}
       </Modal>
 
-      <Modal open={!!deleteFor} onClose={() => setDeleteFor(null)} title={`Remove ${deleteFor?.name}?`} subtitle="Bookings they were assigned to keep their name. To keep them for later, mark them inactive instead.">
+      <Modal
+        open={!!deleteFor}
+        onClose={() => setDeleteFor(null)}
+        title={deleteFor?.pending ? `Reject ${deleteFor?.name}'s sign-up?` : `Remove ${deleteFor?.name}?`}
+        subtitle={deleteFor?.pending ? 'Their account is deleted and they cannot log in. They can sign up again later.' : 'Bookings they were assigned to keep their name. To keep them for later, mark them inactive instead.'}
+      >
         <div className="modal-actions">
           <button className="btn btn-ghost" onClick={() => setDeleteFor(null)}>
-            Keep
+            {deleteFor?.pending ? 'Cancel' : 'Keep'}
           </button>
           <button
             className="btn btn-danger"
             onClick={async () => {
-              if (await run(() => api.deletePerson(deleteFor.id), 'Removed from team.')) setDeleteFor(null);
+              if (await run(() => api.deletePerson(deleteFor.id), deleteFor.pending ? 'Sign-up rejected.' : 'Removed from team.')) setDeleteFor(null);
             }}
           >
-            <Trash2 size={17} /> Remove
+            <Trash2 size={17} /> {deleteFor?.pending ? 'Reject' : 'Remove'}
           </button>
         </div>
       </Modal>

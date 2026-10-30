@@ -62,7 +62,9 @@ empty, it copies `data/db.json` into it. Upload the UPI QR again afterwards.
 - **Calendar**: anyone can see which slots are booked, what sewa each is for, and the venue address.
   Visitors must choose their sewa first. Nothing is pre-selected.
 - **`/login`**: customers (sangat) and team members log in with their mobile number and password. Customers can
-  create an account there or in the last booking step; team members get their first password from the admin.
+  create an account there or in the last booking step, and land on the booking calendar after logging in. Team
+  members create their own account there too, choosing Head Ragi, Side Ragi or Tabla; it waits under **Team →
+  Waiting for approval** until the admin approves it (and ticks their sewas). The admin can still add people directly.
 - **`/account`** (customers): their bookings, bills and payments, map location, price offers, cancellation
   requests, and a chat with the jatha. `/manage` now redirects here.
 - **`/team`** (team members): their sewas, profile and documents, leave and a chat with the admin.
