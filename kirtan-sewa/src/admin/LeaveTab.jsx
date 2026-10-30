@@ -23,7 +23,6 @@ export default function LeaveTab({ data, api, setData, toast, openChat }) {
   const [rejectFor, setRejectFor] = useState(null);
   const [note, setNote] = useState('');
   const personOf = (id) => people.find((p) => p.id === id);
-  const onLeave = (personId, date) => (data.leaves || []).some((l) => l.personId === personId && l.status === 'approved' && l.from <= date && l.to >= date);
 
   const rank = (l) => (l.status === 'pending' ? (l.emergency ? 0 : 1) : 2);
   const leaves = [...(data.leaves || [])]
@@ -31,19 +30,19 @@ export default function LeaveTab({ data, api, setData, toast, openChat }) {
     // Waiting requests first (emergencies at the very top), then by date.
     .sort((a, b) => rank(a) - rank(b) || a.from.localeCompare(b.from));
   const affected = (l) => data.bookings.filter((b) => active(b) && b.date >= l.from && b.date <= l.to && (b.assignees || []).some((a) => a.id === l.personId)).sort((a, b) => (a.date + a.slotTime).localeCompare(b.date + b.slotTime));
-  // Who could take the place: does this sewa, not on leave that day, not already on the booking — nearest first.
+  // Who could take the place: does this sewa, not already on the booking — nearest first.
   const options = (b, leavePersonId) =>
     people
-      .filter((p) => p.id !== leavePersonId && canDo(p, b) && !onLeave(p.id, b.date) && !(b.assignees || []).some((a) => a.id === p.id))
+      .filter((p) => p.id !== leavePersonId && canDo(p, b) && !(b.assignees || []).some((a) => a.id === p.id))
       .map((p) => ({ p, km: distanceKm(b.location, p.location) }))
       .sort((x, y) => (x.km ?? 1e9) - (y.km ?? 1e9));
   const pickFor = (l, b) => picks[l.id]?.[b.id] ?? '';
-  // Who can be assigned to a request: free that day (and able to do the sewa, if it is one) — the role asked for first, then nearest.
+  // Who can be assigned to a request: anyone active (able to do the sewa, if it is one) — the role asked for first, then nearest.
   const candidates = (l, x) => {
     const b = x.bookingId && data.bookings.find((y) => y.id === x.bookingId);
     const where = b?.location || l.location;
     return people
-      .filter((p) => p.active && !p.pending && p.id !== l.personId && !onLeave(p.id, x.date) && (!b || (canDo(p, b) && !(b.assignees || []).some((a) => a.id === p.id && a.id !== l.personId))))
+      .filter((p) => p.active && !p.pending && p.id !== l.personId && (!b || (canDo(p, b) && !(b.assignees || []).some((a) => a.id === p.id && a.id !== l.personId))))
       .map((p) => ({ p, km: distanceKm(where, p.location) }))
       .sort((m, n) => (m.p.role === x.role ? 0 : 1) - (n.p.role === x.role ? 0 : 1) || (m.km ?? 1e9) - (n.km ?? 1e9));
   };
@@ -96,7 +95,7 @@ export default function LeaveTab({ data, api, setData, toast, openChat }) {
       <div className="admin-section-head">
         <div>
           <h2>Team bookings</h2>
-          <p>Team members ask for a Head Ragi, Side Ragi or Tabla to go in their place and offer the bhet. Assign a person to each request and approve: their sewas go to the people you chose (at the bhet offered) and everyone is notified. While their booking runs they can’t be assigned themselves.</p>
+          <p>Team members ask for a Head Ragi, Side Ragi or Tabla to go in their place and offer the bhet. Assign a person to each request and approve: their sewas go to the people you chose (at the bhet offered) and everyone is notified. Team bookings never block anyone — several can share the same dates.</p>
         </div>
       </div>
       <div className="filter-pills">

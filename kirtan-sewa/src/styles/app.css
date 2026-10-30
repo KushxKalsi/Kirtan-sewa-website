@@ -5163,11 +5163,7 @@ input:focus-visible + .tick {
   background: var(--grad-gold);
 }
 .pill-leave {
-  color: var(--danger-text);
-}
-.check-pill.on-leave {
-  opacity: 0.55;
-  text-decoration: line-through;
+  color: var(--muted);
 }
 .assignee-list {
   list-style: none;

@@ -208,7 +208,8 @@ The uploaded QR image is saved in `data/uploads/`.
   starting in less than 1 day is still sent, marked **Emergency**, and one can't be withdrawn within 1 day of its
   start. Admin → **Team bookings** lists each request with a choice of people (the role asked for first, nearest
   first); **Assign & approve** needs a person for every request, hands the sewas over at the bhet offered (one person
-  can't be in two places at once) and notifies everyone. Assigned people see it on their **Team booking** page. People on approved leave can't be assigned on those days, and any booking can
+  can't be in two places at once) and notifies everyone. Assigned people see it on their **Team booking** page. Team bookings never block
+  anyone: a member can make several on the same dates and can still be assigned on them. Any booking can
   also be handed to someone else with **Replace** under its team.
 
 ## Map location and nearest team member

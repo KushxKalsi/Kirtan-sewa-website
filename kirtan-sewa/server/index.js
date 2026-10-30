@@ -108,8 +108,6 @@ function readLocation(v) {
   if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) fail(400, 'That map location is not valid. Please pick it again.');
   return { lat: Math.round(lat * 1e6) / 1e6, lng: Math.round(lng * 1e6) / 1e6, label: str(v.label, 300) };
 }
-// Approved leave covering this date, if any.
-const leaveOn = (personId, date) => db.leaves.find((l) => l.personId === personId && l.status === 'approved' && l.from <= date && l.to >= date);
 // Bookings never block a time: several requests (and bookings) may share one. A time is only
 // unavailable when the admin blocks it on purpose (blockedTimes) or blocks the whole date.
 const isBooked = (b) => b.status === 'confirmed' || b.status === 'completed';
@@ -1087,7 +1085,8 @@ app.post('/api/team/duties/:id/pay-request', requireMember, async (req, res) => 
 
 /* Team booking (stored as "leaves"): a team member asks for a Head Ragi, Side Ragi or Tabla to go in their place, with
  * the bhet they offer; the admin assigns the people. With sewas in those days, every sewa gets its own request;
- * otherwise they ask for one or more by day and time.
+ * otherwise they ask for one or more by day and time. Team bookings never block anyone: a member may have several on
+ * the same dates and can still be assigned on them.
  * Less than a day's notice still goes through, marked as an emergency; within a day of the start it can't be withdrawn. */
 const LEAVE_NOTICE_MS = 24 * 60 * 60 * 1000;
 const LEAVE_MIN_PAY = 200; // least bhet they can offer a teammate
@@ -1108,7 +1107,6 @@ app.post('/api/team/leaves', requireMember, async (req, res) => {
   if (to > addDaysKey(365)) fail(400, 'That is too far ahead.');
   const reason = str(req.body?.reason, 300);
   if (reason.length < 3) fail(400, 'Please say why you need a teammate.');
-  if (db.leaves.some((l) => l.personId === p.id && ['pending', 'approved'].includes(l.status) && l.from <= to && l.to >= from)) fail(400, 'You already have a team booking on some of these dates.');
   const sewas = db.bookings.filter((b) => isActive(b) && b.date >= from && b.date <= to && (b.assignees || []).some((a) => a.id === p.id));
   const given = Array.isArray(req.body?.picks) ? req.body.picks.slice(0, 40) : [];
   // Each request: which role they need and the bhet they offer. The admin chooses the person.
@@ -1477,7 +1475,6 @@ app.patch('/api/admin/bookings/:id/assign', async (req, res) => {
     if (!person) fail(400, 'That team member no longer exists.');
     if (current.has(id)) return { ...current.get(id), name: person.name };
     if (!canDo(person, booking)) fail(400, `${person.name} does not do ${booking.serviceName}${booking.categoryName ? ` in ${booking.categoryName}` : ''}.`);
-    if (leaveOn(id, booking.date)) fail(400, `${person.name} is away (team booking) on ${shortDate(booking.date)}.`);
     return { id: person.id, name: person.name, pay: person.defaultPay ?? null, state: 'assigned' };
   });
   const before = (booking.assignees || []).map((a) => a.id);
@@ -1754,7 +1751,6 @@ function replaceAssignee(booking, fromId, toId, pay) {
   if (!to.active) fail(400, `${to.name} is inactive.`);
   if (booking.assignees.some((a) => a.id === toId)) fail(400, `${to.name} is already on this booking.`);
   if (!canDo(to, booking)) fail(400, `${to.name} does not do ${booking.serviceName}${booking.categoryName ? ` in ${booking.categoryName}` : ''}.`);
-  if (leaveOn(toId, booking.date)) fail(400, `${to.name} is away (team booking) on ${shortDate(booking.date)}.`);
   const before = booking.assignees.map((a) => a.id);
   const from = booking.assignees[idx];
   booking.assignees[idx] = { id: to.id, name: to.name, pay: pay ?? from.pay ?? to.defaultPay ?? null, state: 'assigned', replaces: from.name };
@@ -1790,7 +1786,6 @@ app.patch('/api/admin/leaves/:id', async (req, res) => {
       if (!id) fail(400, `Choose who goes as ${what}.`);
       const who = db.people.find((q) => q.id === id && q.active && !q.pending && q.id !== leave.personId);
       if (!who) fail(400, `Choose an active team member as ${what}.`);
-      if (leaveOn(id, x.date)) fail(400, `${who.name} is away (team booking) on ${shortDate(x.date)}.`);
       return { ...x, personId: id, name: who.name };
     });
     // One person can't be in two places at once (no time = the whole day).
