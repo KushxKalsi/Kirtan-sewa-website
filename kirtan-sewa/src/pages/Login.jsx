@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Navigate, useNavigate, useSearchParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { HeartHandshake, UsersRound } from 'lucide-react';
@@ -9,7 +9,7 @@ import { ease } from '../lib/motion';
 
 const ROLES = [
   { id: 'user', label: 'Sangat', sub: 'Book & manage kirtan', icon: HeartHandshake },
-  { id: 'member', label: 'Team member', sub: 'Your sewa duties', icon: UsersRound },
+  { id: 'member', label: 'Team member', sub: 'Ragi or tabla', icon: UsersRound },
 ];
 const home = (role) => (role === 'member' ? '/team' : '/account');
 
@@ -19,8 +19,17 @@ export default function Login() {
   const { session } = useAuth();
   const [role, setRole] = useState(params.get('as') === 'team' ? 'member' : 'user');
   const next = params.get('next');
+  const leaving = useRef(false); // just logged in here: done() chooses where to go, not the redirect below
 
-  if (session) return <Navigate to={next || home(session.role)} replace />;
+  // Customers land on the home page at the booking calendar, so they can book (more) sewas straight away.
+  const done = (d) => {
+    leaving.current = true;
+    if (next) navigate(next, { replace: true });
+    else if (d.role === 'user') navigate('/', { replace: true, state: { scrollTo: 'book' } });
+    else navigate(home(d.role), { replace: true });
+  };
+
+  if (session && !leaving.current) return <Navigate to={next || home(session.role)} replace />;
 
   return (
     <main className="page admin-login auth-page">
@@ -38,7 +47,7 @@ export default function Login() {
             </button>
           ))}
         </div>
-        <AuthForm key={role} role={role} startWith={params.get('mode') === 'register' ? 'register' : 'login'} onDone={(d) => navigate(next || home(d.role), { replace: true })} />
+        <AuthForm key={role} role={role} startWith={params.get('mode') === 'register' ? 'register' : 'login'} onDone={done} />
       </motion.div>
     </main>
   );

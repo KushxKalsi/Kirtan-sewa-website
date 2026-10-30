@@ -91,6 +91,7 @@ export default function AdminDashboard({ token, onLogout }) {
   const badges = data && {
     chat: (data.chats || []).reduce((s, c) => s + c.unread, 0),
     leave: (data.leaves || []).filter((l) => l.status === 'pending').length,
+    team: (data.people || []).filter((p) => p.pending).length,
   };
 
   return (
