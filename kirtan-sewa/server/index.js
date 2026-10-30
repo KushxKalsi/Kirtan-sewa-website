@@ -940,6 +940,7 @@ function teamPayload(p) {
         id: l.id,
         name: personOf(l.personId)?.name || l.personName,
         location: l.location || null,
+        paymentMethod: l.paymentMethod || '',
         emergency: !!l.emergency,
         status: l.status,
         sewas: l.picks
@@ -1095,6 +1096,7 @@ const leaveStartsAt = (from, picks) => {
   const times = picks.map((x) => new Date(`${x.date}T${x.start || '00:00'}:00`).getTime()).filter(Number.isFinite);
   return new Date(times.length ? Math.min(...times) : new Date(`${from}T00:00:00`).getTime());
 };
+const PAY_BY = { upi: 'UPI', cash: 'cash' }; // how the member pays the bhet to the people assigned
 const pickWhen = (x) => `${shortDate(x.date)}${x.start ? ` ${x.start}–${x.end}` : ''}`;
 
 app.post('/api/team/leaves', requireMember, async (req, res) => {
@@ -1137,6 +1139,8 @@ app.post('/api/team/leaves', requireMember, async (req, res) => {
       return { ...readPick(g, `request ${i + 1}`), date, start, end };
     });
   }
+  const paymentMethod = str(req.body?.paymentMethod, 10);
+  if (!PAY_BY[paymentMethod]) fail(400, 'Choose how you will pay the bhet — UPI or cash.');
   const location = readLocation(req.body?.location); // where the people taking their place should go
   const startsAt = leaveStartsAt(from, picks);
   const emergency = startsAt.getTime() - Date.now() < LEAVE_NOTICE_MS;
@@ -1148,6 +1152,7 @@ app.post('/api/team/leaves', requireMember, async (req, res) => {
     to,
     reason,
     picks,
+    paymentMethod,
     location,
     emergency,
     startsAt: startsAt.toISOString(),
@@ -1161,7 +1166,7 @@ app.post('/api/team/leaves', requireMember, async (req, res) => {
   const wanted = picks.map((x) => ROLES[x.role]).join(', ');
   alertAdmin(
     `${emergency ? '🚨 Emergency: ' : ''}${p.name} needs ${wanted}`,
-    `${when}${sewas.length ? ` · for ${sewas.length} of their sewa${sewas.length === 1 ? '' : 's'}` : ''} · assign the people${location ? ` · at ${location.label || 'a map pin'}` : ''}`,
+    `${when}${sewas.length ? ` · for ${sewas.length} of their sewa${sewas.length === 1 ? '' : 's'}` : ''} · pays by ${PAY_BY[paymentMethod]} · assign the people${location ? ` · at ${location.label || 'a map pin'}` : ''}`,
     '/admin?tab=leave',
     `leave-${leave.id}`,
   );
@@ -1820,7 +1825,7 @@ app.patch('/api/admin/leaves/:id', async (req, res) => {
       if (who?.phone) {
         notifyPhone(who.phone, {
           title: action === 'approve' ? `You're booked in ${leave.personName}'s place 🙏` : `${leave.personName}'s team booking was cancelled`,
-          body: mine.map((x) => `${pickWhen(x)} · ₹${x.pay}`).join('; '),
+          body: `${mine.map((x) => `${pickWhen(x)} · ₹${x.pay}`).join('; ')}${leave.paymentMethod ? ` · paid by ${PAY_BY[leave.paymentMethod]}` : ''}`,
           url: '/team',
           tag: `leave-${leave.id}-${id}`,
         }).catch(() => {});

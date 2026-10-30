@@ -4,6 +4,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { addDays, format } from 'date-fns';
 import {
   Ban,
+  Banknote,
   CalendarDays,
   Check,
   CircleAlert,
@@ -21,6 +22,7 @@ import {
   Navigation,
   Phone,
   Save,
+  Smartphone,
   Trash2,
   Undo2,
   Upload,
@@ -326,6 +328,11 @@ const bookingStart = (from, items) => {
   return times.length ? Math.min(...times) : fromKey(from).getTime();
 };
 const dutyStart = (d) => (d.slotTime || '').split('–')[0].trim();
+// How the member pays the bhet to the people the admin assigns.
+const PAY_BY = {
+  upi: { label: 'UPI', sub: 'Pay from your UPI app', icon: Smartphone },
+  cash: { label: 'Cash', sub: 'Pay in hand', icon: Banknote },
+};
 const pickTime = (x) => (x.start ? ` · ${rangeTo12(`${x.start} – ${x.end}`)}` : ' · whole day');
 
 /** One request: which role they need (Head Ragi / Side Ragi / Tabla) and the bhet offered. The admin picks the person. */
@@ -375,7 +382,7 @@ function TeamBooking({ data, team, apply, toast }) {
   const { today, duties, leaves, teammates, roles } = data;
   const bookedMe = data.bookedMe || [];
   const ownRole = roles[data.person.role] ? data.person.role : Object.keys(roles)[0];
-  const blankForm = { from: '', to: '', reason: '', location: null };
+  const blankForm = { from: '', to: '', reason: '', paymentMethod: '', location: null };
   const newExtra = (date = '') => ({ key: Math.random().toString(36).slice(2), role: ownRole, pay: '', date, start: '', end: '' });
   const [form, setForm] = useState(blankForm);
   const [picks, setPicks] = useState({}); // duty id -> { role, pay }
@@ -408,6 +415,7 @@ function TeamBooking({ data, team, apply, toast }) {
   };
   const submit = async (e) => {
     e.preventDefault();
+    if (!PAY_BY[form.paymentMethod]) return toast('Choose how you will pay the bhet — UPI or cash.', 'error');
     let body;
     if (affected.length) {
       for (const d of affected) {
@@ -509,6 +517,26 @@ function TeamBooking({ data, team, apply, toast }) {
           </div>
         )}
         {form.from && (
+          <div className="pay-choose">
+            <span className="label">How will you pay the bhet? *</span>
+            <div className="pay-options" role="radiogroup">
+              {Object.entries(PAY_BY).map(([m, opt]) => {
+                const on = form.paymentMethod === m;
+                return (
+                  <button type="button" role="radio" aria-checked={on} key={m} className={`pay-option ${on ? 'active' : ''}`} onClick={() => setForm((f) => ({ ...f, paymentMethod: m }))}>
+                    {on && <motion.span layoutId="team-pay-option" className="pay-option-bg" transition={{ type: 'spring', stiffness: 420, damping: 34 }} />}
+                    <opt.icon size={20} />
+                    <span>
+                      <strong>{opt.label}</strong>
+                      <small>{opt.sub}</small>
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+        {form.from && (
           <div>
             <span className="label">Where should they go? (optional)</span>
             <LocationPicker value={form.location} onChange={(location) => setForm((f) => ({ ...f, location }))} label="Search the place on the map" hint="Pick the place where the people the admin assigns should go." />
@@ -537,6 +565,7 @@ function TeamBooking({ data, team, apply, toast }) {
                   {pickLine(x)}
                 </span>
               ))}
+              {l.paymentMethod && <span className="muted">Paying by {PAY_BY[l.paymentMethod]?.label}</span>}
               {l.replacementId && !l.picks && <span className="muted">Suggested: {nameOf(l.replacementId)}</span>}
               {l.location && (
                 <a className="muted" href={mapsLink(l.location)} target="_blank" rel="noreferrer">
@@ -574,6 +603,7 @@ function TeamBooking({ data, team, apply, toast }) {
                       {x.role ? ` · as ${roles[x.role]}` : ''} · ₹{x.pay}
                     </span>
                   ))}
+                  {l.paymentMethod && <span className="muted">They pay you by {PAY_BY[l.paymentMethod]?.label}</span>}
                   {l.location && (
                     <a className="muted" href={mapsLink(l.location)} target="_blank" rel="noreferrer">
                       <MapPin size={12} /> {l.location.label || 'Open map'}
