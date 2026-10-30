@@ -947,8 +947,8 @@ function teamPayload(p) {
         sewas: l.picks
           .filter((x) => x.personId === p.id)
           .map((x) => {
-            const b = db.bookings.find((y) => y.id === x.bookingId);
-            return { serviceName: b?.serviceName || 'Sewa', date: b?.date || l.from, slotTime: b?.slotTime || '', pay: x.pay };
+            const b = x.bookingId && db.bookings.find((y) => y.id === x.bookingId);
+            return { serviceName: b?.serviceName || '', date: x.date || b?.date || l.from, start: x.start || '', end: x.end || '', pay: x.pay };
           }),
       })),
     teammates: db.people.filter((x) => x.id !== p.id && x.active).map((x) => ({ id: x.id, name: x.name, role: x.role || '' })),
@@ -1085,15 +1085,17 @@ app.post('/api/team/duties/:id/pay-request', requireMember, async (req, res) => 
   res.json(teamPayload(req.person));
 });
 
-// Leave works like booking a teammate in your place: pick the person and offer their bhet per sewa.
-// Less than a day's notice still goes through, marked as an emergency; within a day of the start it can't be withdrawn.
+/* Team booking (stored as "leaves"): a team member books teammates to go in their place, each with the bhet they offer.
+ * With sewas in those days, every sewa gets its own teammate; otherwise they book one or more teammates by date and time.
+ * Less than a day's notice still goes through, marked as an emergency; within a day of the start it can't be withdrawn. */
 const LEAVE_NOTICE_MS = 24 * 60 * 60 * 1000;
-const LEAVE_MIN_PAY = 200; // least bhet per sewa they can offer the teammate going in their place
-// When the leave really starts: the first affected sewa, or the start of the first day.
-const leaveStartsAt = (from, sewas) => {
-  const times = sewas.map((b) => new Date(`${b.date}T${rangeOf(b)[0] || '00:00'}:00`).getTime()).filter(Number.isFinite);
+const LEAVE_MIN_PAY = 200; // least bhet they can offer a teammate
+// When a team booking really starts: its earliest booked time, or the start of the first day.
+const leaveStartsAt = (from, picks) => {
+  const times = picks.map((x) => new Date(`${x.date}T${x.start || '00:00'}:00`).getTime()).filter(Number.isFinite);
   return new Date(times.length ? Math.min(...times) : new Date(`${from}T00:00:00`).getTime());
 };
+const pickWhen = (x) => `${shortDate(x.date)}${x.start ? ` ${x.start}–${x.end}` : ''}`;
 
 app.post('/api/team/leaves', requireMember, async (req, res) => {
   const p = req.person;
@@ -1104,30 +1106,47 @@ app.post('/api/team/leaves', requireMember, async (req, res) => {
   if (to < from) fail(400, 'The last day must be on or after the first day.');
   if (to > addDaysKey(365)) fail(400, 'That is too far ahead.');
   const reason = str(req.body?.reason, 300);
-  if (reason.length < 3) fail(400, 'Please give the reason for your leave.');
-  if (db.leaves.some((l) => l.personId === p.id && ['pending', 'approved'].includes(l.status) && l.from <= to && l.to >= from)) fail(400, 'You already have leave on some of these dates.');
+  if (reason.length < 3) fail(400, 'Please say why you need a teammate.');
+  if (db.leaves.some((l) => l.personId === p.id && ['pending', 'approved'].includes(l.status) && l.from <= to && l.to >= from)) fail(400, 'You already have a team booking on some of these dates.');
   const sewas = db.bookings.filter((b) => isActive(b) && b.date >= from && b.date <= to && (b.assignees || []).some((a) => a.id === p.id));
-  // Every sewa in these days needs a teammate booked in their place, each with the bhet they offer.
-  // Different sewas (even on the same day) can go to different people.
-  const given = Array.isArray(req.body?.picks) ? req.body.picks : [];
-  const picks = sewas.map((b) => {
-    const pick = given.find((x) => x?.bookingId === b.id);
-    const when = `${b.serviceName} on ${shortDate(b.date)} (${b.slotTime})`;
-    if (!pick?.personId) fail(400, `Choose the teammate who will go in your place for ${when}.`);
+  const given = Array.isArray(req.body?.picks) ? req.body.picks.slice(0, 40) : [];
+  const readPick = (pick, what) => {
+    if (!pick?.personId) fail(400, `Choose the teammate for ${what}.`);
     const person = db.people.find((x) => x.id === str(pick.personId, 40) && x.active && !x.pending && x.id !== p.id);
-    if (!person) fail(400, `Choose who will do ${when} from the active team members.`);
+    if (!person) fail(400, `Choose the teammate for ${what} from the active team members.`);
     const pay = Math.round(Number(pick.pay));
-    if (!Number.isFinite(pay) || pay < LEAVE_MIN_PAY) fail(400, `Offer at least ₹${LEAVE_MIN_PAY} for ${when}.`);
+    if (!Number.isFinite(pay) || pay < LEAVE_MIN_PAY) fail(400, `Offer at least ₹${LEAVE_MIN_PAY} for ${what}.`);
     if (pay > 1000000) fail(400, 'That amount is too large.');
-    return { bookingId: b.id, personId: person.id, pay, booking: b, person };
-  });
-  // One person can't be in two places at once.
+    return { person, personId: person.id, pay };
+  };
+  let picks;
+  if (sewas.length) {
+    // Every sewa in these days gets a teammate (different sewas, even on one day, can go to different people).
+    picks = sewas.map((b) => {
+      const [start, end] = rangeOf(b);
+      const pick = readPick(given.find((x) => x?.bookingId === b.id), `${b.serviceName} on ${shortDate(b.date)} (${b.slotTime})`);
+      return { ...pick, bookingId: b.id, date: b.date, start, end };
+    });
+  } else {
+    // No sewas of their own: book one or more teammates, each on a day (and time) within these dates.
+    if (!given.length) fail(400, 'Book at least one teammate.');
+    picks = given.map((g, i) => {
+      const date = str(g?.date, 10) || from;
+      if (!DATE_RE.test(date) || date < from || date > to) fail(400, `Teammate ${i + 1}: choose a day between the first and last day.`);
+      const start = str(g?.start, 5);
+      const end = str(g?.end, 5);
+      if ((start || end) && !(TIME_RE.test(start) && TIME_RE.test(end) && end > start)) fail(400, `Teammate ${i + 1}: enter a start and end time (end after start), or leave both empty for the whole day.`);
+      return { ...readPick(g, `teammate ${i + 1}`), date, start, end };
+    });
+  }
+  // One person can't be in two places at once (no time = the whole day).
+  const span = (x) => [x.start || '00:00', x.end || '24:00'];
   for (const [i, x] of picks.entries()) {
-    const clash = picks.slice(i + 1).find((y) => y.personId === x.personId && y.booking.date === x.booking.date && overlaps(...rangeOf(x.booking), ...rangeOf(y.booking)));
-    if (clash) fail(400, `${x.person.name} can't do two sewas at the same time on ${shortDate(x.booking.date)}. Choose someone else for one of them.`);
+    const clash = picks.slice(i + 1).find((y) => y.personId === x.personId && y.date === x.date && overlaps(...span(x), ...span(y)));
+    if (clash) fail(400, `${x.person.name} is booked twice at the same time on ${shortDate(x.date)}. Choose someone else for one of them.`);
   }
   const location = readLocation(req.body?.location); // where the people taking their place should go
-  const startsAt = leaveStartsAt(from, sewas);
+  const startsAt = leaveStartsAt(from, picks);
   const emergency = startsAt.getTime() - Date.now() < LEAVE_NOTICE_MS;
   const leave = {
     id: uid(),
@@ -1136,7 +1155,7 @@ app.post('/api/team/leaves', requireMember, async (req, res) => {
     from,
     to,
     reason,
-    picks: picks.map(({ bookingId, personId, pay }) => ({ bookingId, personId, pay })),
+    picks: picks.map(({ bookingId, personId, pay, date, start, end }) => ({ ...(bookingId && { bookingId }), personId, pay, date, start, end })),
     location,
     emergency,
     startsAt: startsAt.toISOString(),
@@ -1149,8 +1168,8 @@ app.post('/api/team/leaves', requireMember, async (req, res) => {
   const when = `${shortDate(from)}${to !== from ? ` – ${shortDate(to)}` : ''}`;
   const names = [...new Set(picks.map((x) => x.person.name))];
   alertAdmin(
-    `${emergency ? '🚨 Emergency leave: ' : ''}${p.name} asked for leave`,
-    `${when} · ${sewas.length} sewa${sewas.length === 1 ? '' : 's'} affected${names.length ? ` · booked ${names.join(', ')}` : ''}${location ? ` · at ${location.label || 'a map pin'}` : ''}`,
+    `${emergency ? '🚨 Emergency: ' : ''}${p.name} made a team booking`,
+    `${when}${sewas.length ? ` · ${sewas.length} of their sewa${sewas.length === 1 ? '' : 's'}` : ''} · booked ${names.join(', ')}${location ? ` · at ${location.label || 'a map pin'}` : ''}`,
     '/admin?tab=leave',
     `leave-${leave.id}`,
   );
@@ -1159,7 +1178,7 @@ app.post('/api/team/leaves', requireMember, async (req, res) => {
     if (!person.phone) continue;
     notifyPhone(person.phone, {
       title: `${emergency ? '🚨 ' : ''}${p.name} booked you in their place`,
-      body: `${mine.map((x) => `${shortDate(x.booking.date)} ${x.booking.slotTime} · ₹${x.pay}`).join('; ')} · waiting for the admin's approval`,
+      body: `${mine.map((x) => `${pickWhen(x)} · ₹${x.pay}`).join('; ')} · waiting for the admin's approval`,
       url: '/team',
       tag: `leave-${leave.id}`,
     }).catch(() => {});
@@ -1170,8 +1189,8 @@ app.post('/api/team/leaves', requireMember, async (req, res) => {
 app.delete('/api/team/leaves/:id', requireMember, async (req, res) => {
   const leave = db.leaves.find((l) => l.id === req.params.id && l.personId === req.person.id);
   if (!leave) fail(404, 'Leave request not found.');
-  if (leave.status !== 'pending') fail(400, 'Only a request that is still waiting can be withdrawn. Message the admin to change approved leave.');
-  if (new Date(leave.startsAt || `${leave.from}T00:00:00`).getTime() - Date.now() < LEAVE_NOTICE_MS) fail(400, 'Leave can’t be withdrawn within 1 day of its start. Message the admin.');
+  if (leave.status !== 'pending') fail(400, 'Only a booking that is still waiting can be withdrawn. Message the admin to change an approved one.');
+  if (new Date(leave.startsAt || `${leave.from}T00:00:00`).getTime() - Date.now() < LEAVE_NOTICE_MS) fail(400, 'A team booking can’t be withdrawn within 1 day of its start. Message the admin.');
   db.leaves = db.leaves.filter((l) => l !== leave);
   await save();
   res.json(teamPayload(req.person));
@@ -1474,7 +1493,7 @@ app.patch('/api/admin/bookings/:id/assign', async (req, res) => {
     if (!person) fail(400, 'That team member no longer exists.');
     if (current.has(id)) return { ...current.get(id), name: person.name };
     if (!canDo(person, booking)) fail(400, `${person.name} does not do ${booking.serviceName}${booking.categoryName ? ` in ${booking.categoryName}` : ''}.`);
-    if (leaveOn(id, booking.date)) fail(400, `${person.name} is on leave on ${shortDate(booking.date)}.`);
+    if (leaveOn(id, booking.date)) fail(400, `${person.name} is away (team booking) on ${shortDate(booking.date)}.`);
     return { id: person.id, name: person.name, pay: person.defaultPay ?? null, state: 'assigned' };
   });
   const before = (booking.assignees || []).map((a) => a.id);
@@ -1751,7 +1770,7 @@ function replaceAssignee(booking, fromId, toId, pay) {
   if (!to.active) fail(400, `${to.name} is inactive.`);
   if (booking.assignees.some((a) => a.id === toId)) fail(400, `${to.name} is already on this booking.`);
   if (!canDo(to, booking)) fail(400, `${to.name} does not do ${booking.serviceName}${booking.categoryName ? ` in ${booking.categoryName}` : ''}.`);
-  if (leaveOn(toId, booking.date)) fail(400, `${to.name} is on leave on ${shortDate(booking.date)}.`);
+  if (leaveOn(toId, booking.date)) fail(400, `${to.name} is away (team booking) on ${shortDate(booking.date)}.`);
   const before = booking.assignees.map((a) => a.id);
   const from = booking.assignees[idx];
   booking.assignees[idx] = { id: to.id, name: to.name, pay: pay ?? from.pay ?? to.defaultPay ?? null, state: 'assigned', replaces: from.name };
@@ -1799,8 +1818,23 @@ app.patch('/api/admin/leaves/:id', async (req, res) => {
   for (const { booking, before } of changed) teamChanged(booking, before);
   const person = personOf(leave.personId);
   const when = `${shortDate(leave.from)}${leave.to !== leave.from ? ` – ${shortDate(leave.to)}` : ''}`;
-  const title = { approve: 'Leave approved 🙏', reject: 'Leave not approved', cancel: 'Leave cancelled' }[action];
+  const title = { approve: 'Team booking approved 🙏', reject: 'Team booking not approved', cancel: 'Team booking cancelled' }[action];
   if (person?.phone) notifyPhone(person.phone, { title, body: `${when}${note ? ` · ${note}` : ''}`, url: '/team', tag: `leave-${leave.id}` }).catch(() => {});
+  // Teammates booked without one of the sewas (those hear about it through the sewa itself).
+  if (action !== 'reject') {
+    for (const id of new Set((leave.picks || []).filter((x) => !x.bookingId).map((x) => x.personId))) {
+      const mine = leave.picks.filter((x) => x.personId === id);
+      const who = personOf(id);
+      if (who?.phone) {
+        notifyPhone(who.phone, {
+          title: action === 'approve' ? `You're booked in ${leave.personName}'s place 🙏` : `${leave.personName}'s team booking was cancelled`,
+          body: mine.map((x) => `${pickWhen(x)} · ₹${x.pay}`).join('; '),
+          url: '/team',
+          tag: `leave-${leave.id}-${id}`,
+        }).catch(() => {});
+      }
+    }
+  }
   res.json({ leaves: db.leaves, bookings: changed.map((c) => c.booking), skipped });
 });
 

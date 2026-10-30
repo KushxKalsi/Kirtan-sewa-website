@@ -5,7 +5,6 @@ import { addDays, format } from 'date-fns';
 import {
   Ban,
   CalendarDays,
-  CalendarOff,
   Check,
   CircleAlert,
   CircleCheck,
@@ -44,7 +43,7 @@ import { ease } from '../lib/motion';
 
 const TABS = [
   { id: 'duties', label: 'My sewas', icon: ListChecks },
-  { id: 'leave', label: 'Leave', icon: CalendarOff },
+  { id: 'leave', label: 'Team booking', icon: UsersRound },
   { id: 'chat', label: 'Chat with admin', icon: MessagesSquare },
   { id: 'profile', label: 'Profile & documents', icon: UserRound },
 ];
@@ -319,36 +318,41 @@ function Duties({ data, team, apply, toast }) {
   );
 }
 
-const LEAVE_MIN_PAY = 200; // the least bhet per sewa they can offer the teammate going in their place
+const LEAVE_MIN_PAY = 200; // the least bhet they can offer a teammate
 const DAY_MS = 24 * 60 * 60 * 1000;
-// When a leave really starts: the first affected sewa, or the start of the first day (same rule as the server).
-const leaveStart = (from, sewas) => {
-  const times = sewas.map((d) => fromKey(`${d.date}T${(d.slotTime || '').split('–')[0].trim() || '00:00'}`).getTime()).filter(Number.isFinite);
+// When a team booking really starts: its earliest booked time, or the start of the first day (same rule as the server).
+const bookingStart = (from, items) => {
+  const times = items.map((x) => fromKey(`${x.date}T${x.start || '00:00'}`).getTime()).filter(Number.isFinite);
   return times.length ? Math.min(...times) : fromKey(from).getTime();
 };
+const dutyStart = (d) => (d.slotTime || '').split('–')[0].trim();
+const pickTime = (x) => (x.start ? ` · ${rangeTo12(`${x.start} – ${x.end}`)}` : ' · whole day');
 
-/** Who goes in their place for one sewa: role (Head Ragi / Side Ragi / Tabla) → teammate → the bhet offered. */
-function SewaCover({ duty, pick, set, teammates, roles, onCopy }) {
-  const role = pick.role;
-  const choices = teammates.filter((t) => t.role === role);
+/** One teammate to book: role (Head Ragi / Side Ragi / Tabla) → teammate → the bhet offered. */
+function BookTeammate({ title, subtitle, pick, set, teammates, roles, children, onCopy, onRemove }) {
+  const choices = teammates.filter((t) => t.role === pick.role);
   const chosen = teammates.find((t) => t.id === pick.personId);
   return (
     <div className="sewa-cover glass">
       <div className="sewa-cover-head">
-        <strong>{duty.serviceName}</strong>
-        <span className="muted">
-          {prettyDate(duty.date, 'EEE, d MMM')} · {duty.slotLabel} · {rangeTo12(duty.slotTime)}
-        </span>
+        <strong>{title}</strong>
+        {subtitle && <span className="muted">{subtitle}</span>}
+        {onRemove && (
+          <button type="button" className="icon-btn danger-text" onClick={onRemove} aria-label="Remove this teammate">
+            <Trash2 size={15} />
+          </button>
+        )}
       </div>
+      {children}
       <div className="slot-checks">
         {Object.entries(roles).map(([id, label]) => (
-          <button type="button" key={id} className={`check-pill ${role === id ? 'active' : ''}`} onClick={() => set({ role: id, personId: '' })}>
+          <button type="button" key={id} className={`check-pill ${pick.role === id ? 'active' : ''}`} onClick={() => set({ role: id, personId: '' })}>
             {label} ({teammates.filter((t) => t.role === id).length})
           </button>
         ))}
       </div>
       <div className="replace-people">
-        {choices.length === 0 && <p className="muted">No other {roles[role]} in the team yet — choose another role.</p>}
+        {choices.length === 0 && <p className="muted">No other {roles[pick.role]} in the team yet — choose another role.</p>}
         {choices.map((t) => (
           <button type="button" key={t.id} className={`replace-person glass ${pick.personId === t.id ? 'active' : ''}`} onClick={() => set({ personId: pick.personId === t.id ? '' : t.id })}>
             <UserRound size={18} />
@@ -363,7 +367,7 @@ function SewaCover({ duty, pick, set, teammates, roles, onCopy }) {
       {chosen && (
         <label>
           <span className="label">
-            <HandCoins size={13} /> Bhet you offer {chosen.name} for this sewa (₹, at least {LEAVE_MIN_PAY}) *
+            <HandCoins size={13} /> Bhet you offer {chosen.name} (₹, at least {LEAVE_MIN_PAY}) *
           </span>
           <input className="input" type="number" inputMode="numeric" min={LEAVE_MIN_PAY} step="1" value={pick.pay} onChange={(e) => set({ pay: e.target.value })} placeholder={`e.g. ${LEAVE_MIN_PAY * 5}`} required />
         </label>
@@ -377,21 +381,29 @@ function SewaCover({ duty, pick, set, teammates, roles, onCopy }) {
   );
 }
 
-/** Leave = booking teammates in your place (one per sewa, with the bhet you offer), then the admin approves. */
-function Leave({ data, team, apply, toast }) {
+/**
+ * Team booking: a team member books teammates to go in their place, each with the bhet they offer; the admin approves.
+ * With sewas in those days each sewa gets a teammate; otherwise they add teammates by day and time.
+ */
+function TeamBooking({ data, team, apply, toast }) {
   const { today, duties, leaves, teammates, roles } = data;
   const bookedMe = data.bookedMe || [];
   const ownRole = roles[data.person.role] ? data.person.role : Object.keys(roles)[0];
-  const blankLeave = { from: '', to: '', reason: '', location: null };
-  const [form, setForm] = useState(blankLeave);
+  const blankForm = { from: '', to: '', reason: '', location: null };
+  const newExtra = (date = '') => ({ key: Math.random().toString(36).slice(2), role: ownRole, personId: '', pay: '', date, start: '', end: '' });
+  const [form, setForm] = useState(blankForm);
   const [picks, setPicks] = useState({}); // duty id -> { role, personId, pay }
+  const [extras, setExtras] = useState(() => [newExtra()]); // teammates booked by day/time when they have no sewas
   const [busy, setBusy] = useState('');
   const to = form.to || form.from;
   const affected = form.from ? duties.filter((d) => live(d) && d.date >= form.from && d.date <= to).sort((a, b) => (a.date + a.slotTime).localeCompare(b.date + b.slotTime)) : [];
-  const emergency = !!form.from && leaveStart(form.from, affected) - Date.now() < DAY_MS;
+  const general = form.from && !affected.length;
+  const items = affected.length ? affected.map((d) => ({ date: d.date, start: dutyStart(d) })) : extras.map((x) => ({ date: x.date || form.from, start: x.start }));
+  const emergency = !!form.from && bookingStart(form.from, items) - Date.now() < DAY_MS;
   const pickOf = (id) => ({ role: ownRole, personId: '', pay: '', ...picks[id] });
   const setPick = (id, patch) => setPicks((all) => ({ ...all, [id]: { ...pickOf(id), ...patch } }));
   const copyToAll = (id) => setPicks((all) => ({ ...all, ...Object.fromEntries(affected.map((d) => [d.id, { ...pickOf(id) }])) }));
+  const setExtra = (key, patch) => setExtras((list) => list.map((x) => (x.key === key ? { ...x, ...patch } : x)));
   const nameOf = (id) => teammates.find((t) => t.id === id)?.name || 'a team member';
   const dutyOf = (id) => duties.find((d) => d.id === id);
 
@@ -410,23 +422,41 @@ function Leave({ data, team, apply, toast }) {
   };
   const submit = async (e) => {
     e.preventDefault();
-    for (const d of affected) {
-      const pk = pickOf(d.id);
-      if (!pk.personId) return toast(`Choose who goes in your place for ${d.serviceName} on ${prettyDate(d.date, 'd MMM')}.`, 'error');
-      if (!(Number(pk.pay) >= LEAVE_MIN_PAY)) return toast(`Offer at least ₹${LEAVE_MIN_PAY} for ${d.serviceName} on ${prettyDate(d.date, 'd MMM')}.`, 'error');
+    let body;
+    if (affected.length) {
+      for (const d of affected) {
+        const pk = pickOf(d.id);
+        const what = `${d.serviceName} on ${prettyDate(d.date, 'd MMM')}`;
+        if (!pk.personId) return toast(`Choose the teammate for ${what}.`, 'error');
+        if (!(Number(pk.pay) >= LEAVE_MIN_PAY)) return toast(`Offer at least ₹${LEAVE_MIN_PAY} for ${what}.`, 'error');
+      }
+      body = { ...form, to, picks: affected.map((d) => ({ bookingId: d.id, personId: pickOf(d.id).personId, pay: Number(pickOf(d.id).pay) })) };
+    } else {
+      for (const [i, x] of extras.entries()) {
+        if (!x.personId) return toast(`Choose teammate ${i + 1}.`, 'error');
+        if (!(Number(x.pay) >= LEAVE_MIN_PAY)) return toast(`Offer at least ₹${LEAVE_MIN_PAY} to teammate ${i + 1}.`, 'error');
+        if ((x.start || x.end) && !(x.start && x.end && x.end > x.start)) return toast(`Teammate ${i + 1}: enter both times (end after start), or leave both empty for the whole day.`, 'error');
+      }
+      body = { ...form, to, picks: extras.map((x) => ({ personId: x.personId, pay: Number(x.pay), date: x.date || form.from, start: x.start, end: x.end })) };
     }
-    const body = { ...form, to, picks: affected.map((d) => ({ bookingId: d.id, personId: pickOf(d.id).personId, pay: Number(pickOf(d.id).pay) })) };
-    if (await run('new', () => team.requestLeave(body), emergency ? 'Emergency leave request sent to the admin.' : 'Leave request sent to the admin.')) {
-      setForm(blankLeave);
+    if (await run('new', () => team.requestLeave(body), emergency ? 'Emergency team booking sent to the admin.' : 'Team booking sent to the admin.')) {
+      setForm(blankForm);
       setPicks({});
+      setExtras([newExtra()]);
     }
   };
   const canWithdraw = (l) => l.status === 'pending' && new Date(l.startsAt || fromKey(l.from)).getTime() - Date.now() >= DAY_MS;
+  const pickLine = (x) => {
+    const d = x.bookingId && dutyOf(x.bookingId);
+    const what = d ? `${d.serviceName} ${prettyDate(d.date, 'd MMM')} ${rangeTo12(d.slotTime)}` : `${prettyDate(x.date, 'd MMM')}${pickTime(x)}`;
+    return `${what}: ${nameOf(x.personId)} · ₹${x.pay}`;
+  };
 
   return (
     <div className="leave-grid">
       <form className="glass profile-card" onSubmit={submit}>
-        <h3>Ask for leave</h3>
+        <h3>Book a teammate</h3>
+        <p className="muted">Need someone in your place? Choose the days, then book Head Ragi, Side Ragi or Tabla teammates and offer their bhet.</p>
         <div className="grid-2">
           <label>
             <span className="label">First day *</span>
@@ -441,41 +471,78 @@ function Leave({ data, team, apply, toast }) {
           <p className={`leave-affected ${affected.length ? 'warn' : ''}`}>
             {affected.length
               ? `You have ${affected.length} sewa${affected.length > 1 ? 's' : ''} in these days. Book a teammate for ${affected.length > 1 ? 'each one — they can be different people' : 'it'}.`
-              : 'You have no sewas on these days.'}
+              : 'You have no sewas on these days. Book the teammates you need below — add more for other times.'}
           </p>
         )}
         {emergency && (
           <p className="leave-emergency">
-            <CircleAlert size={16} /> This starts in less than 1 day, so it will be sent as an <strong>emergency</strong> request. It can’t be withdrawn once sent.
+            <CircleAlert size={16} /> This starts in less than 1 day, so it will be sent as an <strong>emergency</strong> booking. It can’t be withdrawn once sent.
           </p>
         )}
         <label className="field">
           <textarea value={form.reason} onChange={(e) => setForm((f) => ({ ...f, reason: e.target.value }))} placeholder=" " rows={2} required minLength={3} />
-          <span>Reason *</span>
+          <span>Why do you need a teammate? *</span>
         </label>
+
+        {!form.from && <p className="muted">Choose the first day to book teammates.</p>}
         {affected.length > 0 && (
           <div className="sewa-covers">
-            <span className="label">Who can do my sewas? *</span>
+            <span className="label">Teammates for my sewas *</span>
             {affected.map((d, i) => (
-              <SewaCover key={d.id} duty={d} pick={pickOf(d.id)} set={(patch) => setPick(d.id, patch)} teammates={teammates} roles={roles} onCopy={i === 0 && affected.length > 1 ? () => copyToAll(d.id) : null} />
+              <BookTeammate
+                key={d.id}
+                title={d.serviceName}
+                subtitle={`${prettyDate(d.date, 'EEE, d MMM')} · ${d.slotLabel} · ${rangeTo12(d.slotTime)}`}
+                pick={pickOf(d.id)}
+                set={(patch) => setPick(d.id, patch)}
+                teammates={teammates}
+                roles={roles}
+                onCopy={i === 0 && affected.length > 1 ? () => copyToAll(d.id) : null}
+              />
             ))}
           </div>
         )}
-        {affected.length > 0 && (
-          <div>
-            <span className="label">Where should they go? (optional)</span>
-            <LocationPicker value={form.location} onChange={(location) => setForm((f) => ({ ...f, location }))} label="Search the place on the map" hint="Pick the place where the people taking your place should go." />
+        {general && (
+          <div className="sewa-covers">
+            <span className="label">Teammates to book *</span>
+            {extras.map((x, i) => (
+              <BookTeammate key={x.key} title={`Teammate ${i + 1}`} pick={x} set={(patch) => setExtra(x.key, patch)} teammates={teammates} roles={roles} onRemove={extras.length > 1 ? () => setExtras((list) => list.filter((y) => y.key !== x.key)) : null}>
+                <div className="pick-when">
+                  <label>
+                    <span className="label">Day</span>
+                    <input className="input" type="date" min={form.from} max={to} value={x.date || form.from} onChange={(e) => setExtra(x.key, { date: e.target.value })} />
+                  </label>
+                  <label>
+                    <span className="label">From (optional)</span>
+                    <input className="input" type="time" value={x.start} onChange={(e) => setExtra(x.key, { start: e.target.value })} />
+                  </label>
+                  <label>
+                    <span className="label">To</span>
+                    <input className="input" type="time" value={x.end} onChange={(e) => setExtra(x.key, { end: e.target.value })} />
+                  </label>
+                </div>
+              </BookTeammate>
+            ))}
+            <button type="button" className="btn btn-ghost btn-sm add-teammate" onClick={() => setExtras((list) => [...list, newExtra(list.at(-1)?.date || '')])}>
+              <UsersRound size={15} /> Add another teammate
+            </button>
           </div>
         )}
-        <p className="fine-print">Leave must be asked at least 1 day before it starts; later requests go as emergencies. A request can’t be withdrawn within 1 day of its start.</p>
+        {form.from && (
+          <div>
+            <span className="label">Where should they go? (optional)</span>
+            <LocationPicker value={form.location} onChange={(location) => setForm((f) => ({ ...f, location }))} label="Search the place on the map" hint="Pick the place where the teammates you book should go." />
+          </div>
+        )}
+        <p className="fine-print">Book at least 1 day before; later bookings go as emergencies. A booking can’t be withdrawn within 1 day of its start.</p>
         <button className="btn btn-primary" disabled={!!busy}>
-          {busy === 'new' ? <Loader2 size={17} className="spin" /> : <CalendarOff size={17} />} {emergency ? 'Send emergency request' : affected.length ? 'Book & send leave request' : 'Send leave request'}
+          {busy === 'new' ? <Loader2 size={17} className="spin" /> : <UsersRound size={17} />} {emergency ? 'Send emergency booking' : 'Book & send to admin'}
         </button>
       </form>
 
       <div className="leave-list">
-        <h3>Your leave</h3>
-        {leaves.length === 0 && <p className="muted">No leave requests yet.</p>}
+        <h3>Your team bookings</h3>
+        {leaves.length === 0 && <p className="muted">No team bookings yet.</p>}
         {leaves.map((l) => (
           <div key={l.id} className={`glass leave-item l-${l.status}`}>
             <div>
@@ -485,15 +552,11 @@ function Leave({ data, team, apply, toast }) {
                 {l.emergency && <em className="emergency-tag">Emergency</em>}
               </strong>
               <span>{l.reason}</span>
-              {(l.picks || []).map((x) => {
-                const d = dutyOf(x.bookingId);
-                return (
-                  <span key={x.bookingId} className="muted">
-                    {d ? `${d.serviceName} ${prettyDate(d.date, 'd MMM')} ${rangeTo12(d.slotTime)}: ` : ''}
-                    {nameOf(x.personId)} · ₹{x.pay}
-                  </span>
-                );
-              })}
+              {(l.picks || []).map((x, i) => (
+                <span key={i} className="muted">
+                  {pickLine(x)}
+                </span>
+              ))}
               {l.replacementId && !l.picks && <span className="muted">Suggested: {nameOf(l.replacementId)}</span>}
               {l.location && (
                 <a className="muted" href={mapsLink(l.location)} target="_blank" rel="noreferrer">
@@ -505,7 +568,7 @@ function Leave({ data, team, apply, toast }) {
             </div>
             <span className={`pay-tag ${l.status === 'approved' ? 'pay-paid' : l.status === 'pending' ? 'pay-submitted' : 'req-tag'}`}>{LEAVE_TEXT[l.status]}</span>
             {canWithdraw(l) && (
-              <button className="icon-btn" onClick={() => run(l.id, () => team.withdrawLeave(l.id), 'Leave request withdrawn.')} aria-label="Withdraw" disabled={!!busy}>
+              <button className="icon-btn" onClick={() => run(l.id, () => team.withdrawLeave(l.id), 'Team booking withdrawn.')} aria-label="Withdraw" disabled={!!busy}>
                 {busy === l.id ? <Loader2 size={16} className="spin" /> : <Trash2 size={16} />}
               </button>
             )}
@@ -524,8 +587,9 @@ function Leave({ data, team, apply, toast }) {
                   </strong>
                   {l.sewas.map((x, i) => (
                     <span key={i}>
-                      {x.serviceName} · {prettyDate(x.date, 'EEE, d MMM')}
-                      {x.slotTime && ` · ${rangeTo12(x.slotTime)}`} · ₹{x.pay}
+                      {x.serviceName ? `${x.serviceName} · ` : ''}
+                      {prettyDate(x.date, 'EEE, d MMM')}
+                      {pickTime(x)} · ₹{x.pay}
                     </span>
                   ))}
                   {l.location && (
@@ -534,7 +598,7 @@ function Leave({ data, team, apply, toast }) {
                     </a>
                   )}
                 </div>
-                <span className={`pay-tag ${l.status === 'approved' ? 'pay-paid' : 'pay-submitted'}`}>{l.status === 'approved' ? 'Approved — on your sewas' : 'Waiting for admin'}</span>
+                <span className={`pay-tag ${l.status === 'approved' ? 'pay-paid' : 'pay-submitted'}`}>{l.status === 'approved' ? 'Approved — you’re booked' : 'Waiting for admin'}</span>
               </div>
             ))}
           </>
@@ -821,9 +885,9 @@ export default function TeamDashboard() {
           </div>
         )}
         {data && tab === 'duties' && <Duties {...ctx} />}
-        {data && tab === 'leave' && <Leave {...ctx} />}
+        {data && tab === 'leave' && <TeamBooking {...ctx} />}
         {data && tab === 'chat' && (
-          <ChatBox side="member" title="Chat with the admin" subtitle="Bhet, timings, leave — anything" callPhone={site?.settings.phone} callLabel="Call admin" load={chatLoad} send={chatSend} onMessages={chatSeen} />
+          <ChatBox side="member" title="Chat with the admin" subtitle="Bhet, timings, team bookings — anything" callPhone={site?.settings.phone} callLabel="Call admin" load={chatLoad} send={chatSend} onMessages={chatSeen} />
         )}
         {data && tab === 'profile' && <Profile {...ctx} />}
         {data && tab === 'duties' && data.duties.length > 0 && (

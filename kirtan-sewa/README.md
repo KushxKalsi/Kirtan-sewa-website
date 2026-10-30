@@ -68,7 +68,7 @@ empty, it copies `data/db.json` into it. Upload the UPI QR again afterwards.
   Waiting for approval** until the admin approves it (and ticks their sewas). The admin can still add people directly.
 - **`/account`** (customers): their bookings, bills and payments, map location, price offers, cancellation
   requests, and a chat with the jatha. `/manage` now redirects here.
-- **`/team`** (team members): their sewas, profile and documents, leave and a chat with the admin.
+- **`/team`** (team members): their sewas, profile and documents, team bookings and a chat with the admin.
 - **`/admin`**:
   - **Bookings**: confirm, complete, cancel with a reason, restore or delete. The **Cancel requests** filter lists
     customers' cancellation requests, which you can **Approve** (this frees the slot) or **Reject** (with an optional message).
@@ -201,13 +201,15 @@ The uploaded QR image is saved in `data/uploads/`.
   the booking.
 - **Bhet:** set it per person on each booking (a person's "usual bhet" fills it in when they're assigned). If they
   ask for a different amount it lands in the chat, where you can set any amount directly.
-- **Leave:** works like booking teammates in their place. They pick the dates and a reason; for every sewa in those
-  days they choose a role (Head Ragi / Side Ragi / Tabla), a teammate and the bhet they offer (at least ₹200). Different
-  sewas, even on the same day, can go to different people, but one person can't take two sewas at the same time. They
-  can add a map pin for where to go. The booked teammates are notified and see it under **Leave**. Leave starting in
-  less than 1 day is still sent, marked **Emergency**, and a request can't be withdrawn within 1 day of its start.
-  Admin → **Leave** shows the affected sewas with the booked teammate pre-chosen (or anyone else, nearest first).
-  Approving hands them over (the booked teammate gets the bhet offered) and notifies everyone. People on approved leave can't be assigned on those days, and any booking can
+- **Team booking** (the old "leave"): a team member books teammates to go in their place. They pick the days and say
+  why, then for each teammate choose a role (Head Ragi / Side Ragi / Tabla), the person and the bhet they offer (at
+  least ₹200). If they have sewas in those days, each sewa gets its own teammate (different sewas, even on one day,
+  can go to different people); otherwise they add as many teammates as they need, each on a day and optional time.
+  One person can't be booked twice at the same time. They can add a map pin for where to go. Booked teammates are
+  notified and see it under **Team booking**. A booking starting in less than 1 day is still sent, marked
+  **Emergency**, and one can't be withdrawn within 1 day of its start. Admin → **Team bookings** shows each sewa with
+  the booked teammate pre-chosen (or anyone else, nearest first). Approving hands the sewas over (the booked teammate
+  gets the bhet offered) and notifies everyone. People on approved leave can't be assigned on those days, and any booking can
   also be handed to someone else with **Replace** under its team.
 
 ## Map location and nearest team member

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { format } from 'date-fns';
-import { Ban, CalendarOff, Check, Loader2, MapPin, MessagesSquare, Repeat, Undo2 } from 'lucide-react';
+import { Ban, Check, Loader2, MapPin, MessagesSquare, Repeat, Undo2, UsersRound } from 'lucide-react';
 import Modal from '../components/Modal';
 import { fromKey, prettyDate, rangeTo12 } from '../lib/date';
 import { distanceKm, kmText, mapsLink } from '../lib/geo';
@@ -52,7 +52,7 @@ export default function LeaveTab({ data, api, setData, toast, openChat }) {
       const res = await api.decideLeave(l.id, { action, replacements, ...extra });
       setData((d) => ({ ...d, leaves: res.leaves }));
       mergeBookings(res.bookings);
-      toast(action === 'approve' ? `Leave approved${res.bookings.length ? ` — ${res.bookings.length} sewa${res.bookings.length > 1 ? 's' : ''} handed over` : ''}.` : action === 'reject' ? 'Leave rejected.' : 'Leave cancelled.');
+      toast(action === 'approve' ? `Team booking approved${res.bookings.length ? ` — ${res.bookings.length} sewa${res.bookings.length > 1 ? 's' : ''} handed over` : ''}.` : action === 'reject' ? 'Team booking rejected.' : 'Team booking cancelled.');
       if (res.skipped?.length) toast(`Not replaced: ${res.skipped.join('; ')}`, 'error');
       return true;
     } catch (e) {
@@ -80,8 +80,8 @@ export default function LeaveTab({ data, api, setData, toast, openChat }) {
     <div className="admin-section">
       <div className="admin-section-head">
         <div>
-          <h2>Leave</h2>
-          <p>Team members ask for leave from their dashboard and can suggest who does their sewas. Approving puts the people you choose in their place (same bhet) and notifies everyone. People on leave can’t be assigned on those days.</p>
+          <h2>Team bookings</h2>
+          <p>Team members book teammates (Head Ragi, Side Ragi or Tabla) to go in their place and offer each one a bhet. Approving hands their sewas to the people chosen (at the bhet offered) and notifies everyone. While their booking runs they can’t be assigned themselves.</p>
         </div>
       </div>
       <div className="filter-pills">
@@ -95,7 +95,7 @@ export default function LeaveTab({ data, api, setData, toast, openChat }) {
           </button>
         ))}
       </div>
-      {leaves.length === 0 && <div className="admin-empty glass">No leave requests here.</div>}
+      {leaves.length === 0 && <div className="admin-empty glass">No team bookings here.</div>}
       <ul className="leave-admin">
         <AnimatePresence initial={false}>
           {leaves.map((l) => {
@@ -104,7 +104,7 @@ export default function LeaveTab({ data, api, setData, toast, openChat }) {
             return (
               <motion.li key={l.id} layout className={`glass leave-card l-${l.status}`} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.35, ease }}>
                 <div className="leave-card-head">
-                  <CalendarOff size={20} />
+                  <UsersRound size={20} />
                   <div>
                     <strong>
                       {p?.name || l.personName}
@@ -119,9 +119,17 @@ export default function LeaveTab({ data, api, setData, toast, openChat }) {
                       “{l.reason}” · asked {format(new Date(l.createdAt), 'd MMM')}
                       {l.replacementId && !l.picks && ` · suggests ${personOf(l.replacementId)?.name || 'someone removed'}`}
                     </span>
+                    {(l.picks || [])
+                      .filter((x) => !x.bookingId)
+                      .map((x, i) => (
+                        <span key={i}>
+                          Booked {personOf(x.personId)?.name || 'someone removed'} · {prettyDate(x.date, 'EEE, d MMM')}
+                          {x.start ? ` · ${rangeTo12(`${x.start} – ${x.end}`)}` : ' · whole day'} · ₹{x.pay}
+                        </span>
+                      ))}
                     {l.location && (
                       <a className="muted" href={mapsLink(l.location)} target="_blank" rel="noreferrer">
-                        <MapPin size={12} /> Replacement should go to: {l.location.label || 'map pin'}
+                        <MapPin size={12} /> Teammates should go to: {l.location.label || 'map pin'}
                       </a>
                     )}
                     {l.note && <span className="muted">Your note: {l.note}</span>}
@@ -136,7 +144,7 @@ export default function LeaveTab({ data, api, setData, toast, openChat }) {
 
                 {list.length > 0 && (
                   <div className="leave-duties">
-                    <p className="label">{l.status === 'pending' ? 'Their sewas in these days — who should take their place?' : 'Still assigned to them during leave'}</p>
+                    <p className="label">{l.status === 'pending' ? 'Their sewas in these days — who should take their place?' : 'Still assigned to them during this booking'}</p>
                     {list.map((b) => {
                       const opts = options(b, l.personId);
                       const booked = (l.picks || []).find((x) => x.bookingId === b.id);
@@ -192,7 +200,7 @@ export default function LeaveTab({ data, api, setData, toast, openChat }) {
                   )}
                   {l.status === 'approved' && l.to >= today && (
                     <button className="btn btn-ghost btn-sm" onClick={() => decide(l, 'cancel')} disabled={!!busy}>
-                      <Undo2 size={15} /> Cancel this leave
+                      <Undo2 size={15} /> Cancel this booking
                     </button>
                   )}
                 </div>
@@ -202,7 +210,7 @@ export default function LeaveTab({ data, api, setData, toast, openChat }) {
         </AnimatePresence>
       </ul>
 
-      <Modal open={!!rejectFor} onClose={() => setRejectFor(null)} title="Reject leave request" subtitle="They are told on their phone. You can add a message.">
+      <Modal open={!!rejectFor} onClose={() => setRejectFor(null)} title="Reject team booking" subtitle="They are told on their phone. You can add a message.">
         <form
           className="cancel-form"
           onSubmit={async (e) => {
