@@ -39,9 +39,11 @@ const app = express();
 const QR_PATH = '/api/admin/upi-qr';
 const GP_IMAGE_PATH = '/api/admin/gurpurab-images';
 const DOC_PATH = '/api/team/documents/';
+const TEAM_SIGNUP_PATH = '/api/auth/register-team';
 const smallJson = express.json({ limit: '300kb' });
-// Image uploads (UPI QR, Gurpurab pictures, team documents) get their own larger body limit.
-app.use((req, res, next) => (req.path === QR_PATH || req.path === GP_IMAGE_PATH || req.path.startsWith(DOC_PATH) ? next() : smallJson(req, res, next)));
+// Image uploads (UPI QR, Gurpurab pictures, team documents and sign-ups with them) get their own larger body limit.
+const bigBody = (path) => path === QR_PATH || path === GP_IMAGE_PATH || path === TEAM_SIGNUP_PATH || path.startsWith(DOC_PATH);
+app.use((req, res, next) => (bigBody(req.path) ? next() : smallJson(req, res, next)));
 
 
 /* ---------------- helpers ---------------- */
@@ -88,6 +90,15 @@ const ownsBooking = (user, b) => b.userId === user.id || (!b.userId && samePhone
 const ROLES = { 'head-ragi': 'Head Ragi', 'side-ragi': 'Side Ragi', tabla: 'Tabla' };
 // Documents a team member uploads to their profile.
 const DOC_KINDS = { headPhoto: 'Jatha head photo', jathaPhoto: 'Jatha photo', aadhaar: 'Aadhaar card', bankProof: 'Bank passbook / cancelled cheque' };
+// Documents a new team member must add when they sign up (the rest can follow from their profile).
+const SIGNUP_DOCS_REQUIRED = ['aadhaar'];
+// An uploaded document as a data: URL -> { type, data (base64) }.
+function readDoc(dataUrl) {
+  const match = /^data:(image\/(?:png|jpeg|webp)|application\/pdf);base64,([A-Za-z0-9+/=]+)$/.exec(dataUrl || '');
+  if (!match) fail(400, 'Please upload a photo (JPG, PNG, WebP) or a PDF.');
+  if (Buffer.byteLength(match[2], 'base64') > 5 * 1024 * 1024) fail(400, 'File is too large (max 5 MB).');
+  return { type: match[1], data: match[2] };
+}
 
 // A place picked on the map: { lat, lng, label }, or null.
 function readLocation(v) {
@@ -752,8 +763,8 @@ app.post('/api/auth/register', async (req, res) => {
   res.status(201).json({ token: auth.make('user', user.id, 0), role: 'user', name: user.name });
 });
 
-// Team members sign up themselves; the account waits (inactive) until the admin approves it.
-app.post('/api/auth/register-team', async (req, res) => {
+// Team members sign up themselves, with their documents; the account waits (inactive) until the admin approves it.
+app.post(TEAM_SIGNUP_PATH, express.json({ limit: '30mb' }), async (req, res) => {
   throttle(`register:${req.ip}`, 10);
   const name = str(req.body?.name, 80);
   const phone = readPhone(req.body?.phone);
@@ -762,13 +773,38 @@ app.post('/api/auth/register-team', async (req, res) => {
   if (name.length < 2) fail(400, 'Please enter your name.');
   if (!ROLES[role]) fail(400, 'Please choose your role: Head Ragi, Side Ragi or Tabla.');
   const existing = db.people.find((p) => samePhone(p.phone, phone));
-  if (existing?.pending) fail(409, 'You have already signed up with this number. Please wait for the admin to approve it.');
+  if (existing?.pending) fail(403, 'You have already signed up with this number. Your account is being verified by the admin.');
   if (existing?.passwordHash) fail(409, 'A team account with this mobile number already exists. Please log in.');
   if (existing) fail(409, 'This number is already on the team list. Ask the admin for your password.');
-  const person = { id: uid(), name, phone, address: '', role, defaultPay: null, skills: [], active: false, pending: true, tokenVersion: 0, passwordHash: await hashPassword(password), createdAt: new Date().toISOString() };
+  const location = readLocation(req.body?.location);
+  if (!location) fail(400, 'Please pick where you are based on the map.');
+  const given = req.body?.docs && typeof req.body.docs === 'object' ? req.body.docs : {};
+  const missing = SIGNUP_DOCS_REQUIRED.filter((k) => !given[k]?.dataUrl);
+  if (missing.length) fail(400, `Please add your ${missing.map((k) => DOC_KINDS[k]).join(', ')}.`);
+  const files = Object.keys(DOC_KINDS)
+    .filter((k) => given[k]?.dataUrl)
+    .map((kind) => ({ kind, id: uid(), name: str(given[kind].name, 120), ...readDoc(given[kind].dataUrl) }));
+  const now = new Date().toISOString();
+  const person = {
+    id: uid(),
+    name,
+    phone,
+    address: location.label,
+    location,
+    role,
+    defaultPay: null,
+    skills: [],
+    active: false,
+    pending: true,
+    docs: Object.fromEntries(files.map((f) => [f.kind, { id: f.id, type: f.type, name: f.name, at: now }])),
+    tokenVersion: 0,
+    passwordHash: await hashPassword(password),
+    createdAt: now,
+  };
+  await Promise.all(files.map((f) => kv.set(`doc-${f.id}`, { type: f.type, data: f.data })));
   db.people.push(person);
   await save();
-  alertAdmin('New team sign-up — approve?', `${name} · ${ROLES[role]} · ${phone}`, '/admin?tab=team', `member-${person.id}`);
+  alertAdmin('New team sign-up — approve?', `${name} · ${ROLES[role]} · ${phone} · ${files.length} document(s)`, '/admin?tab=team', `member-${person.id}`);
   res.status(201).json({ pending: true });
 });
 
@@ -941,14 +977,12 @@ app.put('/api/team/profile', requireMember, async (req, res) => {
 app.post(`${DOC_PATH}:kind`, express.json({ limit: '8mb' }), requireMember, async (req, res) => {
   const kind = req.params.kind;
   if (!DOC_KINDS[kind]) fail(404, 'Unknown document.');
-  const match = /^data:(image\/(?:png|jpeg|webp)|application\/pdf);base64,([A-Za-z0-9+/=]+)$/.exec(req.body?.dataUrl || '');
-  if (!match) fail(400, 'Please upload a photo (JPG, PNG, WebP) or a PDF.');
-  if (Buffer.byteLength(match[2], 'base64') > 5 * 1024 * 1024) fail(400, 'File is too large (max 5 MB).');
+  const file = readDoc(req.body?.dataUrl);
   const p = req.person;
   const id = uid();
-  await kv.set(`doc-${id}`, { type: match[1], data: match[2] });
+  await kv.set(`doc-${id}`, file);
   const old = p.docs?.[kind];
-  p.docs = { ...p.docs, [kind]: { id, type: match[1], name: str(req.body.name, 120), at: new Date().toISOString() } };
+  p.docs = { ...p.docs, [kind]: { id, type: file.type, name: str(req.body.name, 120), at: new Date().toISOString() } };
   p.profileUpdatedAt = new Date().toISOString();
   await save();
   if (old) await kv.set(`doc-${old.id}`, null);
@@ -1048,14 +1082,15 @@ app.post('/api/team/leaves', requireMember, async (req, res) => {
   const replacementId = str(req.body?.replacementId, 40);
   const replacement = replacementId ? db.people.find((x) => x.id === replacementId && x.active && x.id !== p.id) : null;
   if (replacementId && !replacement) fail(400, 'Choose who will do your sewa from the active team members.');
+  const location = readLocation(req.body?.location); // where the person taking their place should go
   if (db.leaves.some((l) => l.personId === p.id && l.status !== 'rejected' && l.from <= to && l.to >= from)) fail(400, 'You already have leave on some of these dates.');
-  const leave = { id: uid(), personId: p.id, personName: p.name, from, to, reason, replacementId: replacement?.id || '', status: 'pending', note: '', createdAt: new Date().toISOString() };
+  const leave = { id: uid(), personId: p.id, personName: p.name, from, to, reason, replacementId: replacement?.id || '', location, status: 'pending', note: '', createdAt: new Date().toISOString() };
   db.leaves.push(leave);
   await save();
   const affected = db.bookings.filter((b) => isActive(b) && b.date >= from && b.date <= to && (b.assignees || []).some((a) => a.id === p.id)).length;
   alertAdmin(
     `${p.name} asked for leave`,
-    `${shortDate(from)}${to !== from ? ` – ${shortDate(to)}` : ''} · ${affected} sewa${affected === 1 ? '' : 's'} affected${replacement ? ` · suggests ${replacement.name}` : ''}`,
+    `${shortDate(from)}${to !== from ? ` – ${shortDate(to)}` : ''} · ${affected} sewa${affected === 1 ? '' : 's'} affected${replacement ? ` · suggests ${replacement.name}` : ''}${location ? ` · at ${location.label || 'a map pin'}` : ''}`,
     '/admin?tab=leave',
     `leave-${leave.id}`,
   );

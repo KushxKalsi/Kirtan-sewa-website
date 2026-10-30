@@ -1,10 +1,10 @@
 import { useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { format } from 'date-fns';
-import { Ban, CalendarOff, Check, Loader2, MessagesSquare, Repeat, Undo2 } from 'lucide-react';
+import { Ban, CalendarOff, Check, Loader2, MapPin, MessagesSquare, Repeat, Undo2 } from 'lucide-react';
 import Modal from '../components/Modal';
 import { fromKey, prettyDate, rangeTo12 } from '../lib/date';
-import { distanceKm, kmText } from '../lib/geo';
+import { distanceKm, kmText, mapsLink } from '../lib/geo';
 import { ease } from '../lib/motion';
 
 const STATUS = { pending: 'Waiting for you', approved: 'Approved', rejected: 'Rejected', cancelled: 'Cancelled' };
@@ -114,6 +114,11 @@ export default function LeaveTab({ data, api, setData, toast, openChat }) {
                       “{l.reason}” · asked {format(new Date(l.createdAt), 'd MMM')}
                       {l.replacementId && ` · suggests ${personOf(l.replacementId)?.name || 'someone removed'}`}
                     </span>
+                    {l.location && (
+                      <a className="muted" href={mapsLink(l.location)} target="_blank" rel="noreferrer">
+                        <MapPin size={12} /> Replacement should go to: {l.location.label || 'map pin'}
+                      </a>
+                    )}
                     {l.note && <span className="muted">Your note: {l.note}</span>}
                   </div>
                   <span className={`pay-tag ${l.status === 'approved' ? 'pay-paid' : l.status === 'pending' ? 'pay-submitted' : 'req-tag'}`}>{STATUS[l.status]}</span>

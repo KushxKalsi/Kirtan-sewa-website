@@ -321,7 +321,11 @@ function Duties({ data, team, apply, toast }) {
 
 function Leave({ data, team, apply, toast }) {
   const { today, duties, leaves, teammates, roles } = data;
-  const [form, setForm] = useState({ from: '', to: '', reason: '', replacementId: '' });
+  // Who takes their place: first the role (Head Ragi / Side Ragi / Tabla, starting with their own), then a person in it.
+  const [replaceRole, setReplaceRole] = useState(roles[data.person.role] ? data.person.role : Object.keys(roles)[0]);
+  const choices = teammates.filter((t) => t.role === replaceRole);
+  const blankLeave = { from: '', to: '', reason: '', replacementId: '', location: null };
+  const [form, setForm] = useState(blankLeave);
   const [busy, setBusy] = useState('');
   const to = form.to || form.from;
   const affected = form.from ? duties.filter((d) => live(d) && d.date >= form.from && d.date <= to) : [];
@@ -341,7 +345,7 @@ function Leave({ data, team, apply, toast }) {
   };
   const submit = async (e) => {
     e.preventDefault();
-    if (await run('new', () => team.requestLeave({ ...form, to }), 'Leave request sent to the admin.')) setForm({ from: '', to: '', reason: '', replacementId: '' });
+    if (await run('new', () => team.requestLeave({ ...form, to }), 'Leave request sent to the admin.')) setForm(blankLeave);
   };
 
   return (
@@ -362,18 +366,36 @@ function Leave({ data, team, apply, toast }) {
           <textarea value={form.reason} onChange={(e) => setForm((f) => ({ ...f, reason: e.target.value }))} placeholder=" " rows={2} required minLength={3} />
           <span>Reason *</span>
         </label>
-        <label>
+        <div>
           <span className="label">Who can do my sewas? (optional)</span>
-          <select className="input" value={form.replacementId} onChange={(e) => setForm((f) => ({ ...f, replacementId: e.target.value }))}>
-            <option value="">Let the admin choose</option>
-            {teammates.map((t) => (
+          <div className="slot-checks">
+            {Object.entries(roles).map(([id, label]) => (
+              <button
+                type="button"
+                key={id}
+                className={`check-pill ${replaceRole === id ? 'active' : ''}`}
+                onClick={() => {
+                  setReplaceRole(id);
+                  setForm((f) => ({ ...f, replacementId: '' }));
+                }}
+              >
+                {label} ({teammates.filter((t) => t.role === id).length})
+              </button>
+            ))}
+          </div>
+          <select className="input replace-pick" value={form.replacementId} onChange={(e) => setForm((f) => ({ ...f, replacementId: e.target.value }))}>
+            <option value="">{choices.length ? 'Let the admin choose' : `No other ${roles[replaceRole]} yet — the admin will choose`}</option>
+            {choices.map((t) => (
               <option key={t.id} value={t.id}>
                 {t.name}
-                {t.role ? ` — ${roles[t.role]}` : ''}
               </option>
             ))}
           </select>
-        </label>
+        </div>
+        <div>
+          <span className="label">Where should they go? (optional)</span>
+          <LocationPicker value={form.location} onChange={(location) => setForm((f) => ({ ...f, location }))} label="Search the place on the map" hint="Pick the place where the person taking your place should go." />
+        </div>
         {form.from && (
           <p className={`leave-affected ${affected.length ? 'warn' : ''}`}>
             {affected.length
@@ -398,6 +420,11 @@ function Leave({ data, team, apply, toast }) {
               </strong>
               <span>{l.reason}</span>
               {l.replacementId && <span className="muted">Suggested: {teammates.find((t) => t.id === l.replacementId)?.name || 'a team member'}</span>}
+              {l.location && (
+                <a className="muted" href={mapsLink(l.location)} target="_blank" rel="noreferrer">
+                  <MapPin size={12} /> {l.location.label || 'Open map'}
+                </a>
+              )}
               {l.note && <span className="muted">Admin: {l.note}</span>}
             </div>
             <span className={`pay-tag ${l.status === 'approved' ? 'pay-paid' : l.status === 'pending' ? 'pay-submitted' : 'req-tag'}`}>{LEAVE_TEXT[l.status]}</span>
