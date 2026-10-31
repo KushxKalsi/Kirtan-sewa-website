@@ -950,13 +950,27 @@ function teamPayload(p) {
         paymentMethod: l.paymentMethod || '',
         emergency: !!l.emergency,
         status: l.status,
+        commissionRate: l.commissionRate ?? 0,
         sewas: l.picks
           .filter((x) => x.personId === p.id && replyOf(x) !== 'declined')
           .map((x) => {
             const b = x.bookingId && db.bookings.find((y) => y.id === x.bookingId);
-            return { serviceName: b?.serviceName || x.serviceName || '', role: x.role || '', date: x.date || b?.date || l.from, start: x.start || '', end: x.end || '', pay: x.pay, reply: replyOf(x) };
+            return {
+              serviceName: b?.serviceName || x.serviceName || '',
+              role: x.role || '',
+              date: x.date || b?.date || l.from,
+              start: x.start || '',
+              end: x.end || '',
+              pay: netPay(l, x), // what is theirs
+              gross: x.pay, // what they collect when the member pays them in cash
+              commission: pickCommission(l, x),
+              commissionPaid: !!x.commissionPaidAt,
+              reply: replyOf(x),
+            };
           }),
       })),
+    // Paid in cash, they hold the admin's commission: shown to them as a negative balance until the admin has it.
+    commissionDue: cashCommissionDue().filter((d) => d.personId === p.id),
     commissionRate: TEAM_COMMISSION_RATE,
     teammates: db.people.filter((x) => x.id !== p.id && x.active).map((x) => ({ id: x.id, name: x.name, role: x.role || '' })),
     unread: unreadIn(threadOf('m', p.id), 'other'),
@@ -1100,10 +1114,28 @@ app.post('/api/team/duties/:id/pay-request', requireMember, async (req, res) => 
  * Status: pending (admin to assign) → assigned (waiting for each person's yes) → approved (everyone accepted). A
  * person who declines sends it back to pending for the admin to choose someone else. Their sewas are handed over
  * only once they accept. Once sent, the member can only ask the admin to cancel it.
- * The member pays the bhet plus the admin's commission (TEAM_COMMISSION_RATE % of the total bhet). */
+ * The admin keeps a commission (TEAM_COMMISSION_RATE % of each bhet) out of the bhet the member pays; the people who
+ * go see and get the rest. */
 const LEAVE_NOTICE_MS = 24 * 60 * 60 * 1000;
 const LEAVE_MIN_PAY = 200; // least bhet they can offer a teammate
 const TEAM_COMMISSION_RATE = 10;
+// Commission on one request, and what the person who goes gets after it (bookings from before commission: all of it).
+const pickCommission = (l, x) => Math.round((x.pay * (l.commissionRate ?? 0)) / 100);
+const netPay = (l, x) => x.pay - pickCommission(l, x);
+/* With cash, the member pays the whole bhet to the people who go, so each one owes the admin the commission on what
+ * they accepted (until the admin marks it received). One row per person per team booking. */
+function cashCommissionDue() {
+  const due = [];
+  for (const l of db.leaves) {
+    if (l.paymentMethod !== 'cash' || !liveLeave(l)) continue;
+    for (const id of new Set((l.picks || []).map((x) => x.personId).filter(Boolean))) {
+      const owed = l.picks.filter((x) => x.personId === id && replyOf(x) === 'accepted' && !x.commissionPaidAt);
+      const amount = owed.reduce((t, x) => t + pickCommission(l, x), 0);
+      if (amount > 0) due.push({ leaveId: l.id, personId: id, name: personOf(id)?.name || '', inPlaceOf: personOf(l.personId)?.name || l.personName, from: l.from, to: l.to, amount });
+    }
+  }
+  return due.sort((a, b) => a.from.localeCompare(b.from));
+}
 const replyOf = (x) => x.reply || (x.personId ? 'accepted' : ''); // bookings approved before replies existed count as accepted
 const liveLeave = (l) => ['pending', 'assigned', 'approved'].includes(l.status);
 // When a team booking really starts: its earliest booked time, or the start of the first day.
@@ -1160,7 +1192,7 @@ app.post('/api/team/leaves', requireMember, async (req, res) => {
   const startsAt = leaveStartsAt(from, picks);
   const emergency = startsAt.getTime() - Date.now() < LEAVE_NOTICE_MS;
   const total = picks.reduce((s, x) => s + x.pay, 0);
-  const commission = Math.round((total * TEAM_COMMISSION_RATE) / 100);
+  const commission = picks.reduce((s, x) => s + pickCommission({ commissionRate: TEAM_COMMISSION_RATE }, x), 0);
   db.meta.teamBillSeq = (db.meta.teamBillSeq || 0) + 1;
   const leave = {
     id: uid(),
@@ -1189,7 +1221,7 @@ app.post('/api/team/leaves', requireMember, async (req, res) => {
   const wanted = picks.map((x) => ROLES[x.role]).join(', ');
   alertAdmin(
     `${emergency ? '🚨 Emergency: ' : ''}${p.name} needs ${wanted}`,
-    `${when}${sewas.length ? ` · for ${sewas.length} of their sewa${sewas.length === 1 ? '' : 's'}` : ''} · ${rupee(total)} + ${rupee(commission)} commission by ${PAY_BY[paymentMethod]} · assign the people${location ? ` · at ${location.label || 'a map pin'}` : ''}`,
+    `${when}${sewas.length ? ` · for ${sewas.length} of their sewa${sewas.length === 1 ? '' : 's'}` : ''} · ${rupee(total)} bhet (your commission ${rupee(commission)}) by ${PAY_BY[paymentMethod]} · assign the people${location ? ` · at ${location.label || 'a map pin'}` : ''}`,
     '/admin?tab=leave',
     `leave-${leave.id}`,
   );
@@ -1245,7 +1277,7 @@ app.post('/api/team/leaves/:id/answer', requireMember, async (req, res) => {
     const b = db.bookings.find((y) => y.id === x.bookingId);
     if (!b || !isActive(b) || !(b.assignees || []).some((a) => a.id === leave.personId)) continue; // already changed by hand
     try {
-      changed.push({ booking: b, before: replaceAssignee(b, leave.personId, p.id, x.pay) });
+      changed.push({ booking: b, before: replaceAssignee(b, leave.personId, p.id, netPay(leave, x)) });
       Object.assign(b.assignees.find((a) => a.id === p.id), { state: 'confirmed', confirmedAt: at });
     } catch (e) {
       skipped.push(`${b.ref}: ${e.message}`);
@@ -1863,7 +1895,7 @@ function tellAssigned(leave, title) {
   for (const id of new Set((leave.picks || []).filter((x) => x.personId && (replyOf(x) === 'waiting' || (replyOf(x) === 'accepted' && !x.bookingId))).map((x) => x.personId))) {
     const who = personOf(id);
     const mine = leave.picks.filter((x) => x.personId === id);
-    if (who?.phone) notifyPhone(who.phone, { title, body: mine.map((x) => `${pickWhen(x)} · ₹${x.pay}`).join('; '), url: '/team', tag: `leave-${leave.id}-${id}` }).catch(() => {});
+    if (who?.phone) notifyPhone(who.phone, { title, body: mine.map((x) => `${pickWhen(x)} · ₹${netPay(leave, x)}`).join('; '), url: '/team', tag: `leave-${leave.id}-${id}` }).catch(() => {});
   }
 }
 
@@ -1873,7 +1905,7 @@ app.patch('/api/admin/leaves/:id', async (req, res) => {
   const leave = db.leaves.find((l) => l.id === req.params.id);
   if (!leave) fail(404, 'Team booking not found.');
   const action = req.body?.action;
-  if (!['approve', 'reject', 'cancel', 'keep', 'paid', 'unpaid'].includes(action)) fail(400, 'Choose approve or reject.');
+  if (!['approve', 'reject', 'cancel', 'keep', 'paid', 'unpaid', 'settle', 'unsettle'].includes(action)) fail(400, 'Choose approve or reject.');
   const note = str(req.body?.note, 300);
   const now = new Date().toISOString();
   const owner = personOf(leave.personId);
@@ -1881,6 +1913,17 @@ app.patch('/api/admin/leaves/:id', async (req, res) => {
 
   if (action === 'paid' || action === 'unpaid') {
     Object.assign(leave, { commissionPaid: action === 'paid', commissionPaidAt: action === 'paid' ? now : '' });
+  } else if (action === 'settle' || action === 'unsettle') {
+    // Cash: one person handed over the commission they collected on this booking (or that is undone).
+    const personId = str(req.body?.personId, 40);
+    const theirs = (leave.picks || []).filter((x) => x.personId === personId && replyOf(x) === 'accepted');
+    if (!theirs.length) fail(400, 'That person has nothing accepted on this team booking.');
+    for (const x of theirs) x.commissionPaidAt = action === 'settle' ? now : '';
+    // The member's bill counts as settled once everyone's commission is in.
+    const accepted = leave.picks.filter((x) => replyOf(x) === 'accepted');
+    Object.assign(leave, { commissionPaid: accepted.length > 0 && accepted.every((x) => x.commissionPaidAt), commissionPaidAt: action === 'settle' ? now : '' });
+    const who = personOf(personId);
+    if (action === 'settle' && who?.phone) notifyPhone(who.phone, { title: 'Commission received ✓', body: `${rupee(theirs.reduce((t, x) => t + pickCommission(leave, x), 0))} for ${leave.personName}'s team booking — thank you 🙏`, url: '/team?tab=leave', tag: `leave-${leave.id}-${personId}` }).catch(() => {});
   } else if (action === 'keep') {
     if (leave.cancelRequest?.status !== 'pending') fail(400, 'There is no pending cancellation request.');
     leave.cancelRequest = { ...leave.cancelRequest, status: 'rejected', note };
@@ -1915,7 +1958,7 @@ app.patch('/api/admin/leaves/:id', async (req, res) => {
       if (who?.phone) {
         notifyPhone(who.phone, {
           title: `${leave.emergency ? '🚨 ' : ''}Can you go in ${leave.personName}'s place? 🙏`,
-          body: `${mine.map((x) => `${ROLES[x.role] || 'Teammate'} ${pickWhen(x)} · ₹${x.pay}`).join('; ')} · accept or decline on your Team booking page`,
+          body: `${mine.map((x) => `${ROLES[x.role] || 'Teammate'} ${pickWhen(x)} · ₹${netPay(leave, x)}`).join('; ')} · accept or decline on your Team booking page`,
           url: '/team?tab=leave',
           tag: `leave-${leave.id}-${id}`,
         }).catch(() => {});
@@ -1931,7 +1974,7 @@ app.patch('/api/admin/leaves/:id', async (req, res) => {
     leave.note = note;
     tellOwner(action === 'reject' ? 'Team booking not approved' : 'Team booking cancelled');
   }
-  if (action !== 'paid' && action !== 'unpaid' && action !== 'keep') leave.decidedAt = now;
+  if (!['paid', 'unpaid', 'settle', 'unsettle', 'keep'].includes(action)) leave.decidedAt = now;
   await save();
   res.json({ leaves: db.leaves });
 });

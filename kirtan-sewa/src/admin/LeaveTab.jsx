@@ -14,12 +14,23 @@ const REPLY = { waiting: 'Asked — waiting for their yes', accepted: 'Accepted 
 const replyOf = (x) => x.reply || (x.personId ? 'accepted' : ''); // approved before replies existed = accepted
 const live = (l) => l.status === 'pending' || l.status === 'assigned' || l.status === 'approved';
 const asking = (l) => l.status === 'pending' || l.status === 'assigned';
-// What the member pays: the bhet offered plus the admin's commission on it.
+// The member pays the bhet offered; the admin keeps the commission out of it and the people who go get the rest.
+const cut = (l, x) => Math.round(((Number(x.pay) || 0) * (l.commissionRate ?? 0)) / 100);
+const netOf = (l, x) => (Number(x.pay) || 0) - cut(l, x);
+// Cash: each person who accepted collects their whole bhet and owes the commission on it — one share per person.
+const cashShares = (l) =>
+  l.paymentMethod !== 'cash'
+    ? []
+    : [...new Set((l.picks || []).filter((x) => x.personId && replyOf(x) === 'accepted').map((x) => x.personId))]
+        .map((id) => {
+          const mine = l.picks.filter((x) => x.personId === id && replyOf(x) === 'accepted');
+          return { id, amount: mine.reduce((t, x) => t + cut(l, x), 0), paid: mine.every((x) => x.commissionPaidAt) };
+        })
+        .filter((sh) => sh.amount > 0);
 const moneyOf = (l) => {
   const total = l.total ?? (l.picks || []).reduce((t, x) => t + (Number(x.pay) || 0), 0);
-  const rate = l.commissionRate ?? 0;
-  const commission = l.commission ?? Math.round((total * rate) / 100);
-  return { total, rate, commission };
+  const commission = l.commission ?? (l.picks || []).reduce((t, x) => t + cut(l, x), 0);
+  return { total, rate: l.commissionRate ?? 0, commission };
 };
 const NOTE_FOR = {
   reject: { title: 'Reject team booking', button: 'Reject', sub: 'They are told on their phone. You can add a message.' },
@@ -57,6 +68,11 @@ export default function LeaveTab({ data, api, setData, toast, openChat }) {
     .filter((l) => (filter === 'current' ? needsYou(l) || (live(l) && l.to >= today) : true))
     // What needs you first (emergencies at the very top), then those waiting for teammates, then by date.
     .sort((a, b) => rank(a) - rank(b) || a.from.localeCompare(b.from));
+  // Every cash commission still with the person who collected it (past bookings too).
+  const owed = (data.leaves || [])
+    .filter(live)
+    .flatMap((l) => cashShares(l).filter((sh) => !sh.paid).map((sh) => ({ ...sh, leave: l })))
+    .sort((a, b) => a.leave.from.localeCompare(b.leave.from));
   const affected = (l) => data.bookings.filter((b) => active(b) && b.date >= l.from && b.date <= l.to && (b.assignees || []).some((a) => a.id === l.personId)).sort((a, b) => (a.date + a.slotTime).localeCompare(b.date + b.slotTime));
   // Who could take the place: does this sewa, not already on the booking — nearest first.
   const options = (b, leavePersonId) =>
@@ -93,7 +109,7 @@ export default function LeaveTab({ data, api, setData, toast, openChat }) {
   });
 
   const mergeBookings = (list) => setData((d) => ({ ...d, bookings: d.bookings.map((b) => list.find((x) => x.id === b.id) || b) }));
-  const DONE = { approve: 'Sent — each person is asked to accept.', reject: 'Team booking rejected.', cancel: 'Team booking cancelled.', keep: 'Kept — they are told.', paid: 'Commission marked as received.', unpaid: 'Commission marked as not received.', delete: 'Team booking deleted.' };
+  const DONE = { approve: 'Sent — each person is asked to accept.', reject: 'Team booking rejected.', cancel: 'Team booking cancelled.', keep: 'Kept — they are told.', paid: 'Commission marked as received.', unpaid: 'Commission marked as not received.', settle: 'Commission received — their balance is cleared.', unsettle: 'Marked as not received.', delete: 'Team booking deleted.' };
   const decide = async (l, action, extra = {}) => {
     setBusy(l.id + action);
     try {
@@ -138,6 +154,25 @@ export default function LeaveTab({ data, api, setData, toast, openChat }) {
           <p>Team members ask for a Head Ragi, Side Ragi or Tabla to go in their place and offer the bhet; they pay it plus your commission. Assign a person to each request: each one is asked to accept, and only then is it booked and their sewa handed over. If someone declines, the request comes back here to choose someone else. Team bookings never block anyone — several can share the same dates.</p>
         </div>
       </div>
+      {owed.length > 0 && (
+        <div className="glass balance-card admin-owed">
+          <span className="label">Commission to collect (cash) — {rupees(owed.reduce((t, o) => t + o.amount, 0))}</span>
+          <p className="muted">These people were paid the whole bhet in cash and owe you the commission. They see it as a negative balance.</p>
+          <ul>
+            {owed.map((o) => (
+              <li key={o.leave.id + o.id}>
+                <span>
+                  <strong>{personOf(o.id)?.name || 'someone removed'}</strong> · in place of {personOf(o.leave.personId)?.name || o.leave.personName} · {prettyDate(o.leave.from, 'd MMM')}
+                </span>
+                <strong className="balance-neg">−{rupees(o.amount)}</strong>
+                <button className="btn btn-ghost btn-sm" onClick={() => decide(o.leave, 'settle', { personId: o.id })} disabled={!!busy}>
+                  {busy === o.leave.id + 'settle' ? <Loader2 size={14} className="spin" /> : <CircleCheck size={14} />} Received
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       <div className="filter-pills">
         {[
           { id: 'current', label: 'Pending & upcoming' },
@@ -178,9 +213,10 @@ export default function LeaveTab({ data, api, setData, toast, openChat }) {
                       const m = moneyOf(l);
                       return (
                         <span className="commission-line">
-                          Bhet {rupees(m.total)} + your commission ({m.rate}%) <strong>{rupees(m.commission)}</strong> = {rupees(m.total + m.commission)}
+                          They pay {rupees(m.total)} · your commission ({m.rate}%) <strong>{rupees(m.commission)}</strong> · teammates get {rupees(m.total - m.commission)}
                           {l.paymentMethod && ` · pays by ${l.paymentMethod === 'upi' ? 'UPI' : 'cash'}`}
-                          {m.commission > 0 && <small> · {l.commissionPaid ? 'commission received ✓' : 'commission not received yet'}</small>}
+                          {m.commission > 0 && l.paymentMethod !== 'cash' && <small> · {l.commissionPaid ? 'commission received ✓' : 'commission not received yet'}</small>}
+                          {l.paymentMethod === 'cash' && <small> · paid in cash to the people who go — they owe you the commission</small>}
                         </span>
                       );
                     })()}
@@ -216,6 +252,24 @@ export default function LeaveTab({ data, api, setData, toast, openChat }) {
                   </div>
                 )}
 
+                {cashShares(l).length > 0 && (
+                  <div className="leave-duties">
+                    <p className="label">Commission they collected in cash</p>
+                    {cashShares(l).map((sh) => (
+                      <div key={sh.id} className="leave-duty">
+                        <span>
+                          <strong>{personOf(sh.id)?.name || 'someone removed'}</strong> owes{' '}
+                          <strong className={sh.paid ? '' : 'balance-neg'}>{rupees(sh.amount)}</strong>
+                          {sh.paid && ' · received ✓'}
+                        </span>
+                        <button className="btn btn-ghost btn-sm" onClick={() => decide(l, sh.paid ? 'unsettle' : 'settle', { personId: sh.id })} disabled={!!busy}>
+                          {sh.paid ? <Undo2 size={14} /> : <CircleCheck size={14} />} {sh.paid ? 'Not received' : 'Received'}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
                 {(l.picks || []).length > 0 && (
                   <div className="leave-duties">
                     <p className="label">{l.status === 'pending' ? 'What they need — assign a person to each; they are asked to accept' : 'Who goes'}</p>
@@ -235,7 +289,8 @@ export default function LeaveTab({ data, api, setData, toast, openChat }) {
                       return (
                         <div key={i} className="leave-duty">
                           <span>
-                            <strong>{roles[x.role] || 'Teammate'}</strong> · ₹{x.pay} · {requestWhat(x)}
+                            <strong>{roles[x.role] || 'Teammate'}</strong> · ₹{x.pay}
+                            {cut(l, x) > 0 && ` (they get ₹${netOf(l, x)})`} · {requestWhat(x)}
                             {x.personId && reply && (
                               <small className={`reply-tag r-${reply}`}>
                                 {personOf(x.personId)?.name || 'someone removed'}: {REPLY[reply]}
@@ -303,7 +358,7 @@ export default function LeaveTab({ data, api, setData, toast, openChat }) {
                       <Undo2 size={15} /> Cancel
                     </button>
                   )}
-                  {moneyOf(l).commission > 0 && (l.status === 'approved' || l.commissionPaid) && (
+                  {moneyOf(l).commission > 0 && l.paymentMethod !== 'cash' && (l.status === 'approved' || l.commissionPaid) && (
                     <button className="btn btn-ghost btn-sm" onClick={() => decide(l, l.commissionPaid ? 'unpaid' : 'paid')} disabled={!!busy}>
                       {busy === l.id + 'paid' || busy === l.id + 'unpaid' ? <Loader2 size={15} className="spin" /> : <CircleCheck size={15} />} {l.commissionPaid ? 'Commission not received' : 'Commission received'}
                     </button>

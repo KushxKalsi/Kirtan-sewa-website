@@ -386,6 +386,8 @@ function TeamBooking({ data, team, apply, toast }) {
   const { site } = useSite();
   const bookedMe = data.bookedMe || [];
   const rate = data.commissionRate ?? 0;
+  const due = data.commissionDue || []; // cash commission they still hold for the admin
+  const owed = due.reduce((t, d) => t + d.amount, 0);
   const ownRole = roles[data.person.role] ? data.person.role : Object.keys(roles)[0];
   const blankForm = { from: '', to: '', reason: '', paymentMethod: '', location: null };
   const newExtra = (date = '') => ({ key: Math.random().toString(36).slice(2), role: ownRole, pay: '', date, start: '', end: '' });
@@ -403,8 +405,9 @@ function TeamBooking({ data, team, apply, toast }) {
   const items = affected.length ? affected.map((d) => ({ date: d.date, start: dutyStart(d) })) : extras.map((x) => ({ date: x.date || form.from, start: x.start }));
   const emergency = !!form.from && bookingStart(form.from, items) - Date.now() < DAY_MS;
   const pickOf = (id) => ({ role: ownRole, pay: '', ...picks[id] });
-  const offered = (affected.length ? affected.map((d) => pickOf(d.id).pay) : extras.map((x) => x.pay)).reduce((t, v) => t + (Number(v) || 0), 0);
-  const commission = Math.round((offered * rate) / 100);
+  const offers = (affected.length ? affected.map((d) => pickOf(d.id).pay) : extras.map((x) => x.pay)).map((v) => Number(v) || 0);
+  const offered = offers.reduce((t, v) => t + v, 0);
+  const commission = offers.reduce((t, v) => t + Math.round((v * rate) / 100), 0); // kept by the admin out of the bhet
   const setPick = (id, patch) => setPicks((all) => ({ ...all, [id]: { ...pickOf(id), ...patch } }));
   const copyToAll = (id) => setPicks((all) => ({ ...all, ...Object.fromEntries(affected.map((d) => [d.id, { ...pickOf(id) }])) }));
   const setExtra = (key, patch) => setExtras((list) => list.map((x) => (x.key === key ? { ...x, ...patch } : x)));
@@ -561,13 +564,13 @@ function TeamBooking({ data, team, apply, toast }) {
         {form.from && offered > 0 && (
           <div className="team-total">
             <span>
-              Bhet you offer <strong>{rupees(offered)}</strong>
+              Admin’s commission ({rate}%) <strong>{rupees(commission)}</strong>
             </span>
             <span>
-              Commission ({rate}% of the total) <strong>{rupees(commission)}</strong>
+              The people who go get <strong>{rupees(offered - commission)}</strong>
             </span>
             <span className="team-total-sum">
-              You pay <strong>{rupees(offered + commission)}</strong>
+              You pay <strong>{rupees(offered)}</strong>
               {form.paymentMethod && <small> by {PAY_BY[form.paymentMethod].label}</small>}
             </span>
           </div>
@@ -579,7 +582,7 @@ function TeamBooking({ data, team, apply, toast }) {
           </div>
         )}
         <p className="fine-print">
-          Ask at least 1 day before; later requests go as emergencies. Each person the admin assigns is asked to accept. You pay the bhet plus a {rate}% commission. A request can be withdrawn until the admin
+          Ask at least 1 day before; later requests go as emergencies. Each person the admin assigns is asked to accept. The admin keeps {rate}% of the bhet as commission. A request can be withdrawn until the admin
           assigns people (and not within 1 day of its start) — after that, ask the admin to cancel it.
         </p>
         <button className="btn btn-primary" disabled={!!busy}>
@@ -588,6 +591,25 @@ function TeamBooking({ data, team, apply, toast }) {
       </form>
 
       <div className="leave-list">
+        {due.length > 0 && (
+          <div className="glass balance-card">
+            <span className="label">Your balance</span>
+            <strong className="balance-neg">−{rupees(owed)}</strong>
+            <p className="muted">Commission you collected in cash for team bookings — please give it to the admin. It clears when the admin marks it received.</p>
+            <ul>
+              {due.map((d) => (
+                <li key={d.leaveId}>
+                  <span>
+                    In place of {d.inPlaceOf} · {prettyDate(d.from, 'd MMM')}
+                    {d.to !== d.from && ` – ${prettyDate(d.to, 'd MMM')}`}
+                  </span>
+                  <strong className="balance-neg">−{rupees(d.amount)}</strong>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
         <h3>Your team bookings</h3>
         {leaves.length === 0 && <p className="muted">No team bookings yet.</p>}
         {leaves.map((l) => (
@@ -608,7 +630,7 @@ function TeamBooking({ data, team, apply, toast }) {
                 const m = moneyOf(l);
                 return (
                   <span className="muted">
-                    {rupees(m.total)} bhet{m.commission > 0 ? ` + ${rupees(m.commission)} commission (${m.rate}%) = ${rupees(m.total + m.commission)}` : ''}
+                    {rupees(m.total)} bhet{m.commission > 0 ? ` (incl. ${rupees(m.commission)} commission, ${m.rate}%)` : ''}
                     {l.paymentMethod && ` · paying by ${PAY_BY[l.paymentMethod]?.label}`}
                   </span>
                 );
@@ -677,10 +699,27 @@ function TeamBooking({ data, team, apply, toast }) {
                       {x.serviceName ? `${x.serviceName} · ` : ''}
                       {prettyDate(x.date, 'EEE, d MMM')}
                       {pickTime(x)}
-                      {x.role ? ` · as ${roles[x.role]}` : ''} · ₹{x.pay}
+                      {x.role ? ` · as ${roles[x.role]}` : ''} · <strong>{rupees(x.pay)}</strong>
                     </span>
                   ))}
-                  {l.paymentMethod && <span className="muted">They pay you by {PAY_BY[l.paymentMethod]?.label}</span>}
+                  {l.paymentMethod === 'cash' && l.commissionRate > 0 ? (
+                    (() => {
+                      const gross = l.sewas.reduce((t, x) => t + x.gross, 0);
+                      const cut = l.sewas.reduce((t, x) => t + x.commission, 0);
+                      return (
+                        <span className="cash-split">
+                          <Banknote size={13} /> {l.name} pays you <strong>{rupees(gross)}</strong> in cash · give <strong className="balance-neg">{rupees(cut)}</strong> ({l.commissionRate}%) to the admin · yours{' '}
+                          <strong>{rupees(gross - cut)}</strong>
+                          {l.sewas.every((x) => x.reply !== 'accepted' || x.commissionPaid) && l.sewas.some((x) => x.reply === 'accepted') && <small> · commission received ✓</small>}
+                        </span>
+                      );
+                    })()
+                  ) : (
+                    <>
+                      {l.commissionRate > 0 && <span className="muted">Your bhet, after the admin’s {l.commissionRate}% commission</span>}
+                      {l.paymentMethod && <span className="muted">Paid to you by {PAY_BY[l.paymentMethod]?.label}</span>}
+                    </>
+                  )}
                   {l.location && (
                     <a className="muted" href={mapsLink(l.location)} target="_blank" rel="noreferrer">
                       <MapPin size={12} /> {l.location.label || 'Open map'}
@@ -1025,7 +1064,7 @@ export default function TeamDashboard() {
               <span>{t.label}</span>
               {t.id === 'chat' && data?.unread > 0 && <em className="tab-badge">{data.unread}</em>}
               {t.id === 'duties' && data && data.duties.some((d) => live(d) && d.date >= data.today && d.state !== 'confirmed') && <em className="tab-badge">!</em>}
-              {t.id === 'leave' && data?.bookedMe?.some((l) => l.sewas.some((x) => x.reply === 'waiting')) && <em className="tab-badge">!</em>}
+              {t.id === 'leave' && (data?.bookedMe?.some((l) => l.sewas.some((x) => x.reply === 'waiting')) || data?.commissionDue?.length > 0) && <em className="tab-badge">!</em>}
             </button>
           ))}
         </nav>

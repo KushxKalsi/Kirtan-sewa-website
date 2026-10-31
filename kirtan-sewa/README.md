@@ -212,8 +212,11 @@ The uploaded QR image is saved in `data/uploads/`.
   person assigned is asked on their **Team booking** page to **Accept** or say they **can't go**; a sewa is handed
   over (at the bhet offered) only when they accept, and the booking shows **Booked** once everyone has. If someone
   declines, it comes back to the admin to choose someone else.
-- The member pays the bhet plus a **10% commission** on the total (cash or UPI), shown before they send it; the admin
-  marks the commission received. Both sides can open and print a **Bill** for each team booking.
+- The member pays the bhet they offer (cash or UPI); the admin keeps a **10% commission** out of it and marks it
+  received. The people assigned see — and get, on any sewa handed to them — their bhet after the 10%.
+- **Cash:** the member pays the whole bhet to the people who go, so each one owes the admin the 10% on what they
+  accepted. They see it as a **negative balance** (e.g. −₹150) on their Team booking page; Admin → Team bookings lists
+  it under **Commission to collect (cash)**, and **Received** clears it. Both sides can open and print a **Bill** for each team booking.
 - Once people are assigned (or within 1 day of the start) the member can't withdraw it, but can **Ask to cancel**;
   the admin cancels it or keeps it. The admin can also reject, cancel or **delete** any team booking. Team bookings never block
   anyone: a member can make several on the same dates and can still be assigned on them. Any booking can
