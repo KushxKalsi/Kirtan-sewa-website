@@ -773,9 +773,11 @@ app.post(TEAM_SIGNUP_PATH, express.json({ limit: '30mb' }), async (req, res) => 
   const name = str(req.body?.name, 80);
   const phone = readPhone(req.body?.phone);
   const password = readPassword(req.body?.password);
-  const role = str(req.body?.role, 20);
   if (name.length < 2) fail(400, 'Please enter your name.');
-  if (!ROLES[role]) fail(400, 'Please choose your role: Head Ragi, Side Ragi or Tabla.');
+  // The types of kirtan they do become their skills (every sewa in each); the admin sets their role when approving.
+  const kinds = publicCategories();
+  const chosen = kinds.filter((c) => (Array.isArray(req.body?.categoryIds) ? req.body.categoryIds : []).includes(c.id));
+  if (kinds.length && !chosen.length) fail(400, 'Please choose the type of kirtan you do.');
   const existing = db.people.find((p) => samePhone(p.phone, phone));
   if (existing?.pending) fail(403, 'You have already signed up with this number. Your account is being verified by the admin.');
   if (existing?.passwordHash) fail(409, 'A team account with this mobile number already exists. Please log in.');
@@ -795,9 +797,9 @@ app.post(TEAM_SIGNUP_PATH, express.json({ limit: '30mb' }), async (req, res) => 
     phone,
     address: location.label,
     location,
-    role,
+    role: '',
     defaultPay: null,
-    skills: [],
+    skills: chosen.flatMap((c) => c.serviceIds.map((serviceId) => ({ categoryId: c.id, serviceId }))),
     active: false,
     pending: true,
     docs: Object.fromEntries(files.map((f) => [f.kind, { id: f.id, type: f.type, name: f.name, at: now }])),
@@ -808,7 +810,7 @@ app.post(TEAM_SIGNUP_PATH, express.json({ limit: '30mb' }), async (req, res) => 
   await Promise.all(files.map((f) => kv.set(`doc-${f.id}`, { type: f.type, data: f.data })));
   db.people.push(person);
   await save();
-  alertAdmin('New team sign-up — approve?', `${name} · ${ROLES[role]} · ${phone} · ${files.length} document(s)`, '/admin?tab=team', `member-${person.id}`);
+  alertAdmin('New team sign-up — approve?', `${name} · ${chosen.map((c) => c.name).join(', ') || 'no kirtan type'} · ${phone} · ${files.length} document(s) · set their role`, '/admin?tab=team', `member-${person.id}`);
   res.status(201).json({ pending: true });
 });
 
@@ -1110,7 +1112,7 @@ app.post('/api/team/duties/:id/pay-request', requireMember, async (req, res) => 
   res.json(teamPayload(req.person));
 });
 
-/* Team booking (stored as "leaves"): a team member asks for teammates (by type of kirtan) to go in their place, with
+/* Team booking (stored as "leaves"): a team member asks for a Head Ragi, Side Ragi or Tabla to go in their place, with
  * the bhet they offer; the admin assigns the people. With sewas in those days, every sewa gets its own request;
  * otherwise they ask for one or more by day and time. Team bookings never block anyone: a member may have several on
  * the same dates and can still be assigned on them.
@@ -1162,10 +1164,10 @@ app.post('/api/team/leaves', requireMember, async (req, res) => {
   if (reason.length < 3) fail(400, 'Please say why you need a teammate.');
   const sewas = db.bookings.filter((b) => isActive(b) && b.date >= from && b.date <= to && (b.assignees || []).some((a) => a.id === p.id));
   const given = Array.isArray(req.body?.picks) ? req.body.picks.slice(0, 40) : [];
-  // Each request: the bhet they offer (and the type of kirtan, below). The admin chooses the person. Older requests
-  // also named a role; one may still be sent, but none is asked for.
+  // Each request: which role they need and the bhet they offer (and the type of kirtan, below). The admin chooses the person.
   const readPick = (pick, what) => {
-    const role = ROLES[str(pick?.role, 20)] ? str(pick.role, 20) : '';
+    const role = str(pick?.role, 20);
+    if (!ROLES[role]) fail(400, `Choose Head Ragi, Side Ragi or Tabla for ${what}.`);
     const pay = Math.round(Number(pick.pay));
     if (!Number.isFinite(pay) || pay < LEAVE_MIN_PAY) fail(400, `Offer at least ₹${LEAVE_MIN_PAY} for ${what}.`);
     if (pay > 1000000) fail(400, 'That amount is too large.');
@@ -1180,7 +1182,7 @@ app.post('/api/team/leaves', requireMember, async (req, res) => {
     });
   } else {
     // No sewas of their own: ask for one or more people, each on a day (and time) within these dates.
-    if (!given.length) fail(400, 'Add at least one request.');
+    if (!given.length) fail(400, 'Ask for at least one Head Ragi, Side Ragi or Tabla.');
     const kinds = publicCategories();
     picks = given.map((g, i) => {
       // The type of kirtan (e.g. with Raag / Kavishri), when the site has them — so the right people are chosen.
@@ -1226,8 +1228,7 @@ app.post('/api/team/leaves', requireMember, async (req, res) => {
   db.leaves.push(leave);
   await save();
   const when = `${shortDate(from)}${to !== from ? ` – ${shortDate(to)}` : ''}`;
-  const kinds = [...new Set(picks.map((x) => x.categoryName || ROLES[x.role]).filter(Boolean))];
-  const wanted = `${picks.length === 1 ? 'a teammate' : `${picks.length} teammates`}${kinds.length ? ` (${kinds.join(', ')})` : ''}`;
+  const wanted = picks.map((x) => `${ROLES[x.role]}${x.categoryName ? ` (${x.categoryName})` : ''}`).join(', ');
   alertAdmin(
     `${emergency ? '🚨 Emergency: ' : ''}${p.name} needs ${wanted}`,
     `${when}${sewas.length ? ` · for ${sewas.length} of their sewa${sewas.length === 1 ? '' : 's'}` : ''} · ${rupee(total)} bhet (your commission ${rupee(commission)}) by ${PAY_BY[paymentMethod]} · assign the people${location ? ` · at ${location.label || 'a map pin'}` : ''}`,
@@ -1298,7 +1299,7 @@ app.post('/api/team/leaves/:id/answer', requireMember, async (req, res) => {
   await save();
   for (const { booking, before } of changed) teamChanged(booking, before);
   const owner = personOf(leave.personId);
-  const what = mine.map((x) => `${x.categoryName || ROLES[x.role] || 'Teammate'} ${pickWhen(x)}`).join('; ');
+  const what = mine.map((x) => `${ROLES[x.role] || 'Teammate'} ${pickWhen(x)}`).join('; ');
   if (accept) {
     alertAdmin(`${p.name} accepted ✅`, `In ${leave.personName}'s place · ${what}${allIn ? ' · everyone has accepted' : ''}${skipped.length ? ` · not handed over: ${skipped.join('; ')}` : ''}`, '/admin?tab=leave', `leave-${leave.id}`);
     if (owner?.phone) notifyPhone(owner.phone, { title: allIn ? 'Team booking confirmed 🙏' : `${p.name} will go in your place`, body: what, url: '/team', tag: `leave-${leave.id}` }).catch(() => {});
@@ -1967,7 +1968,7 @@ app.patch('/api/admin/leaves/:id', async (req, res) => {
       if (who?.phone) {
         notifyPhone(who.phone, {
           title: `${leave.emergency ? '🚨 ' : ''}Can you go in ${leave.personName}'s place? 🙏`,
-          body: `${mine.map((x) => `${x.categoryName || ROLES[x.role] || 'Teammate'} ${pickWhen(x)} · ₹${netPay(leave, x)}`).join('; ')} · accept or decline on your Team booking page`,
+          body: `${mine.map((x) => `${ROLES[x.role] || 'Teammate'}${x.categoryName ? ` (${x.categoryName})` : ''} ${pickWhen(x)} · ₹${netPay(leave, x)}`).join('; ')} · accept or decline on your Team booking page`,
           url: '/team?tab=leave',
           tag: `leave-${leave.id}-${id}`,
         }).catch(() => {});

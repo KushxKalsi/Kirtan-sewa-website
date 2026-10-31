@@ -2,16 +2,11 @@ import { useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { CircleAlert, CircleCheck, Eye, EyeOff, FileText, Hourglass, Loader2, LogIn, ShieldCheck, Trash2, Upload, UserPlus } from 'lucide-react';
 import { useAuth } from './AuthContext';
+import { useSite } from './SiteContext';
 import LocationPicker from './LocationPicker';
 import { api } from '../lib/api';
 import { fileToDataUrl, readDataUrl } from '../lib/image';
 
-// What a team member does in the jatha (same ids as the server's ROLES).
-const JATHA_ROLES = [
-  { id: 'head-ragi', label: 'Head Ragi' },
-  { id: 'side-ragi', label: 'Side Ragi' },
-  { id: 'tabla', label: 'Tabla' },
-];
 // Documents added when a team member signs up (same ids as the server's DOC_KINDS; Aadhaar is required there).
 const SIGNUP_DOCS = [
   { id: 'aadhaar', label: 'Aadhaar card', required: true },
@@ -100,9 +95,11 @@ function Verifying({ fresh, onBack }) {
  */
 export default function AuthForm({ role = 'user', initial = {}, onDone, startWith = 'login' }) {
   const { login } = useAuth();
+  const { site } = useSite();
+  const kinds = site?.categories || []; // types of kirtan a new team member can say they do
   const member = role === 'member';
   const [mode, setMode] = useState(startWith);
-  const [form, setForm] = useState({ name: initial.name || '', phone: initial.phone || '', password: '', jathaRole: '', location: null });
+  const [form, setForm] = useState({ name: initial.name || '', phone: initial.phone || '', password: '', kinds: [], location: null });
   const [docs, setDocs] = useState({});
   const setDoc = (id, value) => setDocs((d) => ({ ...d, [id]: value }));
   const [show, setShow] = useState(false);
@@ -119,12 +116,12 @@ export default function AuthForm({ role = 'user', initial = {}, onDone, startWit
     setError('');
     try {
       if (member && registering) {
-        if (!form.jathaRole) throw new Error('Please choose your role: Head Ragi, Side Ragi or Tabla.');
+        if (kinds.length && !form.kinds.length) throw new Error('Please choose the type of kirtan you do.');
         if (!form.location) throw new Error('Please pick where you are based on the map.');
         const missing = SIGNUP_DOCS.filter((d) => d.required && !docs[d.id]);
         if (missing.length) throw new Error(`Please add your ${missing.map((d) => d.label).join(', ')}.`);
         const attached = Object.fromEntries(Object.entries(docs).filter(([, v]) => v).map(([id, v]) => [id, { dataUrl: v.dataUrl, name: v.name }]));
-        await api.registerTeam({ name: form.name, phone: form.phone, password: form.password, role: form.jathaRole, location: form.location, docs: attached });
+        await api.registerTeam({ name: form.name, phone: form.phone, password: form.password, categoryIds: form.kinds, location: form.location, docs: attached });
         setWaiting('new');
         setMode('login');
         setForm((f) => ({ ...f, password: '' }));
@@ -161,17 +158,22 @@ export default function AuthForm({ role = 'user', initial = {}, onDone, startWit
         ))}
       </div>
       <AnimatePresence initial={false}>
-        {registering && member && (
-          <motion.div key="jatha-role" className="field-group" initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}>
-            <span className="label">What do you do in the jatha?</span>
-            <div className="auth-switch jatha-roles" role="radiogroup">
-              {JATHA_ROLES.map((r) => (
-                <button key={r.id} type="button" role="radio" aria-checked={form.jathaRole === r.id} className={form.jathaRole === r.id ? 'active' : ''} onClick={() => setForm((f) => ({ ...f, jathaRole: r.id }))}>
-                  {form.jathaRole === r.id && <motion.span layoutId="jatha-role" className="auth-switch-bg" transition={{ type: 'spring', stiffness: 420, damping: 34 }} />}
-                  <span>{r.label}</span>
-                </button>
-              ))}
+        {registering && member && kinds.length > 0 && (
+          <motion.div key="kirtan-kinds" className="field-group" initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}>
+            <span className="label">
+              Which type of kirtan do you do? <em className="req">*</em>
+            </span>
+            <div className="slot-checks" role="group">
+              {kinds.map((c) => {
+                const on = form.kinds.includes(c.id);
+                return (
+                  <button key={c.id} type="button" aria-pressed={on} className={`check-pill ${on ? 'active' : ''}`} onClick={() => setForm((f) => ({ ...f, kinds: on ? f.kinds.filter((k) => k !== c.id) : [...f.kinds, c.id] }))}>
+                    {c.name}
+                  </button>
+                );
+              })}
             </div>
+            <p className="fine-print">Choose all that apply.</p>
           </motion.div>
         )}
         {registering && (

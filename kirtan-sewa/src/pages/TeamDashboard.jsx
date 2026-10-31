@@ -338,8 +338,11 @@ const PAY_BY = {
 };
 const pickTime = (x) => (x.start ? ` · ${rangeTo12(`${x.start} – ${x.end}`)}` : ' · whole day');
 
-/** One request: the type of kirtan (when the site has them and it isn't fixed by a sewa) and the bhet offered. The admin picks the person. */
-function TeamRequest({ title, subtitle, pick, set, kinds = [], children, onCopy, onRemove }) {
+/**
+ * One request: the type of kirtan (when the site has them and it isn't fixed by a sewa), which role they need (Head
+ * Ragi / Side Ragi / Tabla) and the bhet offered. The admin picks the person.
+ */
+function RoleRequest({ title, subtitle, pick, set, roles, kinds = [], children, onCopy, onRemove }) {
   return (
     <div className="sewa-cover glass">
       <div className="sewa-cover-head">
@@ -364,6 +367,16 @@ function TeamRequest({ title, subtitle, pick, set, kinds = [], children, onCopy,
           </div>
         </div>
       )}
+      <div>
+        <span className="label">Who do you need? *</span>
+        <div className="slot-checks">
+          {Object.entries(roles).map(([id, label]) => (
+            <button type="button" key={id} className={`check-pill ${pick.role === id ? 'active' : ''}`} onClick={() => set({ role: id })}>
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
       <label>
         <span className="label">
           <HandCoins size={13} /> Bhet you offer (₹, at least {LEAVE_MIN_PAY}) *
@@ -380,7 +393,7 @@ function TeamRequest({ title, subtitle, pick, set, kinds = [], children, onCopy,
 }
 
 /**
- * Team booking: a team member asks for teammates (by type of kirtan) to go in their place, with the bhet they offer;
+ * Team booking: a team member asks for a Head Ragi, Side Ragi or Tabla to go in their place, with the bhet they offer;
  * the admin assigns the people. With sewas in those days each sewa gets a request; otherwise they ask by day and time.
  */
 function TeamBooking({ data, team, apply, toast }) {
@@ -390,8 +403,9 @@ function TeamBooking({ data, team, apply, toast }) {
   const due = data.commissionDue || []; // cash commission they still hold for the admin
   const owed = due.reduce((t, d) => t + d.amount, 0);
   const blankForm = { from: '', to: '', reason: '', paymentMethod: '', location: null };
+  const ownRole = roles[data.person.role] ? data.person.role : Object.keys(roles)[0];
   const kinds = site?.categories || []; // types of kirtan
-  const newExtra = (date = '', categoryId = kinds.length === 1 ? kinds[0].id : '') => ({ key: Math.random().toString(36).slice(2), categoryId, pay: '', date, start: '', end: '' });
+  const newExtra = (date = '', categoryId = kinds.length === 1 ? kinds[0].id : '') => ({ key: Math.random().toString(36).slice(2), role: ownRole, categoryId, pay: '', date, start: '', end: '' });
   const [form, setForm] = useState(blankForm);
   const [picks, setPicks] = useState({}); // duty id -> { role, pay }
   const [extras, setExtras] = useState(() => [newExtra()]); // requests by day/time when they have no sewas
@@ -405,7 +419,7 @@ function TeamBooking({ data, team, apply, toast }) {
   const general = form.from && !affected.length;
   const items = affected.length ? affected.map((d) => ({ date: d.date, start: dutyStart(d) })) : extras.map((x) => ({ date: x.date || form.from, start: x.start }));
   const emergency = !!form.from && bookingStart(form.from, items) - Date.now() < DAY_MS;
-  const pickOf = (id) => ({ pay: '', ...picks[id] });
+  const pickOf = (id) => ({ role: ownRole, pay: '', ...picks[id] });
   const offered = (affected.length ? affected.map((d) => pickOf(d.id).pay) : extras.map((x) => x.pay)).reduce((t, v) => t + (Number(v) || 0), 0);
   const setPick = (id, patch) => setPicks((all) => ({ ...all, [id]: { ...pickOf(id), ...patch } }));
   const copyToAll = (id) => setPicks((all) => ({ ...all, ...Object.fromEntries(affected.map((d) => [d.id, { ...pickOf(id) }])) }));
@@ -434,14 +448,14 @@ function TeamBooking({ data, team, apply, toast }) {
       for (const d of affected) {
         if (!(Number(pickOf(d.id).pay) >= LEAVE_MIN_PAY)) return toast(`Offer at least ₹${LEAVE_MIN_PAY} for ${d.serviceName} on ${prettyDate(d.date, 'd MMM')}.`, 'error');
       }
-      body = { ...form, to, picks: affected.map((d) => ({ bookingId: d.id, pay: Number(pickOf(d.id).pay) })) };
+      body = { ...form, to, picks: affected.map((d) => ({ bookingId: d.id, role: pickOf(d.id).role, pay: Number(pickOf(d.id).pay) })) };
     } else {
       for (const [i, x] of extras.entries()) {
         if (kinds.length && !kinds.some((c) => c.id === x.categoryId)) return toast(`Request ${i + 1}: choose the type of kirtan.`, 'error');
         if (!(Number(x.pay) >= LEAVE_MIN_PAY)) return toast(`Offer at least ₹${LEAVE_MIN_PAY} for request ${i + 1}.`, 'error');
         if ((x.start || x.end) && !(x.start && x.end && x.end > x.start)) return toast(`Request ${i + 1}: enter both times (end after start), or leave both empty for the whole day.`, 'error');
       }
-      body = { ...form, to, picks: extras.map((x) => ({ categoryId: x.categoryId, pay: Number(x.pay), date: x.date || form.from, start: x.start, end: x.end })) };
+      body = { ...form, to, picks: extras.map((x) => ({ role: x.role, categoryId: x.categoryId, pay: Number(x.pay), date: x.date || form.from, start: x.start, end: x.end })) };
     }
     if (await run('new', () => team.requestLeave(body), emergency ? 'Emergency request sent to the admin.' : 'Request sent — the admin will assign the people.')) {
       setForm(blankForm);
@@ -460,7 +474,7 @@ function TeamBooking({ data, team, apply, toast }) {
   const pickLine = (x) => {
     const reply = replyOf(x);
     const who = x.personId ? ` → ${nameOf(x.personId)} (${REPLY_TEXT[reply]})` : '';
-    return `${whatOf(x)}${roles[x.role] ? `: ${roles[x.role]}` : ''} · ₹${x.pay}${who}`;
+    return `${whatOf(x)}: ${roles[x.role] || 'Teammate'} · ₹${x.pay}${who}`;
   };
   const totalOf = (l) => (l.picks || []).reduce((t, x) => t + (Number(x.pay) || 0), 0);
   const billOf = (l) => ({ leave: l, settings: site?.settings || {}, member: { name: data.person.name, phone: data.person.phone }, roles, nameOf, whatOf });
@@ -470,7 +484,7 @@ function TeamBooking({ data, team, apply, toast }) {
     <div className="leave-grid">
       <form className="glass profile-card" onSubmit={submit}>
         <h3>Request a team member</h3>
-        <p className="muted">Need someone in your place? Choose the days, choose the type of kirtan and offer their bhet. The admin assigns the person.</p>
+        <p className="muted">Need someone in your place? Choose the days, choose the type of kirtan, say whether you need a Head Ragi, Side Ragi or Tabla and offer their bhet. The admin assigns the person.</p>
         <div className="grid-2">
           <label>
             <span className="label">First day *</span>
@@ -502,12 +516,13 @@ function TeamBooking({ data, team, apply, toast }) {
         {affected.length > 0 && (
           <div className="sewa-covers">
             {affected.map((d, i) => (
-              <TeamRequest
+              <RoleRequest
                 key={d.id}
                 title={d.serviceName}
                 subtitle={`${d.categoryName ? `${d.categoryName} · ` : ''}${prettyDate(d.date, 'EEE, d MMM')} · ${d.slotLabel} · ${rangeTo12(d.slotTime)}`}
                 pick={pickOf(d.id)}
                 set={(patch) => setPick(d.id, patch)}
+                roles={roles}
                 onCopy={i === 0 && affected.length > 1 ? () => copyToAll(d.id) : null}
               />
             ))}
@@ -516,7 +531,7 @@ function TeamBooking({ data, team, apply, toast }) {
         {general && (
           <div className="sewa-covers">
             {extras.map((x, i) => (
-              <TeamRequest key={x.key} title={`Request ${i + 1}`} pick={x} set={(patch) => setExtra(x.key, patch)} kinds={kinds} onRemove={extras.length > 1 ? () => setExtras((list) => list.filter((y) => y.key !== x.key)) : null}>
+              <RoleRequest key={x.key} title={`Request ${i + 1}`} pick={x} set={(patch) => setExtra(x.key, patch)} roles={roles} kinds={kinds} onRemove={extras.length > 1 ? () => setExtras((list) => list.filter((y) => y.key !== x.key)) : null}>
                 <div className="pick-when">
                   <label>
                     <span className="label">Day</span>
@@ -531,10 +546,10 @@ function TeamBooking({ data, team, apply, toast }) {
                     <input className="input" type="time" value={x.end} onChange={(e) => setExtra(x.key, { end: e.target.value })} />
                   </label>
                 </div>
-              </TeamRequest>
+              </RoleRequest>
             ))}
             <button type="button" className="btn btn-ghost btn-sm add-teammate" onClick={() => setExtras((list) => [...list, newExtra(list.at(-1)?.date || '', list.at(-1)?.categoryId)])}>
-              <UsersRound size={15} /> Add another (another time or type of kirtan)
+              <UsersRound size={15} /> Add another (ragi or tabla, another time)
             </button>
           </div>
         )}
