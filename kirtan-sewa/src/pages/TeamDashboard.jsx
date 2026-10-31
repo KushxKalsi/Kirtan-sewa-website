@@ -387,7 +387,6 @@ function TeamBooking({ data, team, apply, toast }) {
   const { today, duties, leaves, teammates, roles } = data;
   const { site } = useSite();
   const bookedMe = data.bookedMe || [];
-  const rate = data.commissionRate ?? 0;
   const due = data.commissionDue || []; // cash commission they still hold for the admin
   const owed = due.reduce((t, d) => t + d.amount, 0);
   const blankForm = { from: '', to: '', reason: '', paymentMethod: '', location: null };
@@ -407,9 +406,7 @@ function TeamBooking({ data, team, apply, toast }) {
   const items = affected.length ? affected.map((d) => ({ date: d.date, start: dutyStart(d) })) : extras.map((x) => ({ date: x.date || form.from, start: x.start }));
   const emergency = !!form.from && bookingStart(form.from, items) - Date.now() < DAY_MS;
   const pickOf = (id) => ({ pay: '', ...picks[id] });
-  const offers = (affected.length ? affected.map((d) => pickOf(d.id).pay) : extras.map((x) => x.pay)).map((v) => Number(v) || 0);
-  const offered = offers.reduce((t, v) => t + v, 0);
-  const commission = offers.reduce((t, v) => t + Math.round((v * rate) / 100), 0); // kept by the admin out of the bhet
+  const offered = (affected.length ? affected.map((d) => pickOf(d.id).pay) : extras.map((x) => x.pay)).reduce((t, v) => t + (Number(v) || 0), 0);
   const setPick = (id, patch) => setPicks((all) => ({ ...all, [id]: { ...pickOf(id), ...patch } }));
   const copyToAll = (id) => setPicks((all) => ({ ...all, ...Object.fromEntries(affected.map((d) => [d.id, { ...pickOf(id) }])) }));
   const setExtra = (key, patch) => setExtras((list) => list.map((x) => (x.key === key ? { ...x, ...patch } : x)));
@@ -465,10 +462,7 @@ function TeamBooking({ data, team, apply, toast }) {
     const who = x.personId ? ` → ${nameOf(x.personId)} (${REPLY_TEXT[reply]})` : '';
     return `${whatOf(x)}${roles[x.role] ? `: ${roles[x.role]}` : ''} · ₹${x.pay}${who}`;
   };
-  const moneyOf = (l) => {
-    const total = l.total ?? (l.picks || []).reduce((t, x) => t + (Number(x.pay) || 0), 0);
-    return { total, rate: l.commissionRate ?? 0, commission: l.commission ?? 0 };
-  };
+  const totalOf = (l) => (l.picks || []).reduce((t, x) => t + (Number(x.pay) || 0), 0);
   const billOf = (l) => ({ leave: l, settings: site?.settings || {}, member: { name: data.person.name, phone: data.person.phone }, roles, nameOf, whatOf });
   const answer = (l, accept, note = '') => run(`answer-${l.id}`, () => team.answerLeave(l.id, accept, note), accept ? 'Thank you — you’re booked. 🙏' : 'The admin is told — they will choose someone else.');
 
@@ -567,12 +561,6 @@ function TeamBooking({ data, team, apply, toast }) {
         {form.from && offered > 0 && (
           <div className="team-total">
             <span>
-              Admin’s commission ({rate}%) <strong>{rupees(commission)}</strong>
-            </span>
-            <span>
-              The people who go get <strong>{rupees(offered - commission)}</strong>
-            </span>
-            <span className="team-total-sum">
               You pay <strong>{rupees(offered)}</strong>
               {form.paymentMethod && <small> by {PAY_BY[form.paymentMethod].label}</small>}
             </span>
@@ -585,7 +573,7 @@ function TeamBooking({ data, team, apply, toast }) {
           </div>
         )}
         <p className="fine-print">
-          Ask at least 1 day before; later requests go as emergencies. Each person the admin assigns is asked to accept. The admin keeps {rate}% of the bhet as commission. A request can be withdrawn until the admin
+          Ask at least 1 day before; later requests go as emergencies. Each person the admin assigns is asked to accept. A request can be withdrawn until the admin
           assigns people (and not within 1 day of its start) — after that, ask the admin to cancel it.
         </p>
         <button className="btn btn-primary" disabled={!!busy}>
@@ -629,15 +617,10 @@ function TeamBooking({ data, team, apply, toast }) {
                   {pickLine(x)}
                 </span>
               ))}
-              {(() => {
-                const m = moneyOf(l);
-                return (
-                  <span className="muted">
-                    {rupees(m.total)} bhet{m.commission > 0 ? ` (incl. ${rupees(m.commission)} commission, ${m.rate}%)` : ''}
-                    {l.paymentMethod && ` · paying by ${PAY_BY[l.paymentMethod]?.label}`}
-                  </span>
-                );
-              })()}
+              <span className="muted">
+                {rupees(totalOf(l))} bhet
+                {l.paymentMethod && ` · paying by ${PAY_BY[l.paymentMethod]?.label}`}
+              </span>
               {l.replacementId && !l.picks && <span className="muted">Suggested: {nameOf(l.replacementId)}</span>}
               {l.location && (
                 <a className="muted" href={mapsLink(l.location)} target="_blank" rel="noreferrer">

@@ -5381,19 +5381,14 @@ input:focus-visible + .tick {
   padding: 12px 14px;
   border-radius: 14px;
   border: 1px dashed var(--stroke-gold);
-  font-size: 13.5px;
+  font-size: 15px;
 }
 .team-total span {
   display: flex;
   justify-content: space-between;
   gap: 12px;
 }
-.team-total-sum {
-  padding-top: 6px;
-  border-top: 1px solid var(--border);
-  font-size: 15px;
-}
-.team-total-sum small {
+.team-total small {
   margin-left: auto;
   color: var(--faint);
 }

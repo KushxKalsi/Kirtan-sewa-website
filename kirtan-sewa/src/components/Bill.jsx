@@ -142,18 +142,16 @@ export function Bill({ booking: b, settings: s, origin = '' }) {
   );
 }
 
-/** A team booking's bill to the member: the bhet for each person asked for, and the admin's commission kept out of it. */
+/** A team booking's bill to the member: the bhet for each person asked for. The admin's commission is never on it. */
 export function TeamBill({ leave: l, settings: s, member, roles = {}, nameOf = () => '', whatOf }) {
   const paid = !!l.commissionPaid;
-  const total = l.total ?? (l.picks || []).reduce((t, x) => t + (Number(x.pay) || 0), 0);
-  const rate = l.commissionRate ?? 0;
-  const commission = l.commission ?? (l.picks || []).reduce((t, x) => t + Math.round(((Number(x.pay) || 0) * rate) / 100), 0);
+  const total = (l.picks || []).reduce((t, x) => t + (Number(x.pay) || 0), 0);
   const byUpi = l.paymentMethod === 'upi';
   const from = [s.address, s.phone, s.email].filter(Boolean).join('\n');
   const billed = [member?.name || l.personName, member?.phone, 'Team member'].filter(Boolean).join('\n');
   const how = byUpi ? 'UPI' : l.paymentMethod === 'cash' ? 'cash' : '';
   let statusLine = how ? `Paying by ${how}` : '';
-  if (paid) statusLine = `Commission received${how ? ` by ${how}` : ''}${l.commissionPaidAt ? ` on ${format(new Date(l.commissionPaidAt), 'd MMM yyyy')}` : ''}`;
+  if (paid) statusLine = `Received${how ? ` by ${how}` : ''}${l.commissionPaidAt ? ` on ${format(new Date(l.commissionPaidAt), 'd MMM yyyy')}` : ''}`;
   if (l.status === 'cancelled' || l.status === 'rejected') statusLine = `This team booking was ${l.status}.`;
 
   return (
@@ -213,14 +211,6 @@ export function TeamBill({ leave: l, settings: s, member, roles = {}, nameOf = (
             <td colSpan={2}>Total</td>
             <td className="num">{rupees(total)}</td>
           </tr>
-          <tr className="bill-sub">
-            <td colSpan={2}>Includes commission ({rate}%)</td>
-            <td className="num">{rupees(commission)}</td>
-          </tr>
-          <tr className="bill-sub">
-            <td colSpan={2}>To the people who go</td>
-            <td className="num">{rupees(total - commission)}</td>
-          </tr>
         </tbody>
       </table>
 
@@ -233,7 +223,7 @@ export function TeamBill({ leave: l, settings: s, member, roles = {}, nameOf = (
 
       <p className="bill-thanks">
         <span>ਵਾਹਿਗੁਰੂ ਜੀ ਕਾ ਖ਼ਾਲਸਾ ਵਾਹਿਗੁਰੂ ਜੀ ਕੀ ਫ਼ਤਿਹ</span>
-        The bhet goes to the people who take your place, less the commission for arranging them.
+        The bhet goes to the people who take your place.
       </p>
     </div>
   );
