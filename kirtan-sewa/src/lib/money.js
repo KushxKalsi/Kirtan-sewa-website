@@ -2,11 +2,11 @@ import { Banknote, Smartphone } from 'lucide-react';
 
 export const rupees = (n) => `₹${Number(n).toLocaleString('en-IN')}`;
 
-export const upiLink = ({ upiId, upiName, amount, ref }) => {
+export const upiLink = ({ upiId, upiName, amount, ref, note }) => {
   const params = new URLSearchParams({ pa: upiId, cu: 'INR' });
   if (upiName) params.set('pn', upiName);
   if (amount) params.set('am', String(amount));
-  if (ref) params.set('tn', `Kirtan booking ${ref}`);
+  if (note || ref) params.set('tn', note || `Kirtan booking ${ref}`);
   return `upi://pay?${params.toString()}`;
 };
 
