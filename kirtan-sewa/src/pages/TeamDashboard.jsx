@@ -416,6 +416,7 @@ function TeamBooking({ data, team, apply, toast }) {
   const [reason, setReason] = useState('');
   const [bill, setBill] = useState(null);
   const [upiFor, setUpiFor] = useState(null); // own UPI team booking to pay
+  const [utr, setUtr] = useState('');
   const upi = site?.settings || {};
   const to = form.to || form.from;
   const affected = form.from ? duties.filter((d) => live(d) && d.date >= form.from && d.date <= to).sort((a, b) => (a.date + a.slotTime).localeCompare(b.date + b.slotTime)) : [];
@@ -460,7 +461,13 @@ function TeamBooking({ data, team, apply, toast }) {
       }
       body = { ...form, to, picks: extras.map((x) => ({ role: x.role, categoryId: x.categoryId, pay: Number(x.pay), date: x.date || form.from, start: x.start, end: x.end })) };
     }
-    if (await run('new', () => team.requestLeave(body), emergency ? 'Emergency request sent to the admin.' : 'Request sent — the admin will assign the people.')) {
+    let sent;
+    if (await run('new', async () => (sent = await team.requestLeave(body)), emergency ? 'Emergency request sent to the admin.' : 'Request sent — the admin will assign the people.')) {
+      // Paying by UPI: straight on to the QR and the transaction ID for the admin to verify.
+      if (form.paymentMethod === 'upi' && upi.upiId && sent.leaves[0]) {
+        setUtr('');
+        setUpiFor(sent.leaves[0]);
+      }
       setForm(blankForm);
       setPicks({});
       setExtras([newExtra()]);
@@ -587,7 +594,14 @@ function TeamBooking({ data, team, apply, toast }) {
         <AnimatePresence initial={false}>
           {form.from && form.paymentMethod === 'upi' && (
             <motion.div key="team-upi" className="team-upi" initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} transition={{ duration: 0.3, ease }}>
-              {upi.upiId ? <UpiScan settings={upi} amount={offered || undefined} note="Team booking bhet" /> : <p className="muted">The admin’s UPI details aren’t set up yet — ask the admin in the chat.</p>}
+              {upi.upiId ? (
+                <>
+                  <UpiScan settings={upi} amount={offered || undefined} note="Team booking bhet" />
+                  <p className="fine-print">After you send the request, enter the UPI transaction ID (UTR) — the admin verifies the payment.</p>
+                </>
+              ) : (
+                <p className="muted">The admin’s UPI details aren’t set up yet — ask the admin in the chat.</p>
+              )}
             </motion.div>
           )}
         </AnimatePresence>
@@ -664,12 +678,35 @@ function TeamBooking({ data, team, apply, toast }) {
                 </span>
               )}
               {l.cancelRequest?.status === 'rejected' && <span className="muted">The admin kept this booking{l.cancelRequest.note ? `: ${l.cancelRequest.note}` : '.'}</span>}
+              {l.paymentMethod === 'upi' &&
+                (l.commissionPaid ? (
+                  <span className="pay-line ok">
+                    <CircleCheck size={13} /> Payment received by the admin
+                  </span>
+                ) : l.payment?.status === 'submitted' ? (
+                  <span className="pay-line wait">
+                    <Hourglass size={13} /> UPI payment sent (UTR {l.payment.utr}) — waiting for the admin to verify
+                  </span>
+                ) : l.payment?.status === 'rejected' ? (
+                  <span className="pay-line bad">
+                    <CircleAlert size={13} /> The admin couldn’t find your UPI payment (UTR {l.payment.utr}){l.payment.note ? `: ${l.payment.note}` : ''}. Please check and send it again.
+                  </span>
+                ) : (
+                  ['pending', 'assigned', 'approved'].includes(l.status) && <span className="pay-line wait">Not paid yet</span>
+                ))}
               <span className="leave-item-actions">
                 <button type="button" className="link-btn" onClick={() => setBill(billOf(l))}>
                   <FileText size={13} /> Bill
                 </button>
-                {l.paymentMethod === 'upi' && !l.commissionPaid && ['pending', 'assigned', 'approved'].includes(l.status) && upi.upiId && (
-                  <button type="button" className="link-btn" onClick={() => setUpiFor(l)}>
+                {l.paymentMethod === 'upi' && !l.commissionPaid && l.payment?.status !== 'submitted' && ['pending', 'assigned', 'approved'].includes(l.status) && upi.upiId && (
+                  <button
+                    type="button"
+                    className="link-btn"
+                    onClick={() => {
+                      setUtr('');
+                      setUpiFor(l);
+                    }}
+                  >
                     <Smartphone size={13} /> Pay by UPI
                   </button>
                 )}
@@ -816,7 +853,27 @@ function TeamBooking({ data, team, apply, toast }) {
       </Modal>
       <TeamBillModal bill={bill} onClose={() => setBill(null)} />
       <Modal open={!!upiFor} onClose={() => setUpiFor(null)} title="Pay by UPI" subtitle={upiFor && `Team booking ${prettyDate(upiFor.from, 'd MMM yyyy')} · ${rupees(totalOf(upiFor))}`}>
-        {upiFor && <UpiScan settings={upi} amount={totalOf(upiFor)} note={`Team booking ${upiFor.billNo || ''}`.trim()} />}
+        {upiFor && (
+          <>
+            <UpiScan settings={upi} amount={totalOf(upiFor)} note={`Team booking ${upiFor.billNo || ''}`.trim()} />
+            <form
+              className="pay-utr"
+              onSubmit={async (e) => {
+                e.preventDefault();
+                if (await run('utr', () => team.payLeave(upiFor.id, utr), 'Sent — the admin will verify your payment.')) setUpiFor(null);
+              }}
+            >
+              <label className="field">
+                <input value={utr} onChange={(e) => setUtr(e.target.value)} placeholder=" " required autoCapitalize="characters" spellCheck="false" />
+                <span>UPI transaction ID / UTR</span>
+              </label>
+              <button className="btn btn-ghost" disabled={!!busy}>
+                {busy === 'utr' ? <Loader2 size={17} className="spin" /> : <Check size={17} />} I have paid
+              </button>
+            </form>
+            <p className="fine-print">Pay first, then enter the transaction ID from your UPI app. The admin checks it and marks the payment received.</p>
+          </>
+        )}
       </Modal>
     </div>
   );

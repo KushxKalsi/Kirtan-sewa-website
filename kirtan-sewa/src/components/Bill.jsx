@@ -147,12 +147,13 @@ export function TeamBill({ leave: l, settings: s, member, roles = {}, nameOf = (
   const paid = !!l.commissionPaid;
   const total = (l.picks || []).reduce((t, x) => t + (Number(x.pay) || 0), 0);
   const byUpi = l.paymentMethod === 'upi';
-  const showUpi = !paid && byUpi && s.upiId && l.status !== 'cancelled' && l.status !== 'rejected';
+  const showUpi = !paid && byUpi && s.upiId && l.payment?.status !== 'submitted' && l.status !== 'cancelled' && l.status !== 'rejected';
   const from = [s.address, s.phone, s.email].filter(Boolean).join('\n');
   const billed = [member?.name || l.personName, member?.phone, 'Team member'].filter(Boolean).join('\n');
   const how = byUpi ? 'UPI' : l.paymentMethod === 'cash' ? 'cash' : '';
   let statusLine = how ? `Paying by ${how}` : '';
-  if (paid) statusLine = `Received${how ? ` by ${how}` : ''}${l.commissionPaidAt ? ` on ${format(new Date(l.commissionPaidAt), 'd MMM yyyy')}` : ''}`;
+  if (paid) statusLine = `Received${how ? ` by ${how}` : ''}${l.commissionPaidAt ? ` on ${format(new Date(l.commissionPaidAt), 'd MMM yyyy')}` : ''}${l.payment?.utr ? ` · UTR ${l.payment.utr}` : ''}`;
+  else if (l.payment?.status === 'submitted') statusLine = `UPI payment sent (UTR ${l.payment.utr}) — awaiting verification`;
   if (l.status === 'cancelled' || l.status === 'rejected') statusLine = `This team booking was ${l.status}.`;
 
   return (

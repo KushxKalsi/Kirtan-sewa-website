@@ -217,6 +217,8 @@ The uploaded QR image is saved in `data/uploads/`.
   declines, it comes back to the admin to choose someone else.
 - The member pays the bhet they offer (cash or UPI; they never see the commission); the admin keeps a **10% commission** out of it and marks it
   received. The people assigned see — and get, on any sewa handed to them — their bhet after the 10%.
+- **UPI:** choosing UPI shows the admin's QR. After sending the request they enter the UPI transaction ID (UTR);
+  Admin → Team bookings shows it with **Verify payment** or **Not received** (they're told, and can send it again).
 - **Cash:** the member pays the whole bhet to the people who go, so each one owes the admin the 10% on what they
   accepted. They see it as a **negative balance** (e.g. −₹150) on their Team booking page; Admin → Team bookings lists
   it under **Commission to collect (cash)**, and **Received** clears it. Both sides can open and print a **Bill** for each team booking.

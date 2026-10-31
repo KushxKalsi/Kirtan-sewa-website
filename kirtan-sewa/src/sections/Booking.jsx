@@ -8,6 +8,7 @@ import Reveal from '../components/Reveal';
 import BookingSuccess from '../components/BookingSuccess';
 import AuthForm from '../components/AuthForm';
 import LocationPicker from '../components/LocationPicker';
+import { UpiScan } from '../components/PaymentBox';
 import IntlTours from '../components/IntlTours';
 import { useAuth } from '../components/AuthContext';
 import { useSite } from '../components/SiteContext';
@@ -556,7 +557,19 @@ export default function Booking({ preselect }) {
                           );
                         })}
                       </div>
-                      <p className="fine-print">You pay after the jatha confirms and sends your bill. You can change this later under “My account”.</p>
+                      <AnimatePresence initial={false}>
+                        {form.paymentMethod === 'upi' && (
+                          <motion.div key="booking-upi" className="team-upi" initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} transition={{ duration: 0.3, ease }}>
+                            <UpiScan settings={settings} amount={Number(form.offer) || undefined} note="Kirtan booking" />
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                      <p className="fine-print">
+                        {form.paymentMethod === 'upi'
+                          ? 'Pay by scanning this QR. Once the jatha confirms and sends your bill, enter the UPI transaction ID (UTR) under “My account” so the payment can be verified.'
+                          : 'You pay after the jatha confirms and sends your bill.'}{' '}
+                        You can change this later under “My account”.
+                      </p>
                     </div>
                   )}
 
