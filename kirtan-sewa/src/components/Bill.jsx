@@ -142,18 +142,17 @@ export function Bill({ booking: b, settings: s, origin = '' }) {
   );
 }
 
-/** A team booking's bill: the bhet for each person asked for, plus the admin's commission, billed to the member. */
-export function TeamBill({ leave: l, settings: s, member, roles = {}, nameOf = () => '', whatOf, origin = '' }) {
+/** A team booking's bill to the member: the bhet for each person asked for, and the admin's commission kept out of it. */
+export function TeamBill({ leave: l, settings: s, member, roles = {}, nameOf = () => '', whatOf }) {
   const paid = !!l.commissionPaid;
   const total = l.total ?? (l.picks || []).reduce((t, x) => t + (Number(x.pay) || 0), 0);
   const rate = l.commissionRate ?? 0;
-  const commission = l.commission ?? Math.round((total * rate) / 100);
+  const commission = l.commission ?? (l.picks || []).reduce((t, x) => t + Math.round(((Number(x.pay) || 0) * rate) / 100), 0);
   const byUpi = l.paymentMethod === 'upi';
-  const showUpi = !paid && byUpi && s.upiId;
   const from = [s.address, s.phone, s.email].filter(Boolean).join('\n');
   const billed = [member?.name || l.personName, member?.phone, 'Team member'].filter(Boolean).join('\n');
   const how = byUpi ? 'UPI' : l.paymentMethod === 'cash' ? 'cash' : '';
-  let statusLine = how ? `Bhet to the people assigned and the commission, by ${how}` : '';
+  let statusLine = how ? `Paying by ${how}` : '';
   if (paid) statusLine = `Commission received${how ? ` by ${how}` : ''}${l.commissionPaidAt ? ` on ${format(new Date(l.commissionPaidAt), 'd MMM yyyy')}` : ''}`;
   if (l.status === 'cancelled' || l.status === 'rejected') statusLine = `This team booking was ${l.status}.`;
 
@@ -210,17 +209,17 @@ export function TeamBill({ leave: l, settings: s, member, roles = {}, nameOf = (
               <td className="num">{rupees(x.pay)}</td>
             </tr>
           ))}
-          <tr className="bill-sub">
-            <td colSpan={2}>Total bhet</td>
+          <tr className="bill-total">
+            <td colSpan={2}>Total</td>
             <td className="num">{rupees(total)}</td>
           </tr>
           <tr className="bill-sub">
-            <td colSpan={2}>Commission ({rate}% of the total bhet)</td>
+            <td colSpan={2}>Includes commission ({rate}%)</td>
             <td className="num">{rupees(commission)}</td>
           </tr>
-          <tr className="bill-total">
-            <td colSpan={2}>Total</td>
-            <td className="num">{rupees(total + commission)}</td>
+          <tr className="bill-sub">
+            <td colSpan={2}>To the people who go</td>
+            <td className="num">{rupees(total - commission)}</td>
           </tr>
         </tbody>
       </table>
@@ -230,21 +229,11 @@ export function TeamBill({ leave: l, settings: s, member, roles = {}, nameOf = (
           <span className={`bill-stamp ${paid ? 'paid' : 'due'}`}>{paid ? 'Paid' : l.status === 'cancelled' || l.status === 'rejected' ? l.status : 'Amount due'}</span>
           <p className="bill-stamp-sub">{statusLine}</p>
         </div>
-        {showUpi && (
-          <div className="bill-pay">
-            <p>
-              Commission via UPI
-              <strong>{s.upiId}</strong>
-              {s.upiName}
-            </p>
-            {s.upiQr && <img src={origin + s.upiQr} alt="UPI QR" />}
-          </div>
-        )}
       </footer>
 
       <p className="bill-thanks">
         <span>ਵਾਹਿਗੁਰੂ ਜੀ ਕਾ ਖ਼ਾਲਸਾ ਵਾਹਿਗੁਰੂ ਜੀ ਕੀ ਫ਼ਤਿਹ</span>
-        The bhet goes to the people who take your place; the commission is for arranging them.
+        The bhet goes to the people who take your place, less the commission for arranging them.
       </p>
     </div>
   );

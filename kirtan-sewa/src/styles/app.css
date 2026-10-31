@@ -5326,6 +5326,55 @@ input:focus-visible + .tick {
   align-items: center;
   gap: 4px;
 }
+.balance-card {
+  display: grid;
+  gap: 6px;
+  padding: 16px 18px;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 107, 107, 0.3);
+}
+.balance-card > strong {
+  font-size: 26px;
+  line-height: 1.1;
+}
+.balance-card p {
+  margin: 0;
+  font-size: 13px;
+}
+.balance-card ul {
+  display: grid;
+  gap: 6px;
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.balance-card li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  font-size: 13.5px;
+}
+.balance-card li > span {
+  flex: 1 1 200px;
+  min-width: 0;
+}
+.admin-owed {
+  margin-bottom: 14px;
+}
+.balance-neg {
+  color: var(--danger-text);
+}
+.cash-split {
+  font-size: 13.5px;
+}
+.cash-split svg {
+  vertical-align: -2px;
+  color: var(--gold);
+}
+.cash-split small {
+  color: var(--faint);
+}
 .team-total {
   display: grid;
   gap: 4px;
