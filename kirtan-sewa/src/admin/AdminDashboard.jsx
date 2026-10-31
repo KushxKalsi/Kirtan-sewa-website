@@ -90,7 +90,7 @@ export default function AdminDashboard({ token, onLogout }) {
   const ctx = { data, api, patch, setData, reload: load, toast, openChat };
   const badges = data && {
     chat: (data.chats || []).reduce((s, c) => s + c.unread, 0),
-    leave: (data.leaves || []).filter((l) => l.status === 'pending' || l.cancelRequest?.status === 'pending').length,
+    leave: (data.leaves || []).filter((l) => l.status === 'pending' || l.cancelRequest?.status === 'pending' || (l.paymentMethod === 'upi' && !l.commissionPaid && l.payment?.status === 'submitted')).length,
     team: (data.people || []).filter((p) => p.pending).length,
   };
 

@@ -1262,6 +1262,22 @@ app.post('/api/team/leaves/:id/cancel-request', requireMember, async (req, res) 
   res.json(teamPayload(req.person));
 });
 
+/* Paid by UPI (to the admin's UPI): they send the transaction ID and the admin verifies it. commissionPaid is the
+ * admin's "received" mark; payment holds what they sent and whether the admin turned it down. */
+app.post('/api/team/leaves/:id/payment', requireMember, async (req, res) => {
+  const leave = db.leaves.find((l) => l.id === req.params.id && l.personId === req.person.id);
+  if (!leave) fail(404, 'Team booking not found.');
+  if (leave.paymentMethod !== 'upi') fail(400, 'This team booking is paid in cash.');
+  if (!liveLeave(leave)) fail(400, `This team booking is ${leave.status}.`);
+  if (leave.commissionPaid) fail(400, 'The admin has already received this payment.');
+  const utr = str(req.body?.utr, 40).replace(/\s/g, '');
+  if (!/^[A-Za-z0-9]{6,40}$/.test(utr)) fail(400, 'Please enter the UPI transaction ID / UTR shown in your payment app.');
+  leave.payment = { status: 'submitted', utr, at: new Date().toISOString(), note: '' };
+  await save();
+  alertAdmin(`💳 ${req.person.name} paid a team booking by UPI`, `${rupee(leave.total ?? 0)} · UTR ${utr} · please verify`, '/admin?tab=leave', `leave-${leave.id}`);
+  res.json(teamPayload(req.person));
+});
+
 app.post('/api/team/leaves/:id/cancel-request/withdraw', requireMember, async (req, res) => {
   const leave = db.leaves.find((l) => l.id === req.params.id && l.personId === req.person.id);
   if (leave?.cancelRequest?.status !== 'pending') fail(400, 'There is no pending request.');
@@ -1923,6 +1939,11 @@ app.patch('/api/admin/leaves/:id', async (req, res) => {
 
   if (action === 'paid' || action === 'unpaid') {
     Object.assign(leave, { commissionPaid: action === 'paid', commissionPaidAt: action === 'paid' ? now : '' });
+    // Answering a UPI payment they sent: verified, or not found (they're told and can send it again).
+    if (leave.payment?.status === 'submitted' || leave.payment?.status === 'verified') {
+      leave.payment = { ...leave.payment, status: action === 'paid' ? 'verified' : 'rejected', note };
+      tellOwner(action === 'paid' ? 'Payment received ✓' : 'UPI payment not received', action === 'paid' ? `${leaveWhen(leave)} · thank you 🙏` : `${leaveWhen(leave)} · UTR ${leave.payment.utr} — please check and send it again`);
+    }
   } else if (action === 'settle' || action === 'unsettle') {
     // Cash: one person handed over the commission they collected on this booking (or that is undone).
     const personId = str(req.body?.personId, 40);

@@ -36,6 +36,7 @@ const NOTE_FOR = {
   reject: { title: 'Reject team booking', button: 'Reject', sub: 'They are told on their phone. You can add a message.' },
   cancel: { title: 'Cancel team booking', button: 'Cancel it', sub: 'They and anyone asked to go are told. A sewa already handed over stays with the new person — use Replace on the booking to change it.' },
   keep: { title: 'Keep the team booking', button: 'Keep it', sub: 'Turns down their request to cancel. You can add a message.' },
+  unpaid: { title: 'UPI payment not received', button: 'Not received', sub: 'They are told to check their payment and send it again. You can add a message.' },
   delete: { title: 'Delete team booking', button: 'Delete', sub: 'Removes it for good, for the member too. If it is still on, the people asked are told it is cancelled.' },
 };
 const active = (b) => b.status === 'pending' || b.status === 'confirmed';
@@ -62,7 +63,8 @@ export default function LeaveTab({ data, api, setData, toast, openChat }) {
     setNoteFor({ leave, action });
   };
 
-  const needsYou = (l) => l.status === 'pending' || l.cancelRequest?.status === 'pending';
+  const paySent = (l) => l.paymentMethod === 'upi' && !l.commissionPaid && l.payment?.status === 'submitted'; // UPI payment to verify
+  const needsYou = (l) => l.status === 'pending' || l.cancelRequest?.status === 'pending' || paySent(l);
   const rank = (l) => (needsYou(l) ? (l.emergency ? 0 : 1) : l.status === 'assigned' ? 2 : 3);
   const leaves = [...(data.leaves || [])]
     .filter((l) => (filter === 'current' ? needsYou(l) || (live(l) && l.to >= today) : true))
@@ -113,7 +115,7 @@ export default function LeaveTab({ data, api, setData, toast, openChat }) {
   });
 
   const mergeBookings = (list) => setData((d) => ({ ...d, bookings: d.bookings.map((b) => list.find((x) => x.id === b.id) || b) }));
-  const DONE = { approve: 'Sent — each person is asked to accept.', reject: 'Team booking rejected.', cancel: 'Team booking cancelled.', keep: 'Kept — they are told.', paid: 'Commission marked as received.', unpaid: 'Commission marked as not received.', settle: 'Commission received — their balance is cleared.', unsettle: 'Marked as not received.', delete: 'Team booking deleted.' };
+  const DONE = { approve: 'Sent — each person is asked to accept.', reject: 'Team booking rejected.', cancel: 'Team booking cancelled.', keep: 'Kept — they are told.', paid: 'Payment marked as received.', unpaid: 'Marked as not received.', settle: 'Commission received — their balance is cleared.', unsettle: 'Marked as not received.', delete: 'Team booking deleted.' };
   const decide = async (l, action, extra = {}) => {
     setBusy(l.id + action);
     try {
@@ -219,7 +221,7 @@ export default function LeaveTab({ data, api, setData, toast, openChat }) {
                         <span className="commission-line">
                           They pay {rupees(m.total)} · your commission ({m.rate}%) <strong>{rupees(m.commission)}</strong> · teammates get {rupees(m.total - m.commission)}
                           {l.paymentMethod && ` · pays by ${l.paymentMethod === 'upi' ? 'UPI' : 'cash'}`}
-                          {m.commission > 0 && l.paymentMethod !== 'cash' && <small> · {l.commissionPaid ? 'commission received ✓' : 'commission not received yet'}</small>}
+                          {l.paymentMethod === 'upi' && <small> · {l.commissionPaid ? 'payment received ✓' : l.payment?.status === 'rejected' ? 'payment not found — waiting for them to send it again' : paySent(l) ? 'payment sent — verify it below' : 'not paid yet'}</small>}
                           {l.paymentMethod === 'cash' && <small> · paid in cash to the people who go — they owe you the commission</small>}
                         </span>
                       );
@@ -239,6 +241,22 @@ export default function LeaveTab({ data, api, setData, toast, openChat }) {
                     </button>
                   )}
                 </div>
+
+                {paySent(l) && (
+                  <div className="leave-pay-ask">
+                    <span>
+                      <strong>They paid {rupees(moneyOf(l).total)} by UPI.</strong> UTR <code>{l.payment.utr}</code> · {format(new Date(l.payment.at), 'd MMM, h:mm a')} — check it in your UPI app.
+                    </span>
+                    <div className="ab-actions">
+                      <button className="btn btn-primary btn-sm" onClick={() => decide(l, 'paid')} disabled={!!busy}>
+                        {busy === l.id + 'paid' ? <Loader2 size={15} className="spin" /> : <CircleCheck size={15} />} Verify payment
+                      </button>
+                      <button className="btn btn-ghost btn-sm danger-text" onClick={() => askNote(l, 'unpaid')} disabled={!!busy}>
+                        <Ban size={15} /> Not received
+                      </button>
+                    </div>
+                  </div>
+                )}
 
                 {l.cancelRequest?.status === 'pending' && (
                   <div className="leave-cancel-ask">
@@ -363,9 +381,9 @@ export default function LeaveTab({ data, api, setData, toast, openChat }) {
                       <Undo2 size={15} /> Cancel
                     </button>
                   )}
-                  {moneyOf(l).commission > 0 && l.paymentMethod !== 'cash' && (l.status === 'approved' || l.commissionPaid) && (
+                  {l.paymentMethod !== 'cash' && !paySent(l) && (live(l) || l.commissionPaid) && (
                     <button className="btn btn-ghost btn-sm" onClick={() => decide(l, l.commissionPaid ? 'unpaid' : 'paid')} disabled={!!busy}>
-                      {busy === l.id + 'paid' || busy === l.id + 'unpaid' ? <Loader2 size={15} className="spin" /> : <CircleCheck size={15} />} {l.commissionPaid ? 'Commission not received' : 'Commission received'}
+                      {busy === l.id + 'paid' || busy === l.id + 'unpaid' ? <Loader2 size={15} className="spin" /> : <CircleCheck size={15} />} {l.commissionPaid ? 'Mark not received' : 'Payment received'}
                     </button>
                   )}
                   <button className="btn btn-ghost btn-sm" onClick={() => setBill(billOf(l))}>

@@ -5302,6 +5302,19 @@ input:focus-visible + .tick {
 .reply-tag.r-declined {
   color: var(--danger-text);
 }
+.leave-pay-ask {
+  display: grid;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  font-size: 13.5px;
+  border: 1px solid var(--stroke-gold);
+  background: var(--surface);
+}
+.leave-pay-ask code {
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
 .leave-cancel-ask {
   display: grid;
   gap: 10px;
@@ -5371,6 +5384,31 @@ input:focus-visible + .tick {
 }
 .cash-split small {
   color: var(--faint);
+}
+.pay-line {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 5px;
+  font-size: 13px;
+}
+.pay-line svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.pay-line.ok {
+  color: var(--success);
+}
+.pay-line.wait {
+  color: var(--warn);
+}
+.pay-line.bad {
+  color: var(--danger-text);
+}
+.team-upi .fine-print {
+  margin: 10px 0 0;
+}
+.modal .pay-utr {
+  margin-top: 14px;
 }
 .team-upi {
   overflow: hidden;

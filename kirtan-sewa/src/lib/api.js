@@ -58,6 +58,7 @@ export const teamApi = (token) => ({
   requestPay: (id, amount, note) => request(`/team/duties/${id}/pay-request`, { method: 'POST', body: { amount, note }, token }),
   requestLeave: (body) => request('/team/leaves', { method: 'POST', body, token }),
   withdrawLeave: (id) => request(`/team/leaves/${id}`, { method: 'DELETE', token }),
+  payLeave: (id, utr) => request(`/team/leaves/${id}/payment`, { method: 'POST', body: { utr }, token }),
   requestLeaveCancel: (id, reason) => request(`/team/leaves/${id}/cancel-request`, { method: 'POST', body: { reason }, token }),
   withdrawLeaveCancel: (id) => request(`/team/leaves/${id}/cancel-request/withdraw`, { method: 'POST', body: {}, token }),
   answerLeave: (id, accept, note) => request(`/team/leaves/${id}/answer`, { method: 'POST', body: { accept, note }, token }),
