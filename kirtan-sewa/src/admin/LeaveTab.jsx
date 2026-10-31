@@ -42,7 +42,7 @@ const active = (b) => b.status === 'pending' || b.status === 'confirmed';
 const canDo = (p, b) => p.active && (p.skills || []).some((k) => k.serviceId === b.serviceId && (!b.categoryId || k.categoryId === b.categoryId));
 
 /**
- * Team bookings: a member asks for a Head Ragi / Side Ragi / Tabla in their place; the admin assigns the people, who
+ * Team bookings: a member asks for teammates (by type of kirtan) in their place; the admin assigns the people, who
  * then accept or decline. The admin can also reject, cancel (or answer a request to cancel) and delete them.
  */
 export default function LeaveTab({ data, api, setData, toast, openChat }) {
@@ -81,14 +81,17 @@ export default function LeaveTab({ data, api, setData, toast, openChat }) {
       .map((p) => ({ p, km: distanceKm(b.location, p.location) }))
       .sort((x, y) => (x.km ?? 1e9) - (y.km ?? 1e9));
   const pickFor = (l, b) => picks[l.id]?.[b.id] ?? '';
-  // Who can be assigned to a request: anyone active (able to do the sewa, if it is one) — the role asked for first, then nearest.
+  // Who does the type of kirtan asked for (any sewa in it); 1 = yes. Requests without a type count everyone.
+  const doesKind = (p, x) => (!x.categoryId || (p.skills || []).some((k) => k.categoryId === x.categoryId) ? 1 : 0);
+  // Who can be assigned to a request: anyone active (able to do the sewa, if it is one) — the role asked for first, then
+  // those who do that type of kirtan, then nearest.
   const candidates = (l, x) => {
     const b = x.bookingId && data.bookings.find((y) => y.id === x.bookingId);
     const where = b?.location || l.location;
     return people
       .filter((p) => p.active && !p.pending && p.id !== l.personId && (!b || (canDo(p, b) && !(b.assignees || []).some((a) => a.id === p.id && a.id !== l.personId))))
       .map((p) => ({ p, km: distanceKm(where, p.location) }))
-      .sort((m, n) => (m.p.role === x.role ? 0 : 1) - (n.p.role === x.role ? 0 : 1) || (m.km ?? 1e9) - (n.km ?? 1e9));
+      .sort((m, n) => (m.p.role === x.role ? 0 : 1) - (n.p.role === x.role ? 0 : 1) || doesKind(n.p, x) - doesKind(m.p, x) || (m.km ?? 1e9) - (n.km ?? 1e9));
   };
   // Someone who declined isn't chosen again unless the admin picks them.
   const assignedFor = (l, i) => assign[l.id]?.[i] ?? (replyOf(l.picks[i]) === 'declined' ? '' : (l.picks[i].personId ?? ''));
@@ -97,7 +100,8 @@ export default function LeaveTab({ data, api, setData, toast, openChat }) {
   const requestWhat = (x) => {
     const b = x.bookingId && data.bookings.find((y) => y.id === x.bookingId);
     const when = `${format(fromKey(x.date), 'EEE d MMM')}, ${x.start ? rangeTo12(`${x.start} – ${x.end}`) : 'whole day'}`;
-    return b ? `${b.serviceName} · ${when} · ${b.name}` : `${x.serviceName ? `${x.serviceName} · ` : ''}${when}`;
+    const kind = x.categoryName || b?.categoryName;
+    return `${kind ? `${kind} · ` : ''}${b ? `${b.serviceName} · ${when} · ${b.name}` : `${x.serviceName ? `${x.serviceName} · ` : ''}${when}`}`;
   };
   const billOf = (l) => ({
     leave: l,
@@ -117,7 +121,7 @@ export default function LeaveTab({ data, api, setData, toast, openChat }) {
       if (action === 'approve') {
         const idx = (l.picks || []).map((x, i) => (open(l, x) ? i : -1)).filter((i) => i >= 0);
         const missing = idx.find((i) => !assignedFor(l, i));
-        if (missing !== undefined) throw new Error(`Choose who goes as ${roles[l.picks[missing].role] || 'the teammate'} for ${requestWhat(l.picks[missing])}.`);
+        if (missing !== undefined) throw new Error(`Choose who goes for ${requestWhat(l.picks[missing])}.`);
         body = { ...body, assign: Object.fromEntries(idx.map((i) => [i, assignedFor(l, i)])) };
       }
       const res = action === 'delete' ? await api.deleteLeave(l.id) : await api.decideLeave(l.id, body);
@@ -151,7 +155,7 @@ export default function LeaveTab({ data, api, setData, toast, openChat }) {
       <div className="admin-section-head">
         <div>
           <h2>Team bookings</h2>
-          <p>Team members ask for a Head Ragi, Side Ragi or Tabla to go in their place and offer the bhet; they pay it plus your commission. Assign a person to each request: each one is asked to accept, and only then is it booked and their sewa handed over. If someone declines, the request comes back here to choose someone else. Team bookings never block anyone — several can share the same dates.</p>
+          <p>Team members ask for teammates to go in their place — choosing the type of kirtan — and offer the bhet; you keep the commission out of it. People who do that type of kirtan are listed first. Assign a person to each request: each one is asked to accept, and only then is it booked and their sewa handed over. If someone declines, the request comes back here to choose someone else. Team bookings never block anyone — several can share the same dates.</p>
         </div>
       </div>
       {owed.length > 0 && (
@@ -277,8 +281,10 @@ export default function LeaveTab({ data, api, setData, toast, openChat }) {
                       const editable = open(l, x);
                       const reply = replyOf(x);
                       const opts = editable ? candidates(l, x) : [];
-                      const match = opts.filter((o) => o.p.role === x.role);
-                      const others = opts.filter((o) => o.p.role !== x.role);
+                      // Older requests named a role; newer ones a type of kirtan — group by whichever was asked for.
+                      const fits = (o) => (x.role ? o.p.role === x.role : doesKind(o.p, x));
+                      const match = x.role || x.categoryId ? opts.filter(fits) : [];
+                      const others = x.role || x.categoryId ? opts.filter((o) => !fits(o)) : opts;
                       const option = ({ p: o, km }) => (
                         <option key={o.id} value={o.id}>
                           {o.name}
@@ -289,7 +295,7 @@ export default function LeaveTab({ data, api, setData, toast, openChat }) {
                       return (
                         <div key={i} className="leave-duty">
                           <span>
-                            <strong>{roles[x.role] || 'Teammate'}</strong> · ₹{x.pay}
+                            <strong>{roles[x.role] || `Request ${i + 1}`}</strong> · ₹{x.pay}
                             {cut(l, x) > 0 && ` (they get ₹${netOf(l, x)})`} · {requestWhat(x)}
                             {x.personId && reply && (
                               <small className={`reply-tag r-${reply}`}>
@@ -301,8 +307,8 @@ export default function LeaveTab({ data, api, setData, toast, openChat }) {
                           {editable ? (
                             <select className="input" value={assignedFor(l, i)} onChange={(e) => setAssign((a) => ({ ...a, [l.id]: { ...a[l.id], [i]: e.target.value } }))}>
                               <option value="">{opts.length ? `Choose the ${roles[x.role] || 'person'}…` : 'Nobody is free for this'}</option>
-                              {match.length > 0 && <optgroup label={roles[x.role]}>{match.map(option)}</optgroup>}
-                              {others.length > 0 && <optgroup label="Other roles">{others.map(option)}</optgroup>}
+                              {match.length > 0 && <optgroup label={x.role ? roles[x.role] : `Does ${x.categoryName}`}>{match.map(option)}</optgroup>}
+                              {others.length > 0 && (match.length > 0 ? <optgroup label={x.role ? 'Other roles' : 'Others'}>{others.map(option)}</optgroup> : others.map(option))}
                             </select>
                           ) : (
                             <span className="muted">{x.personId && reply !== 'declined' ? `→ ${personOf(x.personId)?.name || 'someone removed'}` : '—'}</span>

@@ -957,6 +957,7 @@ function teamPayload(p) {
             const b = x.bookingId && db.bookings.find((y) => y.id === x.bookingId);
             return {
               serviceName: b?.serviceName || x.serviceName || '',
+              categoryName: x.categoryName || b?.categoryName || '',
               role: x.role || '',
               date: x.date || b?.date || l.from,
               start: x.start || '',
@@ -1106,7 +1107,7 @@ app.post('/api/team/duties/:id/pay-request', requireMember, async (req, res) => 
   res.json(teamPayload(req.person));
 });
 
-/* Team booking (stored as "leaves"): a team member asks for a Head Ragi, Side Ragi or Tabla to go in their place, with
+/* Team booking (stored as "leaves"): a team member asks for teammates (by type of kirtan) to go in their place, with
  * the bhet they offer; the admin assigns the people. With sewas in those days, every sewa gets its own request;
  * otherwise they ask for one or more by day and time. Team bookings never block anyone: a member may have several on
  * the same dates and can still be assigned on them.
@@ -1158,10 +1159,10 @@ app.post('/api/team/leaves', requireMember, async (req, res) => {
   if (reason.length < 3) fail(400, 'Please say why you need a teammate.');
   const sewas = db.bookings.filter((b) => isActive(b) && b.date >= from && b.date <= to && (b.assignees || []).some((a) => a.id === p.id));
   const given = Array.isArray(req.body?.picks) ? req.body.picks.slice(0, 40) : [];
-  // Each request: which role they need and the bhet they offer. The admin chooses the person.
+  // Each request: the bhet they offer (and the type of kirtan, below). The admin chooses the person. Older requests
+  // also named a role; one may still be sent, but none is asked for.
   const readPick = (pick, what) => {
-    const role = str(pick?.role, 20);
-    if (!ROLES[role]) fail(400, `Choose Head Ragi, Side Ragi or Tabla for ${what}.`);
+    const role = ROLES[str(pick?.role, 20)] ? str(pick.role, 20) : '';
     const pay = Math.round(Number(pick.pay));
     if (!Number.isFinite(pay) || pay < LEAVE_MIN_PAY) fail(400, `Offer at least ₹${LEAVE_MIN_PAY} for ${what}.`);
     if (pay > 1000000) fail(400, 'That amount is too large.');
@@ -1172,18 +1173,22 @@ app.post('/api/team/leaves', requireMember, async (req, res) => {
     // Every sewa in these days gets its own request (different sewas, even on one day, can need different people).
     picks = sewas.map((b) => {
       const [start, end] = rangeOf(b);
-      return { ...readPick(given.find((x) => x?.bookingId === b.id), `${b.serviceName} on ${shortDate(b.date)} (${b.slotTime})`), bookingId: b.id, serviceName: b.serviceName, date: b.date, start, end };
+      return { ...readPick(given.find((x) => x?.bookingId === b.id), `${b.serviceName} on ${shortDate(b.date)} (${b.slotTime})`), bookingId: b.id, serviceName: b.serviceName, categoryId: b.categoryId || '', categoryName: b.categoryName || '', date: b.date, start, end };
     });
   } else {
     // No sewas of their own: ask for one or more people, each on a day (and time) within these dates.
-    if (!given.length) fail(400, 'Ask for at least one Head Ragi, Side Ragi or Tabla.');
+    if (!given.length) fail(400, 'Add at least one request.');
+    const kinds = publicCategories();
     picks = given.map((g, i) => {
+      // The type of kirtan (e.g. with Raag / Kavishri), when the site has them — so the right people are chosen.
+      const category = kinds.find((c) => c.id === str(g?.categoryId, 80));
+      if (kinds.length && !category) fail(400, `Request ${i + 1}: choose the type of kirtan.`);
       const date = str(g?.date, 10) || from;
       if (!DATE_RE.test(date) || date < from || date > to) fail(400, `Request ${i + 1}: choose a day between the first and last day.`);
       const start = str(g?.start, 5);
       const end = str(g?.end, 5);
       if ((start || end) && !(TIME_RE.test(start) && TIME_RE.test(end) && end > start)) fail(400, `Request ${i + 1}: enter a start and end time (end after start), or leave both empty for the whole day.`);
-      return { ...readPick(g, `request ${i + 1}`), date, start, end };
+      return { ...readPick(g, `request ${i + 1}`), categoryId: category?.id || '', categoryName: category?.name || '', date, start, end };
     });
   }
   const paymentMethod = str(req.body?.paymentMethod, 10);
@@ -1218,7 +1223,8 @@ app.post('/api/team/leaves', requireMember, async (req, res) => {
   db.leaves.push(leave);
   await save();
   const when = `${shortDate(from)}${to !== from ? ` – ${shortDate(to)}` : ''}`;
-  const wanted = picks.map((x) => ROLES[x.role]).join(', ');
+  const kinds = [...new Set(picks.map((x) => x.categoryName || ROLES[x.role]).filter(Boolean))];
+  const wanted = `${picks.length === 1 ? 'a teammate' : `${picks.length} teammates`}${kinds.length ? ` (${kinds.join(', ')})` : ''}`;
   alertAdmin(
     `${emergency ? '🚨 Emergency: ' : ''}${p.name} needs ${wanted}`,
     `${when}${sewas.length ? ` · for ${sewas.length} of their sewa${sewas.length === 1 ? '' : 's'}` : ''} · ${rupee(total)} bhet (your commission ${rupee(commission)}) by ${PAY_BY[paymentMethod]} · assign the people${location ? ` · at ${location.label || 'a map pin'}` : ''}`,
@@ -1289,7 +1295,7 @@ app.post('/api/team/leaves/:id/answer', requireMember, async (req, res) => {
   await save();
   for (const { booking, before } of changed) teamChanged(booking, before);
   const owner = personOf(leave.personId);
-  const what = mine.map((x) => `${ROLES[x.role] || 'Teammate'} ${pickWhen(x)}`).join('; ');
+  const what = mine.map((x) => `${x.categoryName || ROLES[x.role] || 'Teammate'} ${pickWhen(x)}`).join('; ');
   if (accept) {
     alertAdmin(`${p.name} accepted ✅`, `In ${leave.personName}'s place · ${what}${allIn ? ' · everyone has accepted' : ''}${skipped.length ? ` · not handed over: ${skipped.join('; ')}` : ''}`, '/admin?tab=leave', `leave-${leave.id}`);
     if (owner?.phone) notifyPhone(owner.phone, { title: allIn ? 'Team booking confirmed 🙏' : `${p.name} will go in your place`, body: what, url: '/team', tag: `leave-${leave.id}` }).catch(() => {});
@@ -1958,7 +1964,7 @@ app.patch('/api/admin/leaves/:id', async (req, res) => {
       if (who?.phone) {
         notifyPhone(who.phone, {
           title: `${leave.emergency ? '🚨 ' : ''}Can you go in ${leave.personName}'s place? 🙏`,
-          body: `${mine.map((x) => `${ROLES[x.role] || 'Teammate'} ${pickWhen(x)} · ₹${netPay(leave, x)}`).join('; ')} · accept or decline on your Team booking page`,
+          body: `${mine.map((x) => `${x.categoryName || ROLES[x.role] || 'Teammate'} ${pickWhen(x)} · ₹${netPay(leave, x)}`).join('; ')} · accept or decline on your Team booking page`,
           url: '/team?tab=leave',
           tag: `leave-${leave.id}-${id}`,
         }).catch(() => {});
