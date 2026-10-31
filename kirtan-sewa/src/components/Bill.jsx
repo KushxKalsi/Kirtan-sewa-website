@@ -26,6 +26,7 @@ export const BILL_CSS = `
 .bill td small{display:block;color:var(--soft)}
 .bill .num{text-align:right;white-space:nowrap}
 .bill-total td{border-bottom:0;font-weight:800;font-size:17px;padding-top:16px}
+.bill-sub td{border-bottom:0;padding-top:8px;padding-bottom:4px;color:var(--soft)}
 .bill-foot{display:flex;justify-content:space-between;align-items:flex-end;gap:24px;margin-top:26px}
 .bill-stamp{display:inline-block;padding:8px 16px;border:2px solid currentColor;border-radius:10px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;transform:rotate(-4deg)}
 .bill-stamp.paid{color:#15803d}.bill-stamp.due{color:#c2410c}
@@ -141,14 +142,129 @@ export function Bill({ booking: b, settings: s, origin = '' }) {
   );
 }
 
+/** A team booking's bill: the bhet for each person asked for, plus the admin's commission, billed to the member. */
+export function TeamBill({ leave: l, settings: s, member, roles = {}, nameOf = () => '', whatOf, origin = '' }) {
+  const paid = !!l.commissionPaid;
+  const total = l.total ?? (l.picks || []).reduce((t, x) => t + (Number(x.pay) || 0), 0);
+  const rate = l.commissionRate ?? 0;
+  const commission = l.commission ?? Math.round((total * rate) / 100);
+  const byUpi = l.paymentMethod === 'upi';
+  const showUpi = !paid && byUpi && s.upiId;
+  const from = [s.address, s.phone, s.email].filter(Boolean).join('\n');
+  const billed = [member?.name || l.personName, member?.phone, 'Team member'].filter(Boolean).join('\n');
+  const how = byUpi ? 'UPI' : l.paymentMethod === 'cash' ? 'cash' : '';
+  let statusLine = how ? `Bhet to the people assigned and the commission, by ${how}` : '';
+  if (paid) statusLine = `Commission received${how ? ` by ${how}` : ''}${l.commissionPaidAt ? ` on ${format(new Date(l.commissionPaidAt), 'd MMM yyyy')}` : ''}`;
+  if (l.status === 'cancelled' || l.status === 'rejected') statusLine = `This team booking was ${l.status}.`;
+
+  return (
+    <div className="bill">
+      <header className="bill-head">
+        <div className="bill-brand">
+          <span className="bill-mark">ੴ</span>
+          <div>
+            <p className="bill-name">{s.siteName}</p>
+            {s.gurmukhiTagline && <p className="bill-tag">{s.gurmukhiTagline}</p>}
+          </div>
+        </div>
+        <div className="bill-title">
+          <h2>BILL</h2>
+          <p>
+            No. <strong>{l.billNo || l.id.slice(0, 8).toUpperCase()}</strong>
+          </p>
+          <p>Date: {format(new Date(l.createdAt), 'd MMM yyyy')}</p>
+          <p>
+            Team booking: {prettyDate(l.from, 'd MMM yyyy')}
+            {l.to !== l.from && ` – ${prettyDate(l.to, 'd MMM yyyy')}`}
+          </p>
+        </div>
+      </header>
+
+      <section className="bill-parties">
+        <div>
+          <h4>From</h4>
+          <p>{from}</p>
+        </div>
+        <div>
+          <h4>Billed to</h4>
+          <p>{billed}</p>
+        </div>
+      </section>
+
+      <table>
+        <thead>
+          <tr>
+            <th>Who goes</th>
+            <th>Sewa / time</th>
+            <th className="num">Bhet</th>
+          </tr>
+        </thead>
+        <tbody>
+          {(l.picks || []).map((x, i) => (
+            <tr key={i}>
+              <td>
+                {roles[x.role] || 'Teammate'}
+                <small>{x.personId && x.reply !== 'declined' ? nameOf(x.personId) : 'To be assigned'}</small>
+              </td>
+              <td>{whatOf(x)}</td>
+              <td className="num">{rupees(x.pay)}</td>
+            </tr>
+          ))}
+          <tr className="bill-sub">
+            <td colSpan={2}>Total bhet</td>
+            <td className="num">{rupees(total)}</td>
+          </tr>
+          <tr className="bill-sub">
+            <td colSpan={2}>Commission ({rate}% of the total bhet)</td>
+            <td className="num">{rupees(commission)}</td>
+          </tr>
+          <tr className="bill-total">
+            <td colSpan={2}>Total</td>
+            <td className="num">{rupees(total + commission)}</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <footer className="bill-foot">
+        <div>
+          <span className={`bill-stamp ${paid ? 'paid' : 'due'}`}>{paid ? 'Paid' : l.status === 'cancelled' || l.status === 'rejected' ? l.status : 'Amount due'}</span>
+          <p className="bill-stamp-sub">{statusLine}</p>
+        </div>
+        {showUpi && (
+          <div className="bill-pay">
+            <p>
+              Commission via UPI
+              <strong>{s.upiId}</strong>
+              {s.upiName}
+            </p>
+            {s.upiQr && <img src={origin + s.upiQr} alt="UPI QR" />}
+          </div>
+        )}
+      </footer>
+
+      <p className="bill-thanks">
+        <span>ਵਾਹਿਗੁਰੂ ਜੀ ਕਾ ਖ਼ਾਲਸਾ ਵਾਹਿਗੁਰੂ ਜੀ ਕੀ ਫ਼ਤਿਹ</span>
+        The bhet goes to the people who take your place; the commission is for arranging them.
+      </p>
+    </div>
+  );
+}
+
 /** Opens the bill in a clean window and triggers print (Save as PDF works from there). */
-export async function printBill(booking, settings) {
+export function printBill(booking, settings) {
+  return printWindow(`Bill ${booking.billNo} — ${settings.siteName}`, () => <Bill booking={booking} settings={settings} origin={window.location.origin} />);
+}
+export function printTeamBill(props) {
+  return printWindow(`Bill ${props.leave.billNo || ''} — ${props.settings.siteName}`, () => <TeamBill {...props} origin={window.location.origin} />);
+}
+
+async function printWindow(title, render) {
   const win = window.open('', '_blank'); // must open synchronously inside the click
   if (!win) return;
   const { renderToStaticMarkup } = await import('react-dom/server');
-  const html = renderToStaticMarkup(<Bill booking={booking} settings={settings} origin={window.location.origin} />);
+  const html = renderToStaticMarkup(render());
   win.document.write(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Bill ${booking.billNo} — ${settings.siteName}</title>
+<title>${title}</title>
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@600;700&family=Manrope:wght@400;600;800&family=Noto+Sans+Gurmukhi:wght@400;600&display=swap" rel="stylesheet">
 <style>body{margin:0;padding:24px;background:#fff}@media print{body{padding:0}.bill{border-radius:0;padding:12mm}@page{margin:8mm}}${BILL_CSS}</style>
 </head><body>${html}<script>Promise.all([document.fonts.ready,...Array.from(document.images).map(i=>i.complete?0:new Promise(r=>{i.onload=i.onerror=r}))]).then(()=>setTimeout(()=>window.print(),150))</script></body></html>`);
@@ -164,6 +280,24 @@ export function BillModal({ booking, settings, onClose }) {
           <Bill booking={booking} settings={settings} />
           <div className="modal-actions">
             <button className="btn btn-primary" onClick={() => printBill(booking, settings)}>
+              <Download size={17} /> Print / Save as PDF
+            </button>
+          </div>
+        </>
+      )}
+    </Modal>
+  );
+}
+
+export function TeamBillModal({ bill, onClose }) {
+  return (
+    <Modal open={!!bill} onClose={onClose} title={bill ? `Bill ${bill.leave.billNo || ''}` : ''} wide>
+      {bill && (
+        <>
+          <style>{BILL_CSS}</style>
+          <TeamBill {...bill} />
+          <div className="modal-actions">
+            <button className="btn btn-primary" onClick={() => printTeamBill(bill)}>
               <Download size={17} /> Print / Save as PDF
             </button>
           </div>

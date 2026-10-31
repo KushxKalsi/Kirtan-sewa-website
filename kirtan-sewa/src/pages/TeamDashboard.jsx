@@ -33,6 +33,7 @@ import {
 import Modal from '../components/Modal';
 import NotifyButton from '../components/NotifyButton';
 import ChatBox from '../components/ChatBox';
+import { TeamBillModal } from '../components/Bill';
 import LocationPicker from '../components/LocationPicker';
 import { useAuth } from '../components/AuthContext';
 import { useSite } from '../components/SiteContext';
@@ -49,7 +50,9 @@ const TABS = [
   { id: 'chat', label: 'Chat with admin', icon: MessagesSquare },
   { id: 'profile', label: 'Profile & documents', icon: UserRound },
 ];
-const LEAVE_TEXT = { pending: 'Waiting for admin', approved: 'Approved', rejected: 'Not approved', cancelled: 'Cancelled by admin' };
+const LEAVE_TEXT = { pending: 'Waiting for admin', assigned: 'Waiting for teammates', approved: 'Booked', rejected: 'Not approved', cancelled: 'Cancelled' };
+const REPLY_TEXT = { waiting: 'asked, not answered yet', accepted: 'accepted ✓', declined: 'can’t go — the admin will choose someone else' };
+const replyOf = (x) => x.reply || (x.personId ? 'accepted' : ''); // approved before replies existed = accepted
 const live = (d) => d.status === 'pending' || d.status === 'confirmed';
 const dayKey = (d) => format(d, 'yyyy-MM-dd');
 
@@ -380,7 +383,9 @@ function RoleRequest({ title, subtitle, pick, set, roles, children, onCopy, onRe
  */
 function TeamBooking({ data, team, apply, toast }) {
   const { today, duties, leaves, teammates, roles } = data;
+  const { site } = useSite();
   const bookedMe = data.bookedMe || [];
+  const rate = data.commissionRate ?? 0;
   const ownRole = roles[data.person.role] ? data.person.role : Object.keys(roles)[0];
   const blankForm = { from: '', to: '', reason: '', paymentMethod: '', location: null };
   const newExtra = (date = '') => ({ key: Math.random().toString(36).slice(2), role: ownRole, pay: '', date, start: '', end: '' });
@@ -388,12 +393,18 @@ function TeamBooking({ data, team, apply, toast }) {
   const [picks, setPicks] = useState({}); // duty id -> { role, pay }
   const [extras, setExtras] = useState(() => [newExtra()]); // requests by day/time when they have no sewas
   const [busy, setBusy] = useState('');
+  const [cancelFor, setCancelFor] = useState(null); // own booking to ask the admin to cancel
+  const [declineFor, setDeclineFor] = useState(null); // a teammate's booking I can't go for
+  const [reason, setReason] = useState('');
+  const [bill, setBill] = useState(null);
   const to = form.to || form.from;
   const affected = form.from ? duties.filter((d) => live(d) && d.date >= form.from && d.date <= to).sort((a, b) => (a.date + a.slotTime).localeCompare(b.date + b.slotTime)) : [];
   const general = form.from && !affected.length;
   const items = affected.length ? affected.map((d) => ({ date: d.date, start: dutyStart(d) })) : extras.map((x) => ({ date: x.date || form.from, start: x.start }));
   const emergency = !!form.from && bookingStart(form.from, items) - Date.now() < DAY_MS;
   const pickOf = (id) => ({ role: ownRole, pay: '', ...picks[id] });
+  const offered = (affected.length ? affected.map((d) => pickOf(d.id).pay) : extras.map((x) => x.pay)).reduce((t, v) => t + (Number(v) || 0), 0);
+  const commission = Math.round((offered * rate) / 100);
   const setPick = (id, patch) => setPicks((all) => ({ ...all, [id]: { ...pickOf(id), ...patch } }));
   const copyToAll = (id) => setPicks((all) => ({ ...all, ...Object.fromEntries(affected.map((d) => [d.id, { ...pickOf(id) }])) }));
   const setExtra = (key, patch) => setExtras((list) => list.map((x) => (x.key === key ? { ...x, ...patch } : x)));
@@ -435,13 +446,24 @@ function TeamBooking({ data, team, apply, toast }) {
       setExtras([newExtra()]);
     }
   };
-  const canWithdraw = (l) => l.status === 'pending' && new Date(l.startsAt || fromKey(l.from)).getTime() - Date.now() >= DAY_MS;
-  const pickLine = (x) => {
+  const canWithdraw = (l) => l.status === 'pending' && !l.cancelRequest && new Date(l.startsAt || fromKey(l.from)).getTime() - Date.now() >= DAY_MS;
+  // Once the admin is on it (or it starts within a day), they ask the admin to cancel instead.
+  const canAskCancel = (l) => ['pending', 'assigned', 'approved'].includes(l.status) && l.to >= today && !canWithdraw(l) && l.cancelRequest?.status !== 'pending';
+  const whatOf = (x) => {
     const d = x.bookingId && dutyOf(x.bookingId);
-    const what = d ? `${d.serviceName} ${prettyDate(d.date, 'd MMM')} ${rangeTo12(d.slotTime)}` : `${prettyDate(x.date, 'd MMM')}${pickTime(x)}`;
-    const who = x.personId ? ` → ${nameOf(x.personId)}` : '';
-    return `${what}: ${roles[x.role] || 'Teammate'} · ₹${x.pay}${who}`;
+    return d ? `${d.serviceName} ${prettyDate(d.date, 'd MMM')} ${rangeTo12(d.slotTime)}` : `${x.serviceName ? `${x.serviceName} ` : ''}${prettyDate(x.date, 'd MMM')}${pickTime(x)}`;
   };
+  const pickLine = (x) => {
+    const reply = replyOf(x);
+    const who = x.personId ? ` → ${nameOf(x.personId)} (${REPLY_TEXT[reply]})` : '';
+    return `${whatOf(x)}: ${roles[x.role] || 'Teammate'} · ₹${x.pay}${who}`;
+  };
+  const moneyOf = (l) => {
+    const total = l.total ?? (l.picks || []).reduce((t, x) => t + (Number(x.pay) || 0), 0);
+    return { total, rate: l.commissionRate ?? 0, commission: l.commission ?? 0 };
+  };
+  const billOf = (l) => ({ leave: l, settings: site?.settings || {}, member: { name: data.person.name, phone: data.person.phone }, roles, nameOf, whatOf });
+  const answer = (l, accept, note = '') => run(`answer-${l.id}`, () => team.answerLeave(l.id, accept, note), accept ? 'Thank you — you’re booked. 🙏' : 'The admin is told — they will choose someone else.');
 
   return (
     <div className="leave-grid">
@@ -536,13 +558,30 @@ function TeamBooking({ data, team, apply, toast }) {
             </div>
           </div>
         )}
+        {form.from && offered > 0 && (
+          <div className="team-total">
+            <span>
+              Bhet you offer <strong>{rupees(offered)}</strong>
+            </span>
+            <span>
+              Commission ({rate}% of the total) <strong>{rupees(commission)}</strong>
+            </span>
+            <span className="team-total-sum">
+              You pay <strong>{rupees(offered + commission)}</strong>
+              {form.paymentMethod && <small> by {PAY_BY[form.paymentMethod].label}</small>}
+            </span>
+          </div>
+        )}
         {form.from && (
           <div>
             <span className="label">Where should they go? (optional)</span>
-            <LocationPicker value={form.location} onChange={(location) => setForm((f) => ({ ...f, location }))} label="Search the place on the map" hint="Pick the place where the people the admin assigns should go." />
+            <LocationPicker value={form.location} onChange={(location) => setForm((f) => ({ ...f, location }))} label="Search the place on the map" hint="Pick the place where the people the admin assigns should go — or type the address if you can’t find it." />
           </div>
         )}
-        <p className="fine-print">Ask at least 1 day before; later requests go as emergencies. A request can’t be withdrawn within 1 day of its start.</p>
+        <p className="fine-print">
+          Ask at least 1 day before; later requests go as emergencies. Each person the admin assigns is asked to accept. You pay the bhet plus a {rate}% commission. A request can be withdrawn until the admin
+          assigns people (and not within 1 day of its start) — after that, ask the admin to cancel it.
+        </p>
         <button className="btn btn-primary" disabled={!!busy}>
           {busy === 'new' ? <Loader2 size={17} className="spin" /> : <UsersRound size={17} />} {emergency ? 'Send emergency request' : 'Send request to admin'}
         </button>
@@ -565,7 +604,15 @@ function TeamBooking({ data, team, apply, toast }) {
                   {pickLine(x)}
                 </span>
               ))}
-              {l.paymentMethod && <span className="muted">Paying by {PAY_BY[l.paymentMethod]?.label}</span>}
+              {(() => {
+                const m = moneyOf(l);
+                return (
+                  <span className="muted">
+                    {rupees(m.total)} bhet{m.commission > 0 ? ` + ${rupees(m.commission)} commission (${m.rate}%) = ${rupees(m.total + m.commission)}` : ''}
+                    {l.paymentMethod && ` · paying by ${PAY_BY[l.paymentMethod]?.label}`}
+                  </span>
+                );
+              })()}
               {l.replacementId && !l.picks && <span className="muted">Suggested: {nameOf(l.replacementId)}</span>}
               {l.location && (
                 <a className="muted" href={mapsLink(l.location)} target="_blank" rel="noreferrer">
@@ -574,11 +621,38 @@ function TeamBooking({ data, team, apply, toast }) {
               )}
               {l.note && <span className="muted">Admin: {l.note}</span>}
               {l.status === 'pending' && <span className="muted">The admin will assign the people.</span>}
-              {l.status === 'pending' && !canWithdraw(l) && <span className="muted">Can’t be withdrawn within 1 day of the start — message the admin.</span>}
+              {l.status === 'assigned' && <span className="muted">Waiting for the people assigned to accept.</span>}
+              {l.cancelRequest?.status === 'pending' && (
+                <span className="muted">
+                  You asked to cancel: “{l.cancelRequest.reason}” — waiting for the admin.{' '}
+                  <button type="button" className="link-btn" onClick={() => run(`uncancel-${l.id}`, () => team.withdrawLeaveCancel(l.id), 'Cancellation request withdrawn.')} disabled={!!busy}>
+                    Withdraw request
+                  </button>
+                </span>
+              )}
+              {l.cancelRequest?.status === 'rejected' && <span className="muted">The admin kept this booking{l.cancelRequest.note ? `: ${l.cancelRequest.note}` : '.'}</span>}
+              <span className="leave-item-actions">
+                <button type="button" className="link-btn" onClick={() => setBill(billOf(l))}>
+                  <FileText size={13} /> Bill
+                </button>
+                {canAskCancel(l) && (
+                  <button
+                    type="button"
+                    className="link-btn danger-text"
+                    onClick={() => {
+                      setReason('');
+                      setCancelFor(l);
+                    }}
+                    disabled={!!busy}
+                  >
+                    <Ban size={13} /> Ask to cancel
+                  </button>
+                )}
+              </span>
             </div>
-            <span className={`pay-tag ${l.status === 'approved' ? 'pay-paid' : l.status === 'pending' ? 'pay-submitted' : 'req-tag'}`}>{LEAVE_TEXT[l.status]}</span>
+            <span className={`pay-tag ${l.status === 'approved' ? 'pay-paid' : l.status === 'pending' || l.status === 'assigned' ? 'pay-submitted' : 'req-tag'}`}>{LEAVE_TEXT[l.status] || l.status}</span>
             {canWithdraw(l) && (
-              <button className="icon-btn" onClick={() => run(l.id, () => team.withdrawLeave(l.id), 'Request withdrawn.')} aria-label="Withdraw" disabled={!!busy}>
+              <button className="icon-btn" onClick={() => run(l.id, () => team.withdrawLeave(l.id), 'Request withdrawn.')} aria-label="Withdraw" title="Withdraw" disabled={!!busy}>
                 {busy === l.id ? <Loader2 size={16} className="spin" /> : <Trash2 size={16} />}
               </button>
             )}
@@ -587,14 +661,17 @@ function TeamBooking({ data, team, apply, toast }) {
 
         {bookedMe.length > 0 && (
           <>
-            <h3>You’re booked for a teammate</h3>
-            {bookedMe.map((l) => (
-              <div key={l.id} className="glass leave-item l-approved">
+            <h3>Asked to go for a teammate</h3>
+            {bookedMe.map((l) => {
+              const waiting = l.sewas.some((x) => x.reply === 'waiting');
+              return (
+              <div key={l.id} className={`glass leave-item ${waiting ? 'l-pending' : 'l-approved'}`}>
                 <div>
                   <strong>
                     In place of {l.name}
                     {l.emergency && <em className="emergency-tag">Emergency</em>}
                   </strong>
+                  {l.reason && <span className="muted">“{l.reason}”</span>}
                   {l.sewas.map((x, i) => (
                     <span key={i}>
                       {x.serviceName ? `${x.serviceName} · ` : ''}
@@ -609,13 +686,79 @@ function TeamBooking({ data, team, apply, toast }) {
                       <MapPin size={12} /> {l.location.label || 'Open map'}
                     </a>
                   )}
+                  {waiting && (
+                    <span className="leave-item-actions">
+                      <button type="button" className="btn btn-primary btn-sm" onClick={() => answer(l, true)} disabled={!!busy}>
+                        {busy === `answer-${l.id}` ? <Loader2 size={15} className="spin" /> : <Check size={15} />} Accept, I’ll go
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-ghost btn-sm danger-text"
+                        onClick={() => {
+                          setReason('');
+                          setDeclineFor(l);
+                        }}
+                        disabled={!!busy}
+                      >
+                        <Ban size={15} /> Can’t go
+                      </button>
+                    </span>
+                  )}
                 </div>
-                <span className="pay-tag pay-paid">Assigned by admin</span>
+                <span className={`pay-tag ${waiting ? 'pay-submitted' : 'pay-paid'}`}>{waiting ? 'Your answer needed' : 'You accepted ✓'}</span>
               </div>
-            ))}
+              );
+            })}
           </>
         )}
       </div>
+
+      <Modal open={!!cancelFor} onClose={() => setCancelFor(null)} title="Cancel this team booking?" subtitle="The admin decides — you’re told on your phone.">
+        <form
+          className="cancel-form"
+          onSubmit={async (e) => {
+            e.preventDefault();
+            if (await run('cancel', () => team.requestLeaveCancel(cancelFor.id, reason), 'Request sent to the admin.')) setCancelFor(null);
+          }}
+        >
+          <label className="field">
+            <textarea value={reason} onChange={(e) => setReason(e.target.value)} placeholder=" " rows={3} required minLength={3} autoFocus />
+            <span>Reason *</span>
+          </label>
+          <div className="modal-actions">
+            <button type="button" className="btn btn-ghost" onClick={() => setCancelFor(null)}>
+              Back
+            </button>
+            <button className="btn btn-danger" disabled={!!busy}>
+              {busy === 'cancel' ? <Loader2 size={17} className="spin" /> : <Ban size={17} />} Send request
+            </button>
+          </div>
+        </form>
+      </Modal>
+
+      <Modal open={!!declineFor} onClose={() => setDeclineFor(null)} title="Can’t go?" subtitle={declineFor && `In place of ${declineFor.name}. The admin will choose someone else.`}>
+        <form
+          className="cancel-form"
+          onSubmit={async (e) => {
+            e.preventDefault();
+            if (await answer(declineFor, false, reason)) setDeclineFor(null);
+          }}
+        >
+          <label className="field">
+            <textarea value={reason} onChange={(e) => setReason(e.target.value)} placeholder=" " rows={3} maxLength={300} autoFocus />
+            <span>Why? (optional)</span>
+          </label>
+          <div className="modal-actions">
+            <button type="button" className="btn btn-ghost" onClick={() => setDeclineFor(null)}>
+              Back
+            </button>
+            <button className="btn btn-danger" disabled={!!busy}>
+              {busy === `answer-${declineFor?.id}` ? <Loader2 size={17} className="spin" /> : <Ban size={17} />} I can’t go
+            </button>
+          </div>
+        </form>
+      </Modal>
+      <TeamBillModal bill={bill} onClose={() => setBill(null)} />
     </div>
   );
 }
@@ -810,7 +953,7 @@ export default function TeamDashboard() {
   const { site } = useSite();
   const toast = useToast();
   const [params] = useSearchParams();
-  const [tab, setTab] = useState(params.get('chat') ? 'chat' : 'duties');
+  const [tab, setTab] = useState(params.get('chat') ? 'chat' : TABS.some((t) => t.id === params.get('tab')) ? params.get('tab') : 'duties');
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
 
@@ -882,6 +1025,7 @@ export default function TeamDashboard() {
               <span>{t.label}</span>
               {t.id === 'chat' && data?.unread > 0 && <em className="tab-badge">{data.unread}</em>}
               {t.id === 'duties' && data && data.duties.some((d) => live(d) && d.date >= data.today && d.state !== 'confirmed') && <em className="tab-badge">!</em>}
+              {t.id === 'leave' && data?.bookedMe?.some((l) => l.sewas.some((x) => x.reply === 'waiting')) && <em className="tab-badge">!</em>}
             </button>
           ))}
         </nav>

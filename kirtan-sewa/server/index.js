@@ -103,6 +103,12 @@ function readDoc(dataUrl) {
 // A place picked on the map: { lat, lng, label }, or null.
 function readLocation(v) {
   if (!v) return null;
+  // An address typed by hand when the place can't be found on the map: no pin, just the text.
+  if ((v.lat == null || v.lat === '') && (v.lng == null || v.lng === '')) {
+    const label = str(v.label, 300);
+    if (label.length < 5) fail(400, 'Please type the full address, or pick the place on the map.');
+    return { label, manual: true };
+  }
   const lat = Number(v.lat);
   const lng = Number(v.lng);
   if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) fail(400, 'That map location is not valid. Please pick it again.');
@@ -933,23 +939,25 @@ function teamPayload(p) {
     person: memberView(p),
     duties: duties.map((b) => dutyView(b, p)),
     leaves: db.leaves.filter((l) => l.personId === p.id).sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
-    // Teammates who booked this person to go in their place.
+    // Teammates' bookings the admin put this person on: waiting for their yes / no, or accepted.
     bookedMe: db.leaves
-      .filter((l) => l.status === 'approved' && l.to >= todayKey() && (l.picks || []).some((x) => x.personId === p.id))
+      .filter((l) => (l.status === 'assigned' || l.status === 'approved') && l.to >= todayKey() && (l.picks || []).some((x) => x.personId === p.id && replyOf(x) !== 'declined'))
       .map((l) => ({
         id: l.id,
         name: personOf(l.personId)?.name || l.personName,
+        reason: l.reason,
         location: l.location || null,
         paymentMethod: l.paymentMethod || '',
         emergency: !!l.emergency,
         status: l.status,
         sewas: l.picks
-          .filter((x) => x.personId === p.id)
+          .filter((x) => x.personId === p.id && replyOf(x) !== 'declined')
           .map((x) => {
             const b = x.bookingId && db.bookings.find((y) => y.id === x.bookingId);
-            return { serviceName: b?.serviceName || '', role: x.role || '', date: x.date || b?.date || l.from, start: x.start || '', end: x.end || '', pay: x.pay };
+            return { serviceName: b?.serviceName || x.serviceName || '', role: x.role || '', date: x.date || b?.date || l.from, start: x.start || '', end: x.end || '', pay: x.pay, reply: replyOf(x) };
           }),
       })),
+    commissionRate: TEAM_COMMISSION_RATE,
     teammates: db.people.filter((x) => x.id !== p.id && x.active).map((x) => ({ id: x.id, name: x.name, role: x.role || '' })),
     unread: unreadIn(threadOf('m', p.id), 'other'),
     roles: ROLES,
@@ -1088,9 +1096,16 @@ app.post('/api/team/duties/:id/pay-request', requireMember, async (req, res) => 
  * the bhet they offer; the admin assigns the people. With sewas in those days, every sewa gets its own request;
  * otherwise they ask for one or more by day and time. Team bookings never block anyone: a member may have several on
  * the same dates and can still be assigned on them.
- * Less than a day's notice still goes through, marked as an emergency; within a day of the start it can't be withdrawn. */
+ * Less than a day's notice still goes through, marked as an emergency; within a day of the start it can't be withdrawn.
+ * Status: pending (admin to assign) → assigned (waiting for each person's yes) → approved (everyone accepted). A
+ * person who declines sends it back to pending for the admin to choose someone else. Their sewas are handed over
+ * only once they accept. Once sent, the member can only ask the admin to cancel it.
+ * The member pays the bhet plus the admin's commission (TEAM_COMMISSION_RATE % of the total bhet). */
 const LEAVE_NOTICE_MS = 24 * 60 * 60 * 1000;
 const LEAVE_MIN_PAY = 200; // least bhet they can offer a teammate
+const TEAM_COMMISSION_RATE = 10;
+const replyOf = (x) => x.reply || (x.personId ? 'accepted' : ''); // bookings approved before replies existed count as accepted
+const liveLeave = (l) => ['pending', 'assigned', 'approved'].includes(l.status);
 // When a team booking really starts: its earliest booked time, or the start of the first day.
 const leaveStartsAt = (from, picks) => {
   const times = picks.map((x) => new Date(`${x.date}T${x.start || '00:00'}:00`).getTime()).filter(Number.isFinite);
@@ -1125,7 +1140,7 @@ app.post('/api/team/leaves', requireMember, async (req, res) => {
     // Every sewa in these days gets its own request (different sewas, even on one day, can need different people).
     picks = sewas.map((b) => {
       const [start, end] = rangeOf(b);
-      return { ...readPick(given.find((x) => x?.bookingId === b.id), `${b.serviceName} on ${shortDate(b.date)} (${b.slotTime})`), bookingId: b.id, date: b.date, start, end };
+      return { ...readPick(given.find((x) => x?.bookingId === b.id), `${b.serviceName} on ${shortDate(b.date)} (${b.slotTime})`), bookingId: b.id, serviceName: b.serviceName, date: b.date, start, end };
     });
   } else {
     // No sewas of their own: ask for one or more people, each on a day (and time) within these dates.
@@ -1144,14 +1159,22 @@ app.post('/api/team/leaves', requireMember, async (req, res) => {
   const location = readLocation(req.body?.location); // where the people taking their place should go
   const startsAt = leaveStartsAt(from, picks);
   const emergency = startsAt.getTime() - Date.now() < LEAVE_NOTICE_MS;
+  const total = picks.reduce((s, x) => s + x.pay, 0);
+  const commission = Math.round((total * TEAM_COMMISSION_RATE) / 100);
+  db.meta.teamBillSeq = (db.meta.teamBillSeq || 0) + 1;
   const leave = {
     id: uid(),
+    billNo: `TB-${new Date().getFullYear()}-${String(db.meta.teamBillSeq).padStart(4, '0')}`,
     personId: p.id,
     personName: p.name,
     from,
     to,
     reason,
     picks,
+    total,
+    commissionRate: TEAM_COMMISSION_RATE,
+    commission,
+    commissionPaid: false,
     paymentMethod,
     location,
     emergency,
@@ -1166,7 +1189,7 @@ app.post('/api/team/leaves', requireMember, async (req, res) => {
   const wanted = picks.map((x) => ROLES[x.role]).join(', ');
   alertAdmin(
     `${emergency ? '🚨 Emergency: ' : ''}${p.name} needs ${wanted}`,
-    `${when}${sewas.length ? ` · for ${sewas.length} of their sewa${sewas.length === 1 ? '' : 's'}` : ''} · pays by ${PAY_BY[paymentMethod]} · assign the people${location ? ` · at ${location.label || 'a map pin'}` : ''}`,
+    `${when}${sewas.length ? ` · for ${sewas.length} of their sewa${sewas.length === 1 ? '' : 's'}` : ''} · ${rupee(total)} + ${rupee(commission)} commission by ${PAY_BY[paymentMethod]} · assign the people${location ? ` · at ${location.label || 'a map pin'}` : ''}`,
     '/admin?tab=leave',
     `leave-${leave.id}`,
   );
@@ -1176,11 +1199,72 @@ app.post('/api/team/leaves', requireMember, async (req, res) => {
 app.delete('/api/team/leaves/:id', requireMember, async (req, res) => {
   const leave = db.leaves.find((l) => l.id === req.params.id && l.personId === req.person.id);
   if (!leave) fail(404, 'Leave request not found.');
-  if (leave.status !== 'pending') fail(400, 'Only a booking that is still waiting can be withdrawn. Message the admin to change an approved one.');
-  if (new Date(leave.startsAt || `${leave.from}T00:00:00`).getTime() - Date.now() < LEAVE_NOTICE_MS) fail(400, 'A team booking can’t be withdrawn within 1 day of its start. Message the admin.');
+  if (leave.status !== 'pending') fail(400, 'Once the admin has assigned people it can’t be withdrawn — ask the admin to cancel it instead.');
+  if (new Date(leave.startsAt || `${leave.from}T00:00:00`).getTime() - Date.now() < LEAVE_NOTICE_MS) fail(400, 'A team booking can’t be withdrawn within 1 day of its start — ask the admin to cancel it instead.');
   db.leaves = db.leaves.filter((l) => l !== leave);
   await save();
   res.json(teamPayload(req.person));
+});
+
+// Once the admin is on it (or within a day of the start), the member asks the admin to cancel instead.
+app.post('/api/team/leaves/:id/cancel-request', requireMember, async (req, res) => {
+  const leave = db.leaves.find((l) => l.id === req.params.id && l.personId === req.person.id);
+  if (!leave) fail(404, 'Team booking not found.');
+  if (!liveLeave(leave) || leave.to < todayKey()) fail(400, 'This team booking can no longer be cancelled.');
+  if (leave.cancelRequest?.status === 'pending') fail(400, 'Your cancellation request is already waiting for the admin.');
+  const reason = str(req.body?.reason, 300);
+  if (reason.length < 3) fail(400, 'Please give the reason.');
+  leave.cancelRequest = { status: 'pending', reason, at: new Date().toISOString(), note: '' };
+  await save();
+  alertAdmin(`${req.person.name} asks to cancel a team booking`, `${shortDate(leave.from)}${leave.to !== leave.from ? ` – ${shortDate(leave.to)}` : ''} · ${reason}`, '/admin?tab=leave', `leave-${leave.id}`);
+  res.json(teamPayload(req.person));
+});
+
+app.post('/api/team/leaves/:id/cancel-request/withdraw', requireMember, async (req, res) => {
+  const leave = db.leaves.find((l) => l.id === req.params.id && l.personId === req.person.id);
+  if (leave?.cancelRequest?.status !== 'pending') fail(400, 'There is no pending request.');
+  leave.cancelRequest = null;
+  await save();
+  res.json(teamPayload(req.person));
+});
+
+// The person the admin assigned says yes (their part is booked, and any sewa is handed to them) or no (back to the admin).
+app.post('/api/team/leaves/:id/answer', requireMember, async (req, res) => {
+  const p = req.person;
+  const leave = db.leaves.find((l) => l.id === req.params.id);
+  const mine = (leave?.picks || []).filter((x) => x.personId === p.id && replyOf(x) === 'waiting');
+  if (!leave || leave.status !== 'assigned' || !mine.length) fail(400, 'There is nothing waiting for your answer here. Reload the page.');
+  const accept = req.body?.accept === true;
+  const note = str(req.body?.note, 300);
+  const at = new Date().toISOString();
+  const changed = [];
+  const skipped = [];
+  for (const x of mine) {
+    Object.assign(x, { reply: accept ? 'accepted' : 'declined', replyNote: note, repliedAt: at });
+    if (!accept || !x.bookingId) continue;
+    const b = db.bookings.find((y) => y.id === x.bookingId);
+    if (!b || !isActive(b) || !(b.assignees || []).some((a) => a.id === leave.personId)) continue; // already changed by hand
+    try {
+      changed.push({ booking: b, before: replaceAssignee(b, leave.personId, p.id, x.pay) });
+      Object.assign(b.assignees.find((a) => a.id === p.id), { state: 'confirmed', confirmedAt: at });
+    } catch (e) {
+      skipped.push(`${b.ref}: ${e.message}`);
+    }
+  }
+  const allIn = leave.picks.every((x) => replyOf(x) === 'accepted');
+  if (!accept) leave.status = 'pending';
+  else if (allIn) leave.status = 'approved';
+  await save();
+  for (const { booking, before } of changed) teamChanged(booking, before);
+  const owner = personOf(leave.personId);
+  const what = mine.map((x) => `${ROLES[x.role] || 'Teammate'} ${pickWhen(x)}`).join('; ');
+  if (accept) {
+    alertAdmin(`${p.name} accepted ✅`, `In ${leave.personName}'s place · ${what}${allIn ? ' · everyone has accepted' : ''}${skipped.length ? ` · not handed over: ${skipped.join('; ')}` : ''}`, '/admin?tab=leave', `leave-${leave.id}`);
+    if (owner?.phone) notifyPhone(owner.phone, { title: allIn ? 'Team booking confirmed 🙏' : `${p.name} will go in your place`, body: what, url: '/team', tag: `leave-${leave.id}` }).catch(() => {});
+  } else {
+    alertAdmin(`${p.name} can't go — choose someone else`, `${leave.personName}'s team booking · ${what}${note ? ` · ${note}` : ''}`, '/admin?tab=leave', `leave-${leave.id}`);
+  }
+  res.json(teamPayload(p));
 });
 
 app.get('/api/team/chat', requireMember, async (req, res) => {
@@ -1771,27 +1855,51 @@ app.post('/api/admin/bookings/:id/replace', async (req, res) => {
   res.json({ booking });
 });
 
-/* ---------- admin: leave ---------- */
+/* ---------- admin: team bookings (stored as leave) ---------- */
 
-// Approve (optionally putting replacements on the affected sewas) or reject a leave request.
+const leaveWhen = (l) => `${shortDate(l.from)}${l.to !== l.from ? ` – ${shortDate(l.to)}` : ''}`;
+// Tell everyone the admin asked (still waiting, or accepted without a sewa — a sewa already handed over stays theirs).
+function tellAssigned(leave, title) {
+  for (const id of new Set((leave.picks || []).filter((x) => x.personId && (replyOf(x) === 'waiting' || (replyOf(x) === 'accepted' && !x.bookingId))).map((x) => x.personId))) {
+    const who = personOf(id);
+    const mine = leave.picks.filter((x) => x.personId === id);
+    if (who?.phone) notifyPhone(who.phone, { title, body: mine.map((x) => `${pickWhen(x)} · ₹${x.pay}`).join('; '), url: '/team', tag: `leave-${leave.id}-${id}` }).catch(() => {});
+  }
+}
+
+/* Assign a person to every request and ask them (approve), reject, cancel, answer a cancellation request (keep), or
+ * mark the commission received (paid / unpaid). */
 app.patch('/api/admin/leaves/:id', async (req, res) => {
   const leave = db.leaves.find((l) => l.id === req.params.id);
-  if (!leave) fail(404, 'Leave request not found.');
+  if (!leave) fail(404, 'Team booking not found.');
   const action = req.body?.action;
-  if (!['approve', 'reject', 'cancel'].includes(action)) fail(400, 'Choose approve or reject.');
+  if (!['approve', 'reject', 'cancel', 'keep', 'paid', 'unpaid'].includes(action)) fail(400, 'Choose approve or reject.');
   const note = str(req.body?.note, 300);
-  const changed = [];
-  const skipped = [];
-  if (action === 'approve') {
-    // The admin assigns a person to every request (by its position); each gets the bhet that was offered.
+  const now = new Date().toISOString();
+  const owner = personOf(leave.personId);
+  const tellOwner = (title, body = leaveWhen(leave)) => owner?.phone && notifyPhone(owner.phone, { title, body: `${body}${note ? ` · ${note}` : ''}`, url: '/team', tag: `leave-${leave.id}` }).catch(() => {});
+
+  if (action === 'paid' || action === 'unpaid') {
+    Object.assign(leave, { commissionPaid: action === 'paid', commissionPaidAt: action === 'paid' ? now : '' });
+  } else if (action === 'keep') {
+    if (leave.cancelRequest?.status !== 'pending') fail(400, 'There is no pending cancellation request.');
+    leave.cancelRequest = { ...leave.cancelRequest, status: 'rejected', note };
+    tellOwner('Team booking stays as it is');
+  } else if (action === 'approve') {
+    if (leave.status !== 'pending' && leave.status !== 'assigned') fail(400, `This team booking is already ${leave.status}.`);
+    // A person for every request (by its position) not yet accepted; each is asked and gets the bhet that was offered.
     const assign = req.body?.assign && typeof req.body.assign === 'object' ? req.body.assign : {};
+    const asked = [];
     const chosen = (leave.picks || []).map((x, i) => {
-      const id = str(assign[i] ?? x.personId ?? '', 40);
+      if (replyOf(x) === 'accepted') return { ...x, name: personOf(x.personId)?.name || '' };
+      const id = str(assign[i] ?? (replyOf(x) === 'declined' ? '' : x.personId) ?? '', 40);
       const what = `${ROLES[x.role] || 'the teammate'} on ${pickWhen(x)}`;
       if (!id) fail(400, `Choose who goes as ${what}.`);
       const who = db.people.find((q) => q.id === id && q.active && !q.pending && q.id !== leave.personId);
       if (!who) fail(400, `Choose an active team member as ${what}.`);
-      return { ...x, personId: id, name: who.name };
+      if (id === x.personId && replyOf(x) === 'waiting') return { ...x, name: who.name };
+      asked.push(i);
+      return { ...x, personId: id, name: who.name, reply: 'waiting', replyNote: '', repliedAt: '' };
     });
     // One person can't be in two places at once (no time = the whole day).
     const span = (x) => [x.start || '00:00', x.end || '24:00'];
@@ -1799,40 +1907,43 @@ app.patch('/api/admin/leaves/:id', async (req, res) => {
       const clash = chosen.slice(i + 1).find((y) => y.personId === x.personId && y.date === x.date && overlaps(...span(x), ...span(y)));
       if (clash) fail(400, `${x.name} would be in two places at once on ${shortDate(x.date)}. Choose someone else for one of them.`);
     }
-    for (const x of chosen.filter((c) => c.bookingId)) {
-      const b = db.bookings.find((y) => y.id === x.bookingId);
-      if (!b || !isActive(b) || !(b.assignees || []).some((a) => a.id === leave.personId)) continue; // already changed by hand
-      try {
-        changed.push({ booking: b, before: replaceAssignee(b, leave.personId, x.personId, x.pay) });
-      } catch (e) {
-        skipped.push(`${b.ref}: ${e.message}`);
-      }
-    }
     leave.picks = chosen.map(({ name: _, ...x }) => x);
-  }
-  Object.assign(leave, { status: action === 'approve' ? 'approved' : action === 'reject' ? 'rejected' : 'cancelled', note, decidedAt: new Date().toISOString() });
-  await save();
-  for (const { booking, before } of changed) teamChanged(booking, before);
-  const person = personOf(leave.personId);
-  const when = `${shortDate(leave.from)}${leave.to !== leave.from ? ` – ${shortDate(leave.to)}` : ''}`;
-  const title = { approve: 'Team booking approved 🙏', reject: 'Team booking not approved', cancel: 'Team booking cancelled' }[action];
-  if (person?.phone) notifyPhone(person.phone, { title, body: `${when}${note ? ` · ${note}` : ''}`, url: '/team', tag: `leave-${leave.id}` }).catch(() => {});
-  // People assigned to requests without a sewa (those on a sewa hear about it through the sewa itself).
-  if (action !== 'reject') {
-    for (const id of new Set((leave.picks || []).filter((x) => !x.bookingId && x.personId).map((x) => x.personId))) {
-      const mine = leave.picks.filter((x) => x.personId === id);
+    leave.status = leave.picks.every((x) => replyOf(x) === 'accepted') ? 'approved' : 'assigned';
+    for (const id of new Set(asked.map((i) => leave.picks[i].personId))) {
       const who = personOf(id);
+      const mine = asked.map((i) => leave.picks[i]).filter((x) => x.personId === id);
       if (who?.phone) {
         notifyPhone(who.phone, {
-          title: action === 'approve' ? `You're booked in ${leave.personName}'s place 🙏` : `${leave.personName}'s team booking was cancelled`,
-          body: `${mine.map((x) => `${pickWhen(x)} · ₹${x.pay}`).join('; ')}${leave.paymentMethod ? ` · paid by ${PAY_BY[leave.paymentMethod]}` : ''}`,
-          url: '/team',
+          title: `${leave.emergency ? '🚨 ' : ''}Can you go in ${leave.personName}'s place? 🙏`,
+          body: `${mine.map((x) => `${ROLES[x.role] || 'Teammate'} ${pickWhen(x)} · ₹${x.pay}`).join('; ')} · accept or decline on your Team booking page`,
+          url: '/team?tab=leave',
           tag: `leave-${leave.id}-${id}`,
         }).catch(() => {});
       }
     }
+    if (asked.length) tellOwner('People assigned 🙏', `${leaveWhen(leave)} · waiting for them to accept`);
+  } else {
+    if (action === 'reject' && leave.status !== 'pending' && leave.status !== 'assigned') fail(400, 'Only a waiting team booking can be rejected — cancel it instead.');
+    if (action === 'cancel' && !liveLeave(leave)) fail(400, `This team booking is already ${leave.status}.`);
+    tellAssigned(leave, `${leave.personName}'s team booking was ${action === 'reject' ? 'not approved' : 'cancelled'} — you're not needed`);
+    leave.status = action === 'reject' ? 'rejected' : 'cancelled';
+    if (leave.cancelRequest?.status === 'pending') leave.cancelRequest = { ...leave.cancelRequest, status: 'approved', note };
+    leave.note = note;
+    tellOwner(action === 'reject' ? 'Team booking not approved' : 'Team booking cancelled');
   }
-  res.json({ leaves: db.leaves, bookings: changed.map((c) => c.booking), skipped });
+  if (action !== 'paid' && action !== 'unpaid' && action !== 'keep') leave.decidedAt = now;
+  await save();
+  res.json({ leaves: db.leaves });
+});
+
+// Remove a team booking for good. A live one is cancelled first, so the people asked hear about it.
+app.delete('/api/admin/leaves/:id', async (req, res) => {
+  const leave = db.leaves.find((l) => l.id === req.params.id);
+  if (!leave) fail(404, 'Team booking not found.');
+  if (liveLeave(leave) && leave.to >= todayKey()) tellAssigned(leave, `${leave.personName}'s team booking was cancelled — you're not needed`);
+  db.leaves = db.leaves.filter((l) => l !== leave);
+  await save();
+  res.json({ leaves: db.leaves });
 });
 
 /* ---------- admin: chat ---------- */
