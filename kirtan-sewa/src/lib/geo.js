@@ -1,6 +1,9 @@
+// A location is { lat, lng, label } with a map pin, or { label, manual: true } for an address typed by hand.
+export const hasPin = (loc) => Number.isFinite(loc?.lat) && Number.isFinite(loc?.lng);
+
 /** Straight-line distance in km between two { lat, lng } points (good enough to see who is closest). */
 export function distanceKm(a, b) {
-  if (!a || !b) return null;
+  if (!hasPin(a) || !hasPin(b)) return null;
   const rad = (x) => (x * Math.PI) / 180;
   const dLat = rad(b.lat - a.lat);
   const dLng = rad(b.lng - a.lng);
@@ -11,10 +14,10 @@ export function distanceKm(a, b) {
 export const kmText = (km) => (km < 1 ? `${Math.round(km * 1000)} m` : `${km < 10 ? km.toFixed(1) : Math.round(km)} km`);
 
 // Google Maps links: the exact pin when there is one, otherwise a search for the typed address.
-export const mapsLink = (loc, address = '') =>
-  `https://www.google.com/maps/search/?api=1&query=${loc ? `${loc.lat},${loc.lng}` : encodeURIComponent(address)}`;
-export const directionsLink = (from, to) => `https://www.google.com/maps/dir/?api=1&origin=${from.lat},${from.lng}&destination=${to.lat},${to.lng}`;
-export const embedUrl = (loc) => `https://maps.google.com/maps?q=${loc.lat},${loc.lng}&z=15&output=embed`;
+const where = (loc) => (hasPin(loc) ? `${loc.lat},${loc.lng}` : encodeURIComponent(loc?.label || ''));
+export const mapsLink = (loc, address = '') => `https://www.google.com/maps/search/?api=1&query=${hasPin(loc) || !address ? where(loc) : encodeURIComponent(address)}`;
+export const directionsLink = (from, to) => `https://www.google.com/maps/dir/?api=1&origin=${where(from)}&destination=${where(to)}`;
+export const embedUrl = (loc) => `https://maps.google.com/maps?q=${where(loc)}&z=15&output=embed`;
 
 /** Coordinates typed in ("30.90, 75.85") or inside a pasted Google Maps link. */
 export function parseCoords(text) {

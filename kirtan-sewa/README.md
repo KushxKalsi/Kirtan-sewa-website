@@ -208,8 +208,14 @@ The uploaded QR image is saved in `data/uploads/`.
   as many requests as they need, each on a day and optional time. They can add a map pin for where to go. A request
   starting in less than 1 day is still sent, marked **Emergency**, and one can't be withdrawn within 1 day of its
   start. Admin → **Team bookings** lists each request with a choice of people (the role asked for first, nearest
-  first); **Assign & approve** needs a person for every request, hands the sewas over at the bhet offered (one person
-  can't be in two places at once) and notifies everyone. Assigned people see it on their **Team booking** page. Team bookings never block
+  first); **Assign & ask them** needs a person for every request (one person can't be in two places at once). Each
+  person assigned is asked on their **Team booking** page to **Accept** or say they **can't go**; a sewa is handed
+  over (at the bhet offered) only when they accept, and the booking shows **Booked** once everyone has. If someone
+  declines, it comes back to the admin to choose someone else.
+- The member pays the bhet plus a **10% commission** on the total (cash or UPI), shown before they send it; the admin
+  marks the commission received. Both sides can open and print a **Bill** for each team booking.
+- Once people are assigned (or within 1 day of the start) the member can't withdraw it, but can **Ask to cancel**;
+  the admin cancels it or keeps it. The admin can also reject, cancel or **delete** any team booking. Team bookings never block
   anyone: a member can make several on the same dates and can still be assigned on them. Any booking can
   also be handed to someone else with **Replace** under its team.
 

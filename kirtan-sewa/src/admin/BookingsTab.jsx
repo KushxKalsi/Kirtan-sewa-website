@@ -6,7 +6,7 @@ import Modal from '../components/Modal';
 import { BillModal } from '../components/Bill';
 import { PAYMENT_LABEL, rupees } from '../lib/money';
 import { fromKey, prettyDate, rangeTo12 } from '../lib/date';
-import { directionsLink, distanceKm, kmText, mapsLink } from '../lib/geo';
+import { directionsLink, distanceKm, hasPin, kmText, mapsLink } from '../lib/geo';
 import { ease } from '../lib/motion';
 
 const FILTERS = [
@@ -70,7 +70,7 @@ function AssigneeRow({ b, a, person, roles, candidates, api, replace, toast }) {
             <Phone size={12} /> Call
           </a>
         )}
-        {person?.location && b.location && (
+        {hasPin(person?.location) && hasPin(b.location) && (
           <a className="chip" href={directionsLink(person.location, b.location)} target="_blank" rel="noreferrer">
             <Navigation size={12} /> {kmText(distanceKm(person.location, b.location))}
           </a>
@@ -561,7 +561,7 @@ export default function BookingsTab({ data, api, patch, toast }) {
                           <p className="ab-line">
                             <MapPin size={15} /> {b.address}
                             <a className="chip" href={mapsLink(b.location, b.address)} target="_blank" rel="noreferrer">
-                              <ExternalLink size={12} /> {b.location ? 'Map pin' : 'Search map'}
+                              <ExternalLink size={12} /> {hasPin(b.location) ? 'Map pin' : 'Search map'}
                             </a>
                           </p>
                           {b.location?.label && <p className="ab-meta">📍 {b.location.label}</p>}
@@ -649,7 +649,7 @@ export default function BookingsTab({ data, api, patch, toast }) {
                                 </div>
                                 {eligible.length > 0 && (
                                   <p className="muted assign-hint">
-                                    {b.location ? 'Sorted by distance from the venue (straight line). ' : 'Ask the customer to pin the venue on the map to see who is nearest. '}
+                                    {hasPin(b.location) ? 'Sorted by distance from the venue (straight line). ' : 'Ask the customer to pin the venue on the map to see who is nearest. '}
                                     People you tick are notified, and reminded on the day and 2 hours before.
                                   </p>
                                 )}

@@ -1,17 +1,39 @@
 import { useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { format } from 'date-fns';
-import { Ban, Check, Loader2, MapPin, MessagesSquare, Repeat, Undo2, UsersRound } from 'lucide-react';
+import { Ban, Check, CircleCheck, FileText, Loader2, MapPin, MessagesSquare, Repeat, Send, Trash2, Undo2, UsersRound } from 'lucide-react';
 import Modal from '../components/Modal';
+import { TeamBillModal } from '../components/Bill';
 import { fromKey, prettyDate, rangeTo12 } from '../lib/date';
 import { distanceKm, kmText, mapsLink } from '../lib/geo';
+import { rupees } from '../lib/money';
 import { ease } from '../lib/motion';
 
-const STATUS = { pending: 'Waiting for you', approved: 'Approved', rejected: 'Rejected', cancelled: 'Cancelled' };
+const STATUS = { pending: 'Waiting for you', assigned: 'Waiting for teammates', approved: 'Booked', rejected: 'Rejected', cancelled: 'Cancelled' };
+const REPLY = { waiting: 'Asked — waiting for their yes', accepted: 'Accepted ✓', declined: 'Declined' };
+const replyOf = (x) => x.reply || (x.personId ? 'accepted' : ''); // approved before replies existed = accepted
+const live = (l) => l.status === 'pending' || l.status === 'assigned' || l.status === 'approved';
+const asking = (l) => l.status === 'pending' || l.status === 'assigned';
+// What the member pays: the bhet offered plus the admin's commission on it.
+const moneyOf = (l) => {
+  const total = l.total ?? (l.picks || []).reduce((t, x) => t + (Number(x.pay) || 0), 0);
+  const rate = l.commissionRate ?? 0;
+  const commission = l.commission ?? Math.round((total * rate) / 100);
+  return { total, rate, commission };
+};
+const NOTE_FOR = {
+  reject: { title: 'Reject team booking', button: 'Reject', sub: 'They are told on their phone. You can add a message.' },
+  cancel: { title: 'Cancel team booking', button: 'Cancel it', sub: 'They and anyone asked to go are told. A sewa already handed over stays with the new person — use Replace on the booking to change it.' },
+  keep: { title: 'Keep the team booking', button: 'Keep it', sub: 'Turns down their request to cancel. You can add a message.' },
+  delete: { title: 'Delete team booking', button: 'Delete', sub: 'Removes it for good, for the member too. If it is still on, the people asked are told it is cancelled.' },
+};
 const active = (b) => b.status === 'pending' || b.status === 'confirmed';
 const canDo = (p, b) => p.active && (p.skills || []).some((k) => k.serviceId === b.serviceId && (!b.categoryId || k.categoryId === b.categoryId));
 
-/** Team bookings: a member asks for a Head Ragi / Side Ragi / Tabla in their place; the admin assigns the people, or rejects. */
+/**
+ * Team bookings: a member asks for a Head Ragi / Side Ragi / Tabla in their place; the admin assigns the people, who
+ * then accept or decline. The admin can also reject, cancel (or answer a request to cancel) and delete them.
+ */
 export default function LeaveTab({ data, api, setData, toast, openChat }) {
   const { today } = data;
   const people = data.people || [];
@@ -20,14 +42,20 @@ export default function LeaveTab({ data, api, setData, toast, openChat }) {
   const [picks, setPicks] = useState({}); // leave id -> { booking id: person id } (replacing by hand after approval)
   const [assign, setAssign] = useState({}); // leave id -> { request index: person id }
   const [busy, setBusy] = useState('');
-  const [rejectFor, setRejectFor] = useState(null);
+  const [noteFor, setNoteFor] = useState(null); // { leave, action: reject | cancel | keep | delete }
   const [note, setNote] = useState('');
+  const [bill, setBill] = useState(null);
   const personOf = (id) => people.find((p) => p.id === id);
+  const askNote = (leave, action) => {
+    setNote('');
+    setNoteFor({ leave, action });
+  };
 
-  const rank = (l) => (l.status === 'pending' ? (l.emergency ? 0 : 1) : 2);
+  const needsYou = (l) => l.status === 'pending' || l.cancelRequest?.status === 'pending';
+  const rank = (l) => (needsYou(l) ? (l.emergency ? 0 : 1) : l.status === 'assigned' ? 2 : 3);
   const leaves = [...(data.leaves || [])]
-    .filter((l) => (filter === 'current' ? l.status === 'pending' || (l.status === 'approved' && l.to >= today) : true))
-    // Waiting requests first (emergencies at the very top), then by date.
+    .filter((l) => (filter === 'current' ? needsYou(l) || (live(l) && l.to >= today) : true))
+    // What needs you first (emergencies at the very top), then those waiting for teammates, then by date.
     .sort((a, b) => rank(a) - rank(b) || a.from.localeCompare(b.from));
   const affected = (l) => data.bookings.filter((b) => active(b) && b.date >= l.from && b.date <= l.to && (b.assignees || []).some((a) => a.id === l.personId)).sort((a, b) => (a.date + a.slotTime).localeCompare(b.date + b.slotTime));
   // Who could take the place: does this sewa, not already on the booking — nearest first.
@@ -46,28 +74,40 @@ export default function LeaveTab({ data, api, setData, toast, openChat }) {
       .map((p) => ({ p, km: distanceKm(where, p.location) }))
       .sort((m, n) => (m.p.role === x.role ? 0 : 1) - (n.p.role === x.role ? 0 : 1) || (m.km ?? 1e9) - (n.km ?? 1e9));
   };
-  const assignedFor = (l, i) => assign[l.id]?.[i] ?? l.picks?.[i]?.personId ?? '';
+  // Someone who declined isn't chosen again unless the admin picks them.
+  const assignedFor = (l, i) => assign[l.id]?.[i] ?? (replyOf(l.picks[i]) === 'declined' ? '' : (l.picks[i].personId ?? ''));
+  const open = (l, x) => asking(l) && replyOf(x) !== 'accepted'; // still to be (re)assigned
+  const changedFor = (l) => Object.entries(assign[l.id] || {}).some(([i, id]) => id !== (l.picks[i]?.personId ?? ''));
   const requestWhat = (x) => {
     const b = x.bookingId && data.bookings.find((y) => y.id === x.bookingId);
     const when = `${format(fromKey(x.date), 'EEE d MMM')}, ${x.start ? rangeTo12(`${x.start} – ${x.end}`) : 'whole day'}`;
-    return b ? `${b.serviceName} · ${when} · ${b.name}` : when;
+    return b ? `${b.serviceName} · ${when} · ${b.name}` : `${x.serviceName ? `${x.serviceName} · ` : ''}${when}`;
   };
+  const billOf = (l) => ({
+    leave: l,
+    settings: data.settings,
+    member: { name: personOf(l.personId)?.name || l.personName, phone: personOf(l.personId)?.phone },
+    roles,
+    nameOf: (id) => personOf(id)?.name || 'someone removed',
+    whatOf: requestWhat,
+  });
 
   const mergeBookings = (list) => setData((d) => ({ ...d, bookings: d.bookings.map((b) => list.find((x) => x.id === b.id) || b) }));
+  const DONE = { approve: 'Sent — each person is asked to accept.', reject: 'Team booking rejected.', cancel: 'Team booking cancelled.', keep: 'Kept — they are told.', paid: 'Commission marked as received.', unpaid: 'Commission marked as not received.', delete: 'Team booking deleted.' };
   const decide = async (l, action, extra = {}) => {
     setBusy(l.id + action);
     try {
       let body = { action, ...extra };
       if (action === 'approve') {
-        const missing = (l.picks || []).findIndex((_, i) => !assignedFor(l, i));
-        if (missing >= 0) throw new Error(`Choose who goes as ${roles[l.picks[missing].role] || 'the teammate'} for ${requestWhat(l.picks[missing])}.`);
-        body = { ...body, assign: Object.fromEntries((l.picks || []).map((_, i) => [i, assignedFor(l, i)])) };
+        const idx = (l.picks || []).map((x, i) => (open(l, x) ? i : -1)).filter((i) => i >= 0);
+        const missing = idx.find((i) => !assignedFor(l, i));
+        if (missing !== undefined) throw new Error(`Choose who goes as ${roles[l.picks[missing].role] || 'the teammate'} for ${requestWhat(l.picks[missing])}.`);
+        body = { ...body, assign: Object.fromEntries(idx.map((i) => [i, assignedFor(l, i)])) };
       }
-      const res = await api.decideLeave(l.id, body);
+      const res = action === 'delete' ? await api.deleteLeave(l.id) : await api.decideLeave(l.id, body);
       setData((d) => ({ ...d, leaves: res.leaves }));
-      mergeBookings(res.bookings);
-      toast(action === 'approve' ? `Team booking approved${res.bookings.length ? ` — ${res.bookings.length} sewa${res.bookings.length > 1 ? 's' : ''} handed over` : ''}.` : action === 'reject' ? 'Team booking rejected.' : 'Team booking cancelled.');
-      if (res.skipped?.length) toast(`Not replaced: ${res.skipped.join('; ')}`, 'error');
+      if (action === 'approve') setAssign((a) => ({ ...a, [l.id]: undefined }));
+      toast(DONE[action]);
       return true;
     } catch (e) {
       toast(e.message, 'error');
@@ -95,7 +135,7 @@ export default function LeaveTab({ data, api, setData, toast, openChat }) {
       <div className="admin-section-head">
         <div>
           <h2>Team bookings</h2>
-          <p>Team members ask for a Head Ragi, Side Ragi or Tabla to go in their place and offer the bhet. Assign a person to each request and approve: their sewas go to the people you chose (at the bhet offered) and everyone is notified. Team bookings never block anyone — several can share the same dates.</p>
+          <p>Team members ask for a Head Ragi, Side Ragi or Tabla to go in their place and offer the bhet; they pay it plus your commission. Assign a person to each request: each one is asked to accept, and only then is it booked and their sewa handed over. If someone declines, the request comes back here to choose someone else. Team bookings never block anyone — several can share the same dates.</p>
         </div>
       </div>
       <div className="filter-pills">
@@ -134,15 +174,25 @@ export default function LeaveTab({ data, api, setData, toast, openChat }) {
                       “{l.reason}” · asked {format(new Date(l.createdAt), 'd MMM')}
                       {l.replacementId && !l.picks && ` · suggests ${personOf(l.replacementId)?.name || 'someone removed'}`}
                     </span>
-                    {l.paymentMethod && <span className="muted">Pays the bhet by {l.paymentMethod === 'upi' ? 'UPI' : 'cash'}</span>}
+                    {(() => {
+                      const m = moneyOf(l);
+                      return (
+                        <span className="commission-line">
+                          Bhet {rupees(m.total)} + your commission ({m.rate}%) <strong>{rupees(m.commission)}</strong> = {rupees(m.total + m.commission)}
+                          {l.paymentMethod && ` · pays by ${l.paymentMethod === 'upi' ? 'UPI' : 'cash'}`}
+                          {m.commission > 0 && <small> · {l.commissionPaid ? 'commission received ✓' : 'commission not received yet'}</small>}
+                        </span>
+                      );
+                    })()}
                     {l.location && (
                       <a className="muted" href={mapsLink(l.location)} target="_blank" rel="noreferrer">
                         <MapPin size={12} /> Teammates should go to: {l.location.label || 'map pin'}
                       </a>
                     )}
                     {l.note && <span className="muted">Your note: {l.note}</span>}
+                    {l.cancelRequest?.status === 'rejected' && <span className="muted">Their request to cancel was turned down{l.cancelRequest.note ? `: ${l.cancelRequest.note}` : ''}.</span>}
                   </div>
-                  <span className={`pay-tag ${l.status === 'approved' ? 'pay-paid' : l.status === 'pending' ? 'pay-submitted' : 'req-tag'}`}>{STATUS[l.status]}</span>
+                  <span className={`pay-tag ${l.status === 'approved' ? 'pay-paid' : asking(l) ? 'pay-submitted' : 'req-tag'}`}>{STATUS[l.status] || l.status}</span>
                   {openChat && (
                     <button className="icon-btn" onClick={() => openChat(`m:${l.personId}`)} aria-label="Chat" title="Chat">
                       <MessagesSquare size={16} />
@@ -150,11 +200,29 @@ export default function LeaveTab({ data, api, setData, toast, openChat }) {
                   )}
                 </div>
 
+                {l.cancelRequest?.status === 'pending' && (
+                  <div className="leave-cancel-ask">
+                    <span>
+                      <strong>They ask to cancel this team booking.</strong> “{l.cancelRequest.reason}” · {format(new Date(l.cancelRequest.at), 'd MMM, h:mm a')}
+                    </span>
+                    <div className="ab-actions">
+                      <button className="btn btn-danger btn-sm" onClick={() => askNote(l, 'cancel')} disabled={!!busy}>
+                        <Undo2 size={15} /> Cancel it
+                      </button>
+                      <button className="btn btn-ghost btn-sm" onClick={() => askNote(l, 'keep')} disabled={!!busy}>
+                        <Check size={15} /> Keep it
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 {(l.picks || []).length > 0 && (
                   <div className="leave-duties">
-                    <p className="label">{l.status === 'pending' ? 'What they need — assign a person to each' : 'Assigned'}</p>
+                    <p className="label">{l.status === 'pending' ? 'What they need — assign a person to each; they are asked to accept' : 'Who goes'}</p>
                     {l.picks.map((x, i) => {
-                      const opts = l.status === 'pending' ? candidates(l, x) : [];
+                      const editable = open(l, x);
+                      const reply = replyOf(x);
+                      const opts = editable ? candidates(l, x) : [];
                       const match = opts.filter((o) => o.p.role === x.role);
                       const others = opts.filter((o) => o.p.role !== x.role);
                       const option = ({ p: o, km }) => (
@@ -168,15 +236,21 @@ export default function LeaveTab({ data, api, setData, toast, openChat }) {
                         <div key={i} className="leave-duty">
                           <span>
                             <strong>{roles[x.role] || 'Teammate'}</strong> · ₹{x.pay} · {requestWhat(x)}
+                            {x.personId && reply && (
+                              <small className={`reply-tag r-${reply}`}>
+                                {personOf(x.personId)?.name || 'someone removed'}: {REPLY[reply]}
+                                {x.replyNote ? ` — “${x.replyNote}”` : ''}
+                              </small>
+                            )}
                           </span>
-                          {l.status === 'pending' ? (
+                          {editable ? (
                             <select className="input" value={assignedFor(l, i)} onChange={(e) => setAssign((a) => ({ ...a, [l.id]: { ...a[l.id], [i]: e.target.value } }))}>
                               <option value="">{opts.length ? `Choose the ${roles[x.role] || 'person'}…` : 'Nobody is free for this'}</option>
                               {match.length > 0 && <optgroup label={roles[x.role]}>{match.map(option)}</optgroup>}
                               {others.length > 0 && <optgroup label="Other roles">{others.map(option)}</optgroup>}
                             </select>
                           ) : (
-                            <span className="muted">{x.personId ? `→ ${personOf(x.personId)?.name || 'someone removed'}` : '—'}</span>
+                            <span className="muted">{x.personId && reply !== 'declined' ? `→ ${personOf(x.personId)?.name || 'someone removed'}` : '—'}</span>
                           )}
                         </div>
                       );
@@ -214,28 +288,32 @@ export default function LeaveTab({ data, api, setData, toast, openChat }) {
                 )}
 
                 <div className="ab-actions">
-                  {l.status === 'pending' && (
-                    <>
-                      <button className="btn btn-primary btn-sm" onClick={() => decide(l, 'approve')} disabled={!!busy}>
-                        {busy === l.id + 'approve' ? <Loader2 size={15} className="spin" /> : <Check size={15} />} Assign & approve
-                      </button>
-                      <button
-                        className="btn btn-ghost btn-sm danger-text"
-                        onClick={() => {
-                          setNote('');
-                          setRejectFor(l);
-                        }}
-                        disabled={!!busy}
-                      >
-                        <Ban size={15} /> Reject
-                      </button>
-                    </>
-                  )}
-                  {l.status === 'approved' && l.to >= today && (
-                    <button className="btn btn-ghost btn-sm" onClick={() => decide(l, 'cancel')} disabled={!!busy}>
-                      <Undo2 size={15} /> Cancel this booking
+                  {(l.status === 'pending' || (l.status === 'assigned' && changedFor(l))) && (
+                    <button className="btn btn-primary btn-sm" onClick={() => decide(l, 'approve')} disabled={!!busy}>
+                      {busy === l.id + 'approve' ? <Loader2 size={15} className="spin" /> : <Send size={15} />} {l.status === 'pending' ? 'Assign & ask them' : 'Save & ask them'}
                     </button>
                   )}
+                  {asking(l) && (
+                    <button className="btn btn-ghost btn-sm danger-text" onClick={() => askNote(l, 'reject')} disabled={!!busy}>
+                      <Ban size={15} /> Reject
+                    </button>
+                  )}
+                  {live(l) && l.cancelRequest?.status !== 'pending' && (
+                    <button className="btn btn-ghost btn-sm" onClick={() => askNote(l, 'cancel')} disabled={!!busy}>
+                      <Undo2 size={15} /> Cancel
+                    </button>
+                  )}
+                  {moneyOf(l).commission > 0 && (l.status === 'approved' || l.commissionPaid) && (
+                    <button className="btn btn-ghost btn-sm" onClick={() => decide(l, l.commissionPaid ? 'unpaid' : 'paid')} disabled={!!busy}>
+                      {busy === l.id + 'paid' || busy === l.id + 'unpaid' ? <Loader2 size={15} className="spin" /> : <CircleCheck size={15} />} {l.commissionPaid ? 'Commission not received' : 'Commission received'}
+                    </button>
+                  )}
+                  <button className="btn btn-ghost btn-sm" onClick={() => setBill(billOf(l))}>
+                    <FileText size={15} /> Bill
+                  </button>
+                  <button className="icon-btn danger-text" onClick={() => askNote(l, 'delete')} disabled={!!busy} aria-label="Delete" title="Delete">
+                    <Trash2 size={16} />
+                  </button>
                 </div>
               </motion.li>
             );
@@ -243,28 +321,33 @@ export default function LeaveTab({ data, api, setData, toast, openChat }) {
         </AnimatePresence>
       </ul>
 
-      <Modal open={!!rejectFor} onClose={() => setRejectFor(null)} title="Reject team booking" subtitle="They are told on their phone. You can add a message.">
-        <form
-          className="cancel-form"
-          onSubmit={async (e) => {
-            e.preventDefault();
-            if (await decide(rejectFor, 'reject', { note })) setRejectFor(null);
-          }}
-        >
-          <label className="field">
-            <textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder=" " rows={3} />
-            <span>Message (optional)</span>
-          </label>
-          <div className="modal-actions">
-            <button type="button" className="btn btn-ghost" onClick={() => setRejectFor(null)}>
-              Back
-            </button>
-            <button className="btn btn-danger" disabled={!!busy}>
-              <Ban size={17} /> Reject
-            </button>
-          </div>
-        </form>
+      <Modal open={!!noteFor} onClose={() => setNoteFor(null)} title={noteFor ? NOTE_FOR[noteFor.action].title : ''} subtitle={noteFor ? NOTE_FOR[noteFor.action].sub : ''}>
+        {noteFor && (
+          <form
+            className="cancel-form"
+            onSubmit={async (e) => {
+              e.preventDefault();
+              if (await decide(noteFor.leave, noteFor.action, { note })) setNoteFor(null);
+            }}
+          >
+            {noteFor.action !== 'delete' && (
+              <label className="field">
+                <textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder=" " rows={3} />
+                <span>Message (optional)</span>
+              </label>
+            )}
+            <div className="modal-actions">
+              <button type="button" className="btn btn-ghost" onClick={() => setNoteFor(null)}>
+                Back
+              </button>
+              <button className={`btn ${noteFor.action === 'keep' ? 'btn-primary' : 'btn-danger'}`} disabled={!!busy}>
+                {busy ? <Loader2 size={17} className="spin" /> : noteFor.action === 'delete' ? <Trash2 size={17} /> : noteFor.action === 'keep' ? <Check size={17} /> : <Ban size={17} />} {NOTE_FOR[noteFor.action].button}
+              </button>
+            </div>
+          </form>
+        )}
       </Modal>
+      <TeamBillModal bill={bill} onClose={() => setBill(null)} />
     </div>
   );
 }

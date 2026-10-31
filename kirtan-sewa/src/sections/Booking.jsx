@@ -67,6 +67,12 @@ export default function Booking({ preselect }) {
   const [error, setError] = useState('');
   const [result, setResult] = useState(null);
   const panelRef = useRef(null);
+  const sewaStepRef = useRef(null);
+  const calRef = useRef(null);
+  // On phones the steps sit one under another: after each choice, bring the next one into view.
+  const nextStep = (ref, wait = 120) => {
+    if (window.innerWidth < 960) setTimeout(() => scrollToId(ref.current, -90), wait);
+  };
 
   // Step 1 is the category (e.g. Kirtan with Raag / with Kavishri); it decides which sewas can be picked.
   const categories = useMemo(() => site?.categories || [], [site]);
@@ -79,9 +85,12 @@ export default function Booking({ preselect }) {
   const chooseCategory = (c) => {
     setCategoryId(c.id);
     const inCat = services.filter((s) => c.serviceIds.includes(s.id));
+    const sewaKept = inCat.length === 1 || c.serviceIds.includes(serviceId);
     if (inCat.length === 1) setServiceId(inCat[0].id); // e.g. Kavishri only has Kirtan Diwan
     else if (!c.serviceIds.includes(serviceId)) setServiceId('');
     if (step === 'details') setStep('pick');
+    // The sewa row opens with an animation, so wait for it before scrolling; with the sewa already set, go to the dates.
+    nextStep(sewaKept ? calRef : sewaStepRef, category ? 120 : 450);
   };
   const settings = site?.settings || {};
   const gurpurabsOn = useCallback((key) => (site?.gurpurabs || []).filter((g) => g.date === key), [site]);
@@ -386,7 +395,7 @@ export default function Booking({ preselect }) {
 
             <AnimatePresence initial={false}>
             {(!hasCats || category) && (
-            <motion.div key="sewa-step" initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} transition={{ duration: 0.4, ease }}>
+            <motion.div key="sewa-step" ref={sewaStepRef} initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} transition={{ duration: 0.4, ease }}>
             <p className={`step-hint ${service ? 'done' : ''}`}>
               <span className="step-num">{hasCats ? 2 : 1}</span>
               {service ? (
@@ -417,6 +426,7 @@ export default function Booking({ preselect }) {
                     onClick={() => {
                       setServiceId(s.id);
                       if (step === 'details') setStep('pick');
+                      nextStep(calRef);
                     }}
                     style={{ '--accent': s.color }}
                   >
@@ -431,7 +441,7 @@ export default function Booking({ preselect }) {
             )}
             </AnimatePresence>
 
-            <div className="cal-wrap">
+            <div className="cal-wrap" ref={calRef}>
               <AnimatePresence>
                 {loadingAvail && (
                   <motion.div className="cal-loading" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
