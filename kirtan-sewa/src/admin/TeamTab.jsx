@@ -112,7 +112,9 @@ export default function TeamTab({ data, api, patch, toast, openChat }) {
                   <strong>{p.name}</strong>
                   <span className="muted">
                     {[
-                      roles[p.role],
+                      roles[p.role] || 'role not set yet',
+                      // The types of kirtan they chose when signing up (their skills).
+                      [...new Set((p.skills || []).map((k) => (data.categories || []).find((c) => c.id === k.categoryId)?.name).filter(Boolean))].join(', '),
                       p.phone,
                       `${Object.keys(p.docs || {}).length}/${Object.keys(docKinds).length} documents`,
                       p.createdAt && `signed up ${prettyDate(p.createdAt.slice(0, 10), 'd MMM')}`,
@@ -224,7 +226,7 @@ export default function TeamTab({ data, api, patch, toast, openChat }) {
         </AnimatePresence>
       </motion.ul>
 
-      <Modal open={!!editing} onClose={() => setEditing(null)} title={editing === 'new' ? 'Add a team member' : editing?.pending ? `Approve ${editing.name}` : 'Edit team member'} subtitle={editing?.pending ? 'Check their details and tick the sewas they do, then approve. They can log in straight after.' : undefined} wide>
+      <Modal open={!!editing} onClose={() => setEditing(null)} title={editing === 'new' ? 'Add a team member' : editing?.pending ? `Approve ${editing.name}` : 'Edit team member'} subtitle={editing?.pending ? 'Check their details, set their role and the sewas they do (filled in from the type of kirtan they chose), then approve. They can log in straight after.' : undefined} wide>
         <form className="admin-form" onSubmit={save}>
           <div className="grid-2">
             <label>

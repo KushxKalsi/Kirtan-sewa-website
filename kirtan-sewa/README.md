@@ -193,6 +193,8 @@ The uploaded QR image is saved in `data/uploads/`.
 ## Team: roles, profile, sewas, bhet and leave
 
 - Roles: **Head Ragi**, **Side Ragi**, **Tabla** (set in admin → Team; filter by role there).
+- **Create account** (team): they choose the **type(s) of kirtan** they do, which fill in their sewas (skills); the
+  admin sets their role when approving the sign-up.
 - Team members fill in their profile: name, father's name, experience, address, map location, bank account, and
   upload the jatha head photo, jatha photo, Aadhaar card and bank passbook / cancelled cheque (photo or PDF, 5 MB).
   Documents open only through short-lived signed links, for that member and the admin (Team → ID card button).
@@ -202,17 +204,18 @@ The uploaded QR image is saved in `data/uploads/`.
 - **Bhet:** set it per person on each booking (a person's "usual bhet" fills it in when they're assigned). If they
   ask for a different amount it lands in the chat, where you can set any amount directly.
 - **Team booking** (the old "leave"): a team member asks for someone to go in their place. They pick the days and
-  say why, then for each request choose the **type of kirtan** (e.g. with Raag / with Kavishri — a sewa's own type is
-  used for their sewas) and the bhet they offer (at least ₹200) — they don't choose the person — and whether they will pay
+  say why, then for each request choose **Head Ragi, Side Ragi or Tabla**, the **type of kirtan** (e.g. with Raag /
+  with Kavishri — a sewa's own type is used for their sewas) and the bhet they offer (at least ₹200) — they don't
+  choose the person — and whether they will pay
   the bhet by **UPI or cash**. If they have sewas in those days, each sewa gets its own request; otherwise they add
   as many requests as they need, each on a day and optional time. They can add a map pin for where to go. A request
   starting in less than 1 day is still sent, marked **Emergency**, and one can't be withdrawn within 1 day of its
-  start. Admin → **Team bookings** lists each request with a choice of people (those who do that type of kirtan first,
-  then nearest); **Assign & ask them** needs a person for every request (one person can't be in two places at once). Each
+  start. Admin → **Team bookings** lists each request with a choice of people (the role asked for first, then those
+  who do that type of kirtan, then nearest); **Assign & ask them** needs a person for every request (one person can't be in two places at once). Each
   person assigned is asked on their **Team booking** page to **Accept** or say they **can't go**; a sewa is handed
   over (at the bhet offered) only when they accept, and the booking shows **Booked** once everyone has. If someone
   declines, it comes back to the admin to choose someone else.
-- The member pays the bhet they offer (cash or UPI); the admin keeps a **10% commission** out of it and marks it
+- The member pays the bhet they offer (cash or UPI; they never see the commission); the admin keeps a **10% commission** out of it and marks it
   received. The people assigned see — and get, on any sewa handed to them — their bhet after the 10%.
 - **Cash:** the member pays the whole bhet to the people who go, so each one owes the admin the 10% on what they
   accepted. They see it as a **negative balance** (e.g. −₹150) on their Team booking page; Admin → Team bookings lists

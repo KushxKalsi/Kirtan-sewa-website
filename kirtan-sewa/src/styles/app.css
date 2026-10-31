@@ -4375,12 +4375,9 @@ input:focus-visible + .tick {
   font-weight: 600;
 }
 
-/* team sign-up: Head Ragi / Side Ragi / Tabla */
-.auth-switch.jatha-roles {
-  grid-template-columns: repeat(3, 1fr);
-}
-.auth-switch.jatha-roles button {
-  padding: 9px 6px;
+/* team sign-up: type of kirtan */
+.auth-form .field-group .fine-print {
+  margin: 6px 0 0;
 }
 .auth-form .field-group {
   overflow: hidden;
