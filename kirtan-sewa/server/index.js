@@ -938,7 +938,11 @@ function teamPayload(p) {
   return {
     person: memberView(p),
     duties: duties.map((b) => dutyView(b, p)),
-    leaves: db.leaves.filter((l) => l.personId === p.id).sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
+    // Their own team bookings, without the admin's commission (only the admin and the people who go see that).
+    leaves: db.leaves
+      .filter((l) => l.personId === p.id)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .map(({ commission: _c, commissionRate: _r, total: _t, ...l }) => l),
     // Teammates' bookings the admin put this person on: waiting for their yes / no, or accepted.
     bookedMe: db.leaves
       .filter((l) => (l.status === 'assigned' || l.status === 'approved') && l.to >= todayKey() && (l.picks || []).some((x) => x.personId === p.id && replyOf(x) !== 'declined'))
@@ -972,7 +976,6 @@ function teamPayload(p) {
       })),
     // Paid in cash, they hold the admin's commission: shown to them as a negative balance until the admin has it.
     commissionDue: cashCommissionDue().filter((d) => d.personId === p.id),
-    commissionRate: TEAM_COMMISSION_RATE,
     teammates: db.people.filter((x) => x.id !== p.id && x.active).map((x) => ({ id: x.id, name: x.name, role: x.role || '' })),
     unread: unreadIn(threadOf('m', p.id), 'other'),
     roles: ROLES,
