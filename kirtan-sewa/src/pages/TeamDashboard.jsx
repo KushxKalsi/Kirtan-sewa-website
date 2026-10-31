@@ -34,6 +34,7 @@ import Modal from '../components/Modal';
 import NotifyButton from '../components/NotifyButton';
 import ChatBox from '../components/ChatBox';
 import { TeamBillModal } from '../components/Bill';
+import { UpiScan } from '../components/PaymentBox';
 import LocationPicker from '../components/LocationPicker';
 import { useAuth } from '../components/AuthContext';
 import { useSite } from '../components/SiteContext';
@@ -414,6 +415,8 @@ function TeamBooking({ data, team, apply, toast }) {
   const [declineFor, setDeclineFor] = useState(null); // a teammate's booking I can't go for
   const [reason, setReason] = useState('');
   const [bill, setBill] = useState(null);
+  const [upiFor, setUpiFor] = useState(null); // own UPI team booking to pay
+  const upi = site?.settings || {};
   const to = form.to || form.from;
   const affected = form.from ? duties.filter((d) => live(d) && d.date >= form.from && d.date <= to).sort((a, b) => (a.date + a.slotTime).localeCompare(b.date + b.slotTime)) : [];
   const general = form.from && !affected.length;
@@ -581,6 +584,13 @@ function TeamBooking({ data, team, apply, toast }) {
             </span>
           </div>
         )}
+        <AnimatePresence initial={false}>
+          {form.from && form.paymentMethod === 'upi' && (
+            <motion.div key="team-upi" className="team-upi" initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} transition={{ duration: 0.3, ease }}>
+              {upi.upiId ? <UpiScan settings={upi} amount={offered || undefined} note="Team booking bhet" /> : <p className="muted">The admin’s UPI details aren’t set up yet — ask the admin in the chat.</p>}
+            </motion.div>
+          )}
+        </AnimatePresence>
         {form.from && (
           <div>
             <span className="label">Where should they go? (optional)</span>
@@ -658,6 +668,11 @@ function TeamBooking({ data, team, apply, toast }) {
                 <button type="button" className="link-btn" onClick={() => setBill(billOf(l))}>
                   <FileText size={13} /> Bill
                 </button>
+                {l.paymentMethod === 'upi' && !l.commissionPaid && ['pending', 'assigned', 'approved'].includes(l.status) && upi.upiId && (
+                  <button type="button" className="link-btn" onClick={() => setUpiFor(l)}>
+                    <Smartphone size={13} /> Pay by UPI
+                  </button>
+                )}
                 {canAskCancel(l) && (
                   <button
                     type="button"
@@ -800,6 +815,9 @@ function TeamBooking({ data, team, apply, toast }) {
         </form>
       </Modal>
       <TeamBillModal bill={bill} onClose={() => setBill(null)} />
+      <Modal open={!!upiFor} onClose={() => setUpiFor(null)} title="Pay by UPI" subtitle={upiFor && `Team booking ${prettyDate(upiFor.from, 'd MMM yyyy')} · ${rupees(totalOf(upiFor))}`}>
+        {upiFor && <UpiScan settings={upi} amount={totalOf(upiFor)} note={`Team booking ${upiFor.billNo || ''}`.trim()} />}
+      </Modal>
     </div>
   );
 }

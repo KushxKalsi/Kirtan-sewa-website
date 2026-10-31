@@ -13,6 +13,35 @@ const STATUS = {
   unpaid: { label: 'Not paid yet', cls: 'pay-unpaid' },
 };
 
+/** The jatha's UPI QR code and ID (tap to copy), with a button that opens a UPI app for this amount. */
+export function UpiScan({ settings: s, amount, refNo, note }) {
+  const [copied, setCopied] = useState(false);
+  const copyUpi = async () => {
+    try {
+      await navigator.clipboard.writeText(s.upiId);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1600);
+    } catch {
+      /* clipboard blocked */
+    }
+  };
+  return (
+    <div className="pay-upi">
+      {s.upiQr && <motion.img src={s.upiQr} alt="UPI QR code" className="pay-qr" initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.5, ease }} />}
+      <div className="pay-upi-info">
+        <span className="muted">Scan the QR or pay to</span>
+        <button type="button" className="chip pay-upi-id" onClick={copyUpi}>
+          {s.upiId} {copied ? <Check size={13} /> : <Copy size={13} />}
+        </button>
+        {s.upiName && <span className="muted">{s.upiName}</span>}
+        <a className="btn btn-primary btn-sm" href={upiLink({ upiId: s.upiId, upiName: s.upiName, amount, ref: refNo, note })}>
+          <Smartphone size={16} /> Pay {amount ? rupees(amount) : ''} with UPI app
+        </a>
+      </div>
+    </div>
+  );
+}
+
 /**
  * Customer view of payment for one booking:
  * - always shows whether it is paid, and lets them pick / change UPI or cash until they have paid
@@ -26,7 +55,6 @@ export default function PaymentBox({ booking, onUpdated }) {
   const [utr, setUtr] = useState('');
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
-  const [copied, setCopied] = useState(false);
   const [showBill, setShowBill] = useState(false);
 
   if (booking.status === 'cancelled') return null;
@@ -53,16 +81,6 @@ export default function PaymentBox({ booking, onUpdated }) {
     e.preventDefault();
     run('utr', () => user.submitPayment(booking.ref, utr));
   };
-  const copyUpi = async () => {
-    try {
-      await navigator.clipboard.writeText(s.upiId);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1600);
-    } catch {
-      /* clipboard blocked */
-    }
-  };
-
   let body = null;
   if (status === 'paid') {
     body = (
@@ -109,19 +127,7 @@ export default function PaymentBox({ booking, onUpdated }) {
   } else {
     body = (
       <>
-        <div className="pay-upi">
-          {s.upiQr && <motion.img src={s.upiQr} alt="UPI QR code" className="pay-qr" initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.5, ease }} />}
-          <div className="pay-upi-info">
-            <span className="muted">Scan the QR or pay to</span>
-            <button type="button" className="chip pay-upi-id" onClick={copyUpi}>
-              {s.upiId} {copied ? <Check size={13} /> : <Copy size={13} />}
-            </button>
-            {s.upiName && <span className="muted">{s.upiName}</span>}
-            <a className="btn btn-primary btn-sm" href={upiLink({ upiId: s.upiId, upiName: s.upiName, amount: booking.amount, ref: booking.ref })}>
-              <Smartphone size={16} /> Pay {rupees(booking.amount)} with UPI app
-            </a>
-          </div>
-        </div>
+        <UpiScan settings={s} amount={booking.amount} refNo={booking.ref} />
         <form className="pay-utr" onSubmit={submitUtr}>
           <label className="field">
             <input value={utr} onChange={(e) => setUtr(e.target.value)} placeholder=" " required autoCapitalize="characters" spellCheck="false" />

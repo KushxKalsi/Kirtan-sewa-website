@@ -5372,6 +5372,13 @@ input:focus-visible + .tick {
 .cash-split small {
   color: var(--faint);
 }
+.team-upi {
+  overflow: hidden;
+  padding: 14px;
+  border-radius: 16px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
 .team-total {
   display: grid;
   gap: 4px;

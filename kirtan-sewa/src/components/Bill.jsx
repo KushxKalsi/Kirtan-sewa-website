@@ -143,10 +143,11 @@ export function Bill({ booking: b, settings: s, origin = '' }) {
 }
 
 /** A team booking's bill to the member: the bhet for each person asked for. The admin's commission is never on it. */
-export function TeamBill({ leave: l, settings: s, member, roles = {}, nameOf = () => '', whatOf }) {
+export function TeamBill({ leave: l, settings: s, member, roles = {}, nameOf = () => '', whatOf, origin = '' }) {
   const paid = !!l.commissionPaid;
   const total = (l.picks || []).reduce((t, x) => t + (Number(x.pay) || 0), 0);
   const byUpi = l.paymentMethod === 'upi';
+  const showUpi = !paid && byUpi && s.upiId && l.status !== 'cancelled' && l.status !== 'rejected';
   const from = [s.address, s.phone, s.email].filter(Boolean).join('\n');
   const billed = [member?.name || l.personName, member?.phone, 'Team member'].filter(Boolean).join('\n');
   const how = byUpi ? 'UPI' : l.paymentMethod === 'cash' ? 'cash' : '';
@@ -219,6 +220,16 @@ export function TeamBill({ leave: l, settings: s, member, roles = {}, nameOf = (
           <span className={`bill-stamp ${paid ? 'paid' : 'due'}`}>{paid ? 'Paid' : l.status === 'cancelled' || l.status === 'rejected' ? l.status : 'Amount due'}</span>
           <p className="bill-stamp-sub">{statusLine}</p>
         </div>
+        {showUpi && (
+          <div className="bill-pay">
+            <p>
+              Pay via UPI
+              <strong>{s.upiId}</strong>
+              {s.upiName}
+            </p>
+            {s.upiQr && <img src={origin + s.upiQr} alt="UPI QR" />}
+          </div>
+        )}
       </footer>
 
       <p className="bill-thanks">
