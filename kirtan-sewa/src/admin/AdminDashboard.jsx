@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
-import { CalendarDays, CalendarOff, Clock, ExternalLink, HeartHandshake, Layers, LayoutGrid, Loader2, LogOut, MessagesSquare, Settings, Sparkles, Users } from 'lucide-react';
+import { CalendarDays, CalendarOff, CalendarRange, Clock, ExternalLink, HeartHandshake, Layers, LayoutGrid, Loader2, LogOut, MessagesSquare, Settings, Sparkles, Users } from 'lucide-react';
 import BookingsTab from './BookingsTab';
+import CalendarTab from './CalendarTab';
 import ServicesTab from './ServicesTab';
 import ScheduleTab from './ScheduleTab';
 import SettingsTab from './SettingsTab';
@@ -20,6 +21,7 @@ import { ease } from '../lib/motion';
 
 const TABS = [
   { id: 'bookings', label: 'Bookings', icon: CalendarDays },
+  { id: 'calendar', label: 'Calendar', icon: CalendarRange },
   { id: 'chat', label: 'Chat', icon: MessagesSquare },
   { id: 'leave', label: 'Team bookings', icon: CalendarOff },
   { id: 'customers', label: 'Sangat accounts', icon: HeartHandshake },
@@ -132,6 +134,7 @@ export default function AdminDashboard({ token, onLogout }) {
           <AnimatePresence mode="wait">
             <motion.div key={tab} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.4, ease }}>
               {tab === 'bookings' && <BookingsTab {...ctx} />}
+              {tab === 'calendar' && <CalendarTab {...ctx} openBooking={openBooking} openTab={setTab} />}
               {tab === 'chat' && <ChatTab {...ctx} initialThread={chatThread} openBooking={openBooking} />}
               {tab === 'leave' && <LeaveTab {...ctx} />}
               {tab === 'customers' && <CustomersTab {...ctx} />}
