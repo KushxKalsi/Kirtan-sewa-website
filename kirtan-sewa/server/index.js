@@ -89,7 +89,7 @@ const ownsBooking = (user, b) => b.userId === user.id || (!b.userId && samePhone
 // Team roles within a jatha.
 const ROLES = { 'head-ragi': 'Head Ragi', 'side-ragi': 'Side Ragi', tabla: 'Tabla' };
 // Documents a team member uploads to their profile.
-const DOC_KINDS = { headPhoto: 'Jatha head photo', jathaPhoto: 'Jatha photo', aadhaar: 'Aadhaar card', bankProof: 'Bank passbook / cancelled cheque' };
+const DOC_KINDS = { headPhoto: 'Jatha head photo', jathaPhoto: 'Jatha photo', aadhaar: 'Aadhaar card', bankProof: 'Bank passbook / cancelled cheque', upiQr: 'UPI QR code' };
 // Documents a new team member must add when they sign up (the rest can follow from their profile).
 const SIGNUP_DOCS_REQUIRED = ['aadhaar'];
 // An uploaded document as a data: URL -> { type, data (base64) }.
@@ -430,6 +430,26 @@ async function sendReminders() {
       done.day = true;
       if (kind === 'soon') done.soon = true;
       notifyPerson(person, kind, b, t);
+      changed = true;
+    }
+  }
+  // Their own kirtans: the same two reminders, or only the morning one for a whole day.
+  for (const p of db.people) {
+    if (!p.phone || p.active === false) continue;
+    for (const k of p.busy || []) {
+      if (k.date < today || k.date > tomorrow) continue;
+      const t = k.start ? reminderTimes({ date: k.date, slotTime: k.start }) : { start: new Date(`${k.date}T23:59:00`).getTime(), soon: Infinity, day: new Date(`${k.date}T06:00:00`).getTime() };
+      if (!t || now >= t.start) continue;
+      const done = (k.reminded ||= {});
+      const kind = now >= t.soon ? 'soon' : now >= t.day ? 'day' : null;
+      if (!kind || done[kind]) continue;
+      done.day = true;
+      if (kind === 'soon') done.soon = true;
+      const message =
+        kind === 'soon'
+          ? { title: `Your kirtan starts at ${to12(k.start)} ⏰`, body: `${k.place}${k.note ? ` · ${k.note}` : ''}` }
+          : { title: t.evening ? 'Your kirtan tomorrow 🙏' : 'Your kirtan today 🙏', body: `${k.place} · ${busyTime(k)}${k.note ? ` · ${k.note}` : ''}` };
+      notifyPhone(p.phone, { ...message, url: '/team', tag: `busy-${k.id}-${kind}` }).catch(() => {});
       changed = true;
     }
   }
@@ -912,6 +932,20 @@ app.post('/api/me/chat', requireUser, async (req, res) => {
 
 /* ---------- team member dashboard ---------- */
 
+// Kirtans a team member booked themselves (outside the site): the days and times they are busy.
+const busyView = (p) =>
+  (p.busy || [])
+    .filter((k) => k.date >= addDaysKey(-60))
+    .map(({ reminded: _r, ...k }) => k)
+    .sort((a, b) => (a.date + a.start).localeCompare(b.date + b.start));
+const busyTime = (k) => (k.start ? `${to12(k.start)} – ${to12(k.end)}` : 'whole day');
+// Same day, and the times cross (a whole-day kirtan crosses everything that day).
+const busyClashes = (k, b) => {
+  if (k.date !== b.date) return false;
+  if (!k.start) return true;
+  const [s, e] = rangeOf(b);
+  return k.start < e && s < k.end;
+};
 const docUrl = (doc) => doc && { ...doc, url: `/api/files/${doc.id}?${auth.fileQuery(doc.id)}` };
 // A team member's profile, as they and the admin see it (never the password).
 const memberView = (p) => ({
@@ -928,6 +962,8 @@ const memberView = (p) => ({
   experience: p.experience || '',
   location: p.location || null,
   bank: p.bank || { holder: '', account: '', ifsc: '', bankName: '' },
+  upiId: p.upiId || '',
+  busy: busyView(p),
   docs: Object.fromEntries(Object.entries(p.docs || {}).map(([k, d]) => [k, docUrl(d)])),
   defaultPay: p.defaultPay ?? null,
   hasPassword: !!p.passwordHash,
@@ -1003,6 +1039,8 @@ app.put('/api/team/profile', requireMember, async (req, res) => {
   };
   if (bank.account && bank.account.length < 6) fail(400, 'The bank account number looks too short.');
   if (bank.ifsc && !/^[A-Z]{4}0[A-Z0-9]{6}$/.test(bank.ifsc)) fail(400, 'The IFSC code should look like SBIN0001234.');
+  const upiId = str(b.upiId, 80).replace(/\s/g, '');
+  if (upiId && !/^[\w.-]{2,}@[a-zA-Z][\w.-]*$/.test(upiId)) fail(400, 'The UPI ID should look like name@okaxis.');
   Object.assign(p, {
     name,
     fatherName: str(b.fatherName, 80),
@@ -1010,6 +1048,7 @@ app.put('/api/team/profile', requireMember, async (req, res) => {
     address: str(b.address, 300),
     location: readLocation(b.location),
     bank,
+    upiId,
     profileUpdatedAt: new Date().toISOString(),
   });
   await save();
@@ -1041,6 +1080,49 @@ app.delete(`${DOC_PATH}:kind`, requireMember, async (req, res) => {
     await save();
     await kv.set(`doc-${old.id}`, null);
   }
+  res.json(teamPayload(p));
+});
+
+// A kirtan the member booked themselves: the admin is told (with any sewa it clashes with) and the member gets reminders.
+app.post('/api/team/busy', requireMember, async (req, res) => {
+  const p = req.person;
+  const b = req.body || {};
+  const date = str(b.date, 10);
+  const start = str(b.start, 5);
+  const end = str(b.end, 5);
+  const place = str(b.place, 120);
+  if (!DATE_RE.test(date)) fail(400, 'Please choose the day.');
+  if (date < todayKey()) fail(400, 'That day has already passed.');
+  if (start || end) {
+    if (!TIME_RE.test(start) || !TIME_RE.test(end) || end <= start) fail(400, 'Enter both times (end after start), or leave both empty for the whole day.');
+  }
+  if (place.length < 2) fail(400, 'Please say where the kirtan is.');
+  if ((p.busy || []).filter((k) => k.date >= todayKey()).length >= 200) fail(400, 'You have too many kirtans added. Remove some old ones first.');
+  const k = { id: uid(), date, start, end: start ? end : '', place, note: str(b.note, 300), createdAt: new Date().toISOString(), reminded: {} };
+  // The add itself tells them the time, so skip reminders that are already due.
+  const t = k.start && reminderTimes({ date, slotTime: k.start });
+  if (t && Date.now() >= t.day) k.reminded.day = true;
+  if (t && Date.now() >= t.soon) k.reminded.soon = true;
+  if (!k.start && date === todayKey() && Date.now() >= new Date(`${date}T06:00:00`).getTime()) k.reminded.day = true;
+  p.busy = [...(p.busy || []), k];
+  await save();
+  const clash = db.bookings.filter((x) => isActive(x) && (x.assignees || []).some((a) => a.id === p.id) && busyClashes(k, x));
+  alertAdmin(
+    `📅 ${p.name} added a kirtan`,
+    `${place} · ${shortDate(date)}, ${busyTime(k)}${clash.length ? ` · ⚠ clashes with ${clash.map((x) => `${x.serviceName} (${x.ref})`).join(', ')}` : ''}`,
+    '/admin?tab=calendar',
+    `busy-${k.id}`,
+  );
+  res.status(201).json(teamPayload(p));
+});
+
+app.delete('/api/team/busy/:id', requireMember, async (req, res) => {
+  const p = req.person;
+  const k = (p.busy || []).find((x) => x.id === req.params.id);
+  if (!k) fail(404, 'Kirtan not found.');
+  p.busy = p.busy.filter((x) => x.id !== k.id);
+  await save();
+  if (k.date >= todayKey()) alertAdmin(`📅 ${p.name} removed a kirtan`, `${k.place} · ${shortDate(k.date)}, ${busyTime(k)} — free again.`, '/admin?tab=calendar', `busy-${k.id}`);
   res.json(teamPayload(p));
 });
 

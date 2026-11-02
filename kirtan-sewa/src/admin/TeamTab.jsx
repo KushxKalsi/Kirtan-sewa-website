@@ -339,6 +339,10 @@ export default function TeamTab({ data, api, patch, toast, openChat }) {
                 <dt>Bank account</dt>
                 <dd>{viewing.bank?.account ? [viewing.bank.holder, viewing.bank.account, viewing.bank.ifsc, viewing.bank.bankName].filter(Boolean).join(' · ') : 'Not added'}</dd>
               </div>
+              <div>
+                <dt>UPI ID</dt>
+                <dd>{viewing.upiId || (viewing.docs?.upiQr ? 'QR code below' : 'Not added')}</dd>
+              </div>
             </dl>
             <div className="doc-grid">
               {Object.entries(docKinds).map(([kind, label]) => {
