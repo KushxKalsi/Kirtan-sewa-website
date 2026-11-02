@@ -68,6 +68,7 @@ export default function Booking({ preselect }) {
   const [error, setError] = useState('');
   const [result, setResult] = useState(null);
   const panelRef = useRef(null);
+  const catStepRef = useRef(null);
   const sewaStepRef = useRef(null);
   const calRef = useRef(null);
   // On phones the steps sit one under another: after each choice, bring the next one into view.
@@ -222,11 +223,11 @@ export default function Booking({ preselect }) {
     if (selection.length >= MAX_ITEMS) return toast(`You can book up to ${MAX_ITEMS} slots at once.`, 'error');
     setSelection((list) => [...list, { categoryId: category?.id || '', serviceId: service.id, date, slotId: sl.id }]);
   };
-  // Shakes the category/sewa picker when one is still missing.
+  // Shakes the category/sewa picker when one is still missing; on phones, scrolls to that step (not the top of the section).
   const needsSewa = () => {
     if (service && (!hasCats || category)) return false;
     setNudge((n) => n + 1);
-    if (window.innerWidth < 960) scrollToId('book', -20);
+    if (window.innerWidth < 960) scrollToId((hasCats && !category ? catStepRef : sewaStepRef).current, -90);
     return true;
   };
   const addCustom = (e) => {
@@ -359,7 +360,7 @@ export default function Booking({ preselect }) {
           <div className="booking-left">
             {hasCats && (
               <>
-                <p className={`step-hint ${category ? 'done' : ''}`}>
+                <p className={`step-hint ${category ? 'done' : ''}`} ref={catStepRef}>
                   <span className="step-num">1</span>
                   {category ? (
                     <>
