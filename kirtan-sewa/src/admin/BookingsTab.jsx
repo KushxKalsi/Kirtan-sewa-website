@@ -158,6 +158,11 @@ export default function BookingsTab({ data, api, patch, toast }) {
   const personById = (id) => people.find((p) => p.id === id);
   // An approved team booking on that date — shown as a note only; it never blocks assigning.
   const leaveOn = (personId, date) => (data.leaves || []).find((l) => l.personId === personId && l.status === 'approved' && l.from <= date && l.to >= date);
+  // A kirtan they booked themselves at this time — also only a note.
+  const busyOn = (p, b) => {
+    const [s, e] = rangeOf(b);
+    return (p.busy || []).find((k) => k.date === b.date && (!k.start || (k.start < e && s < k.end)));
+  };
   // The admin's commission: a share of bills above a set amount. Shown here only — never to customers or the team.
   const rate = Number(settings.commissionRate) || 0;
   const commissionOf = (b) => (rate > 0 && b.amount > (Number(settings.commissionAbove) || 0) && b.status !== 'cancelled' ? Math.round((b.amount * rate) / 100) : 0);
@@ -604,7 +609,7 @@ export default function BookingsTab({ data, api, patch, toast }) {
                             // Who can do it, nearest to the venue first (when both have a map pin).
                             const eligible = people
                               .filter((p) => canDo(p, b))
-                              .map((p) => ({ p, km: distanceKm(b.location, p.location), leave: leaveOn(p.id, b.date) }))
+                              .map((p) => ({ p, km: distanceKm(b.location, p.location), leave: leaveOn(p.id, b.date), own: busyOn(p, b) }))
                               .sort((x, y) => (x.km ?? 1e9) - (y.km ?? 1e9) || x.p.name.localeCompare(y.p.name));
                             const nearest = eligible.find((c) => c.km != null)?.p.id;
                             const eligibleIds = new Set(eligible.map((c) => c.p.id));
@@ -627,7 +632,7 @@ export default function BookingsTab({ data, api, patch, toast }) {
                                       <UserRound size={13} /> {a.name} ✕
                                     </button>
                                   ))}
-                                  {eligible.map(({ p, km, leave }) => {
+                                  {eligible.map(({ p, km, leave, own }) => {
                                     const on = assignedIds.includes(p.id);
                                     return (
                                       <button
@@ -636,12 +641,13 @@ export default function BookingsTab({ data, api, patch, toast }) {
                                         className={`check-pill ${on ? 'active' : ''}`}
                                         onClick={() => setAssignees(b, keep(on ? assignedIds.filter((x) => x !== p.id) : [...assignedIds, p.id]))}
                                         disabled={!!busy}
-                                        title={leave ? `Has a team booking ${prettyDate(leave.from, 'd MMM')} – ${prettyDate(leave.to, 'd MMM')}` : undefined}
+                                        title={[leave && `Has a team booking ${prettyDate(leave.from, 'd MMM')} – ${prettyDate(leave.to, 'd MMM')}`, own && `Busy with their own kirtan: ${own.place}${own.start ? ` (${rangeTo12(`${own.start} – ${own.end}`)})` : ' (whole day)'}`].filter(Boolean).join('\n') || undefined}
                                       >
                                         {on ? <Check size={13} /> : <UserRound size={13} />} {p.name}
                                         {p.role && <small className="pill-role">{roles[p.role]}</small>}
                                         {km != null && <small className={`pill-km ${p.id === nearest ? 'nearest' : ''}`}>{p.id === nearest ? `Nearest · ${kmText(km)}` : kmText(km)}</small>}
                                         {leave && <small className="pill-leave">Team booking</small>}
+                                        {own && <small className="pill-leave">Busy · own kirtan</small>}
                                         {!km && p.address && <small className="pill-address">{p.address}</small>}
                                       </button>
                                     );

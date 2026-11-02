@@ -52,6 +52,8 @@ export const teamApi = (token) => ({
   saveProfile: (body) => request('/team/profile', { method: 'PUT', body, token }),
   uploadDoc: (kind, dataUrl, name) => request(`/team/documents/${kind}`, { method: 'POST', body: { dataUrl, name }, token }),
   removeDoc: (kind) => request(`/team/documents/${kind}`, { method: 'DELETE', token }),
+  addBusy: (body) => request('/team/busy', { method: 'POST', body, token }),
+  removeBusy: (id) => request(`/team/busy/${id}`, { method: 'DELETE', token }),
   confirmDuty: (id) => request(`/team/duties/${id}/confirm`, { method: 'POST', body: {}, token }),
   requestDutyCancel: (id, reason) => request(`/team/duties/${id}/cancel-request`, { method: 'POST', body: { reason }, token }),
   withdrawDutyCancel: (id) => request(`/team/duties/${id}/cancel-request/withdraw`, { method: 'POST', body: {}, token }),

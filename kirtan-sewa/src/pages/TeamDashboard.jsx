@@ -6,6 +6,7 @@ import {
   Ban,
   Banknote,
   CalendarDays,
+  CalendarPlus,
   CalendarRange,
   Check,
   CircleAlert,
@@ -48,8 +49,8 @@ import { rupees } from '../lib/money';
 import { ease } from '../lib/motion';
 
 const TABS = [
-  { id: 'duties', label: 'My sewas', icon: ListChecks },
   { id: 'calendar', label: 'Calendar', icon: CalendarRange },
+  { id: 'duties', label: 'My sewas', icon: ListChecks },
   { id: 'leave', label: 'Team booking', icon: UsersRound },
   { id: 'chat', label: 'Chat with admin', icon: MessagesSquare },
   { id: 'profile', label: 'Profile & documents', icon: UserRound },
@@ -888,11 +889,48 @@ const CAL_LEGEND = [
   ['completed', 'Done'],
   ['team', 'Going for a teammate'],
   ['leave', 'Someone in your place'],
+  ['busy', 'Your own kirtan'],
 ];
+const blankKirtan = { date: '', start: '', end: '', place: '', note: '' };
+const busyTime = (k) => (k.start ? rangeTo12(`${k.start} – ${k.end}`) : 'Whole day');
+// Same day, and the times cross (a whole-day kirtan crosses everything that day).
+const clashesWith = (k, d) => {
+  if (k.date !== d.date) return false;
+  if (!k.start || !k.end) return true;
+  const [s, e] = d.slotTime.split('–').map((t) => t.trim());
+  return k.start < e && s < k.end;
+};
 
-/** Their sewas, the teammates' bookings they go for, and their own team bookings on one month calendar. */
-function TeamCalendar({ data, openTab }) {
+/**
+ * Their sewas, the teammates' bookings they go for, their own team bookings and the kirtans they booked themselves on one
+ * month calendar. They add their own kirtans here so the admin knows they are busy (the admin is notified).
+ */
+function TeamCalendar({ data, team, apply, toast, openTab }) {
   const { today, duties, leaves, roles } = data;
+  const [kirtan, setKirtan] = useState(null); // the add form, open for a day
+  const [removeFor, setRemoveFor] = useState(null);
+  const [busy, setBusy] = useState('');
+  const clash = kirtan?.date ? duties.filter((d) => live(d) && clashesWith(kirtan, d)) : [];
+
+  const run = async (key, fn, msg) => {
+    setBusy(key);
+    try {
+      apply(await fn());
+      toast(msg);
+      return true;
+    } catch (e) {
+      toast(e.message, 'error');
+      return false;
+    } finally {
+      setBusy('');
+    }
+  };
+  const add = async (e) => {
+    e.preventDefault();
+    if ((kirtan.start || kirtan.end) && !(kirtan.start && kirtan.end && kirtan.end > kirtan.start)) return toast('Enter both times (end after start), or leave both empty for the whole day.', 'error');
+    if (await run('add', () => team.addBusy(kirtan), 'Kirtan added — the admin is told you are busy.')) setKirtan(null);
+  };
+
   const events = useMemo(() => {
     const dutyOf = (id) => duties.find((d) => d.id === id);
     const nameOf = (id) => data.teammates.find((t) => t.id === id)?.name || 'A team member';
@@ -943,13 +981,96 @@ function TeamCalendar({ data, openTab }) {
           };
         }),
       );
-    return [...mine, ...forTeammates, ...away];
+    const own = (data.person.busy || []).map((k) => ({
+      id: k.id,
+      date: k.date,
+      start: k.start,
+      time: busyTime(k),
+      title: k.place,
+      sub: k.note,
+      tone: 'busy',
+      tag: 'Your kirtan',
+      onOpen: k.date >= today ? () => setRemoveFor(k) : null,
+    }));
+    return [...mine, ...forTeammates, ...away, ...own];
   }, [data, duties, leaves, roles, today, openTab]);
 
-  return <BookingCalendar events={events} today={today} legend={CAL_LEGEND} empty="No sewas on this day." />;
+  return (
+    <>
+      <BookingCalendar
+        events={events}
+        today={today}
+        legend={CAL_LEGEND}
+        empty="No sewas on this day."
+        onAdd={(date) => setKirtan({ ...blankKirtan, date })}
+        addLabel="Add my own kirtan on this day"
+      >
+        <p className="fine-print bcal-hint">Booked a kirtan yourself? Add it here so the admin knows you are busy — you get reminders for it too.</p>
+      </BookingCalendar>
+
+      <Modal open={!!kirtan} onClose={() => setKirtan(null)} title="Add your own kirtan" subtitle="The admin is told you are busy then. You get a reminder on the day and 2 hours before.">
+        {kirtan && (
+          <form className="cancel-form" onSubmit={add}>
+            <label>
+              <span className="label">Day *</span>
+              <input className="input" type="date" min={today} value={kirtan.date} onChange={(e) => setKirtan((k) => ({ ...k, date: e.target.value }))} required />
+            </label>
+            <div className="grid-2">
+              <label>
+                <span className="label">From (optional)</span>
+                <input className="input" type="time" value={kirtan.start} onChange={(e) => setKirtan((k) => ({ ...k, start: e.target.value }))} />
+              </label>
+              <label>
+                <span className="label">To</span>
+                <input className="input" type="time" value={kirtan.end} onChange={(e) => setKirtan((k) => ({ ...k, end: e.target.value }))} />
+              </label>
+            </div>
+            <label className="field">
+              <input value={kirtan.place} onChange={(e) => setKirtan((k) => ({ ...k, place: e.target.value }))} placeholder=" " required minLength={2} maxLength={120} autoFocus />
+              <span>Where? (e.g. Sukhmani Sahib at Gurdwara Singh Sabha) *</span>
+            </label>
+            <label className="field">
+              <textarea value={kirtan.note} onChange={(e) => setKirtan((k) => ({ ...k, note: e.target.value }))} placeholder=" " rows={2} maxLength={300} />
+              <span>Note (optional)</span>
+            </label>
+            {clash.length > 0 && (
+              <p className="leave-emergency">
+                <CircleAlert size={16} /> You have {clash.map((d) => `${d.serviceName} (${rangeTo12(d.slotTime)})`).join(', ')} then. Ask for someone in your place under <strong>Team booking</strong>.
+              </p>
+            )}
+            <div className="modal-actions">
+              <button type="button" className="btn btn-ghost" onClick={() => setKirtan(null)}>
+                Back
+              </button>
+              <button className="btn btn-primary" disabled={!!busy}>
+                {busy === 'add' ? <Loader2 size={17} className="spin" /> : <CalendarPlus size={17} />} Add kirtan
+              </button>
+            </div>
+          </form>
+        )}
+      </Modal>
+
+      <Modal open={!!removeFor} onClose={() => setRemoveFor(null)} title="Remove this kirtan?" subtitle={removeFor && `${removeFor.place} · ${prettyDate(removeFor.date, 'EEE, d MMM')} · ${busyTime(removeFor)}. The admin is told you are free again.`}>
+        <div className="modal-actions">
+          <button className="btn btn-ghost" onClick={() => setRemoveFor(null)}>
+            Keep
+          </button>
+          <button
+            className="btn btn-danger"
+            disabled={!!busy}
+            onClick={async () => {
+              if (await run('remove', () => team.removeBusy(removeFor.id), 'Kirtan removed.')) setRemoveFor(null);
+            }}
+          >
+            {busy === 'remove' ? <Loader2 size={17} className="spin" /> : <Trash2 size={17} />} Remove
+          </button>
+        </div>
+      </Modal>
+    </>
+  );
 }
 
-function DocSlot({ kind, label, doc, team, apply, toast }) {
+function DocSlot({ kind, label, doc, team, apply, toast, accept = 'image/*,application/pdf' }) {
   const ref = useRef(null);
   const [busy, setBusy] = useState(false);
   const upload = async (e) => {
@@ -1008,7 +1129,7 @@ function DocSlot({ kind, label, doc, team, apply, toast }) {
           </button>
         )}
       </div>
-      <input ref={ref} type="file" accept="image/*,application/pdf" hidden onChange={upload} />
+      <input ref={ref} type="file" accept={accept} hidden onChange={upload} />
     </div>
   );
 }
@@ -1016,7 +1137,7 @@ function DocSlot({ kind, label, doc, team, apply, toast }) {
 function Profile({ data, team, apply, toast }) {
   const { setToken, logout } = useAuth();
   const p = data.person;
-  const [form, setForm] = useState(() => ({ name: p.name, fatherName: p.fatherName, experience: p.experience, address: p.address, location: p.location, bank: { ...p.bank } }));
+  const [form, setForm] = useState(() => ({ name: p.name, fatherName: p.fatherName, experience: p.experience, address: p.address, location: p.location, bank: { ...p.bank }, upiId: p.upiId || '' }));
   const [pw, setPw] = useState({ current: '', password: '' });
   const [busy, setBusy] = useState('');
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
@@ -1096,6 +1217,15 @@ function Profile({ data, team, apply, toast }) {
             <span>Bank name & branch</span>
           </label>
         </div>
+        <h4>UPI (for your bhet)</h4>
+        <div className="upi-own">
+          <label className="field">
+            <input value={form.upiId} onChange={set('upiId')} placeholder=" " autoCapitalize="none" spellCheck="false" />
+            <span>Your UPI ID (e.g. name@okaxis)</span>
+          </label>
+          <DocSlot kind="upiQr" label={data.docKinds.upiQr} doc={p.docs.upiQr} team={team} apply={apply} toast={toast} accept="image/*" />
+        </div>
+        <p className="fine-print">Add a photo or screenshot of your UPI QR code — the admin can scan it to pay your bhet. The QR uploads straight away; save the profile for the UPI ID.</p>
         <button className="btn btn-primary" disabled={!!busy}>
           {busy === 'profile' ? <Loader2 size={17} className="spin" /> : <Save size={17} />} Save profile
         </button>
@@ -1105,7 +1235,9 @@ function Profile({ data, team, apply, toast }) {
         <h3>Documents</h3>
         <p className="muted">Photos or PDFs, up to 5 MB each. Only you and the admin can open them.</p>
         <div className="doc-grid">
-          {Object.entries(data.docKinds).map(([kind, label]) => (
+          {Object.entries(data.docKinds)
+            .filter(([kind]) => kind !== 'upiQr')
+            .map(([kind, label]) => (
             <DocSlot key={kind} kind={kind} label={label} doc={p.docs[kind]} team={team} apply={apply} toast={toast} />
           ))}
         </div>
@@ -1139,7 +1271,7 @@ export default function TeamDashboard() {
   const { site } = useSite();
   const toast = useToast();
   const [params] = useSearchParams();
-  const [tab, setTab] = useState(params.get('chat') ? 'chat' : TABS.some((t) => t.id === params.get('tab')) ? params.get('tab') : 'duties');
+  const [tab, setTab] = useState(params.get('chat') ? 'chat' : TABS.some((t) => t.id === params.get('tab')) ? params.get('tab') : 'calendar');
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
 
@@ -1227,7 +1359,7 @@ export default function TeamDashboard() {
           </div>
         )}
         {data && tab === 'duties' && <Duties {...ctx} />}
-        {data && tab === 'calendar' && <TeamCalendar data={data} openTab={setTab} />}
+        {data && tab === 'calendar' && <TeamCalendar {...ctx} openTab={setTab} />}
         {data && tab === 'leave' && <TeamBooking {...ctx} />}
         {data && tab === 'chat' && (
           <ChatBox side="member" title="Chat with the admin" subtitle="Bhet, timings, team bookings — anything" callPhone={site?.settings.phone} callLabel="Call admin" load={chatLoad} send={chatSend} onMessages={chatSeen} />

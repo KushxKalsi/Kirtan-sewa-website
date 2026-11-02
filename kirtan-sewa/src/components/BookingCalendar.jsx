@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { ArrowUpRight, ChevronLeft, ChevronRight, Clock } from 'lucide-react';
+import { ArrowUpRight, ChevronLeft, ChevronRight, Clock, Plus } from 'lucide-react';
 import { addMonths, eachDayOfInterval, endOfMonth, endOfWeek, format, isSameMonth, startOfMonth, startOfWeek } from 'date-fns';
 import { fromKey, prettyDate, toKey } from '../lib/date';
 
@@ -9,9 +9,10 @@ const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 /**
  * Month view of bookings, for the admin and team dashboards. Each event is
  * { id, date, start, time, title, sub, tone, tag, onOpen } — `start` (HH:MM) sorts the day, `tone` colours it
- * ('pending' | 'confirmed' | 'completed' | 'cancelled' | 'team' | 'leave'). `legend` is [[tone, label], …].
+ * ('pending' | 'confirmed' | 'completed' | 'cancelled' | 'team' | 'leave' | 'busy'). `legend` is [[tone, label], …].
+ * With `onAdd`, the agenda of today or a later day has an `addLabel` button that calls onAdd(date).
  */
-export default function BookingCalendar({ events, today, legend = [], empty = 'Nothing booked on this day.', children }) {
+export default function BookingCalendar({ events, today, legend = [], empty = 'Nothing booked on this day.', onAdd, addLabel = 'Add', children }) {
   const [month, setMonth] = useState(() => startOfMonth(fromKey(today)));
   const [selected, setSelected] = useState(today);
   const [dir, setDir] = useState(1);
@@ -169,6 +170,11 @@ export default function BookingCalendar({ events, today, legend = [], empty = 'N
             </motion.button>
           ))}
         </AnimatePresence>
+        {onAdd && selected >= today && (
+          <button type="button" className="btn btn-ghost btn-sm bcal-add" onClick={() => onAdd(selected)}>
+            <Plus size={15} /> {addLabel}
+          </button>
+        )}
       </aside>
     </div>
   );

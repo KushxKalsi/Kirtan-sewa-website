@@ -5499,6 +5499,9 @@ input:focus-visible + .tick {
 .bcal .t-leave {
   --tone: var(--muted);
 }
+.bcal .t-busy {
+  --tone: #b48cff;
+}
 .bcal-month {
   padding: 22px;
   border-radius: 22px;
@@ -5680,6 +5683,24 @@ input:focus-visible + .tick {
   top: 12px;
   right: 12px;
   color: var(--faint);
+}
+.bcal-add {
+  justify-self: start;
+}
+.bcal-hint {
+  margin: 14px 0 0;
+}
+/* Team member's own UPI: ID beside their QR code */
+.upi-own {
+  display: grid;
+  grid-template-columns: 1fr minmax(160px, 200px);
+  gap: 14px;
+  align-items: start;
+}
+@media (max-width: 640px) {
+  .upi-own {
+    grid-template-columns: 1fr;
+  }
 }
 @media (max-width: 960px) {
   .bcal {

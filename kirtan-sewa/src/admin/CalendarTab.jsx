@@ -8,11 +8,12 @@ const LEGEND = [
   ['confirmed', 'Confirmed'],
   ['completed', 'Completed'],
   ['team', 'Team booking'],
+  ['busy', 'Team member busy (own kirtan)'],
   ['cancelled', 'Cancelled'],
 ];
 const startOf = (slotTime) => (slotTime || '').split('–')[0].trim();
 
-/** Every booking and team booking on a month calendar; tapping one opens it in its own tab. */
+/** Every booking, team booking and team member's own kirtan on a month calendar; tapping one opens it in its own tab. */
 export default function CalendarTab({ data, openBooking, openTab }) {
   const [showCancelled, setShowCancelled] = useState(false);
   const people = data.people || [];
@@ -53,7 +54,21 @@ export default function CalendarTab({ data, openBooking, openTab }) {
           };
         }),
       );
-    return [...bookings, ...team];
+    // Kirtans team members booked themselves: they are busy then.
+    const busy = people.flatMap((p) =>
+      (p.busy || []).map((k) => ({
+        id: k.id,
+        date: k.date,
+        start: k.start,
+        time: k.start ? rangeTo12(`${k.start} – ${k.end}`) : 'Whole day',
+        title: `${p.name} busy`,
+        sub: [k.place, k.note].filter(Boolean).join(' · '),
+        tone: 'busy',
+        tag: 'Own kirtan',
+        onOpen: () => openTab('team'),
+      })),
+    );
+    return [...bookings, ...team, ...busy];
   }, [data.bookings, data.leaves, people, roles, showCancelled, openBooking, openTab]);
 
   return (
