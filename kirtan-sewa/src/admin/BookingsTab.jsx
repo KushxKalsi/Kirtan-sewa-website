@@ -4,7 +4,7 @@ import { format } from 'date-fns';
 import { Ban, Banknote, BellRing, Check, ExternalLink, Lock, LockOpen, Navigation, Repeat, Save, Tag, UserRound, Users, ChevronDown, CircleCheck, FileText, Loader2, Mail, MapPin, MessageCircle, Pencil, Phone, RotateCcw, Search, Smartphone, Trash2, Undo2, Wallet } from 'lucide-react';
 import Modal from '../components/Modal';
 import { BillModal } from '../components/Bill';
-import { PAYMENT_LABEL, rupees } from '../lib/money';
+import { PAYMENT_LABEL, dutyCommission, dutyOver, rupees, settleAmount, settleMode, upiLink } from '../lib/money';
 import { fromKey, prettyDate, rangeTo12 } from '../lib/date';
 import { directionsLink, distanceKm, hasPin, kmText, mapsLink } from '../lib/geo';
 import { ease } from '../lib/motion';
@@ -15,6 +15,7 @@ const FILTERS = [
   { id: 'unassigned', label: 'Not assigned' },
   { id: 'offers', label: 'Offers' },
   { id: 'team', label: 'Team requests' },
+  { id: 'payouts', label: 'Team payments' },
   { id: 'pending', label: 'Pending' },
   { id: 'confirmed', label: 'Confirmed' },
   { id: 'completed', label: 'Completed' },
@@ -24,6 +25,11 @@ const FILTERS = [
 
 const active = (b) => b.status === 'pending' || b.status === 'confirmed';
 const hasRequest = (b) => b.cancelRequest?.status === 'pending' && active(b);
+// Members whose sewa is over and whose bhet (UPI) or cash commission is not settled yet, with the amount.
+const unsettled = (settings, b, today) =>
+  settleMode(b) && b.amount > 0
+    ? (b.assignees || []).filter((a) => a.pay != null && !a.settledAt && dutyOver(b, a, today)).map((a) => ({ a, amount: settleAmount(settings, b, a) })).filter((x) => x.amount > 0)
+    : [];
 // Same rule as the server: active, with this sewa in this category among their skills.
 const canDo = (p, b) => p.active && (p.skills || []).some((k) => k.serviceId === b.serviceId && (!b.categoryId || k.categoryId === b.categoryId));
 const rangeOf = (b) => (b.slotTime || '').split('–').map((t) => t.trim());
@@ -41,7 +47,96 @@ const teamRequests = (b) => (b.assignees || []).filter((a) => a.cancelRequest?.s
 const OFFER_TEXT = { pending: 'waiting for you', accepted: 'accepted', countered: 'you set another amount', declined: 'declined' };
 
 /** One team member on a booking: their bhet, whether they confirmed, their cancel request, and swapping them out. */
-function AssigneeRow({ b, a, person, roles, candidates, api, replace, toast }) {
+/** What the admin pays this member (UPI, with their QR once they mark it done) or takes from them (cash commission). */
+function SettleBox({ b, a, person, settings, today, busy, onSettle }) {
+  const mode = settleMode(b);
+  if (!mode || !(b.amount > 0) || b.status === 'cancelled' || a.pay == null) return null;
+  const rate = Number(settings.commissionRate) || 0;
+  const commission = dutyCommission(settings, b, a);
+  const amount = settleAmount(settings, b, a);
+  const over = dutyOver(b, a, today);
+  const first = a.name.split(' ')[0];
+  if (mode === 'cash' && !amount && !a.settledAt) {
+    return (
+      <p className="settle-line muted">
+        <Banknote size={14} /> Cash · {first} keeps the whole {rupees(a.pay)} bhet — no commission on bills up to {rupees(settings.commissionAbove || 0)}.
+      </p>
+    );
+  }
+  const qr = person?.docs?.upiQr;
+  const bank = person?.bank;
+  const tag = a.settledAt
+    ? `${mode === 'upi' ? 'Paid' : 'Received'} ${format(new Date(a.settledAt), 'd MMM')} ✓`
+    : over
+      ? mode === 'upi'
+        ? a.doneAt
+          ? 'Marked done — pay now'
+          : 'Sewa over — pay now'
+        : 'They owe you'
+      : 'After the sewa';
+  return (
+    <div className={`settle-box ${a.settledAt ? 'settled' : over ? 'due' : ''}`}>
+      <div className="settle-top">
+        {mode === 'upi' ? <Smartphone size={15} /> : <Banknote size={15} />}
+        <span>
+          {mode === 'upi' ? (
+            <>
+              Pay {first} <strong>{rupees(amount)}</strong>
+            </>
+          ) : (
+            <>
+              Take <strong className={!a.settledAt && over ? 'balance-neg' : ''}>{rupees(amount)}</strong> from {first}
+            </>
+          )}
+          <small className="muted">
+            {' '}
+            · {mode === 'upi' ? `bhet ${rupees(a.pay)}${commission ? ` − your ${rate}% ${rupees(commission)}` : ''} · customer paid you by UPI` : `${rate}% of the ${rupees(a.pay)} bhet they keep from the cash`}
+          </small>
+        </span>
+        <span className={`pay-tag ${a.settledAt ? 'pay-paid' : over ? 'pay-unpaid' : 'pay-submitted'}`}>{tag}</span>
+      </div>
+      {mode === 'upi' && over && !a.settledAt && (
+        <div className="settle-upi">
+          {qr &&
+            (qr.type?.startsWith('image/') ? (
+              <img src={qr.url} alt={`${a.name}’s UPI QR code`} className="pay-qr" />
+            ) : (
+              <a className="chip" href={qr.url} target="_blank" rel="noreferrer">
+                <FileText size={12} /> Open {first}’s UPI QR
+              </a>
+            ))}
+          <div className="settle-upi-info">
+            {person?.upiId && (
+              <a className="btn btn-primary btn-sm" href={upiLink({ upiId: person.upiId, upiName: a.name, amount, note: `Sewa bhet ${b.ref}` })}>
+                <Smartphone size={14} /> Pay {rupees(amount)} to {person.upiId}
+              </a>
+            )}
+            {!qr && !person?.upiId && <span className="muted">{first} has not added a UPI QR or UPI ID to their profile yet.</span>}
+            {!qr && !person?.upiId && bank?.account && (
+              <span className="muted">
+                Bank: {bank.holder || a.name} · {bank.account} · {bank.ifsc}
+                {bank.bankName && ` · ${bank.bankName}`}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+      <div className="ab-actions">
+        {a.settledAt ? (
+          <button type="button" className="chip" onClick={() => onSettle(false)} disabled={!!busy}>
+            <Undo2 size={12} /> Undo
+          </button>
+        ) : (
+          <button type="button" className={`btn btn-sm ${over ? 'btn-primary' : 'btn-ghost'}`} onClick={() => onSettle(true)} disabled={!!busy}>
+            {busy === 'settle' ? <Loader2 size={14} className="spin" /> : <CircleCheck size={14} />} {mode === 'upi' ? `I paid ${first} ${rupees(amount)}` : `Received ${rupees(amount)} from ${first}`}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function AssigneeRow({ b, a, person, roles, candidates, api, replace, toast, settings, today }) {
   const [pay, setPay] = useState(a.pay ?? '');
   const [swapTo, setSwapTo] = useState('');
   const [busy, setBusy] = useState('');
@@ -112,6 +207,17 @@ function AssigneeRow({ b, a, person, roles, candidates, api, replace, toast }) {
           {busy === 'pay' ? <Loader2 size={14} className="spin" /> : <Save size={14} />} Save
         </button>
       </form>
+      <SettleBox
+        b={b}
+        a={a}
+        person={person}
+        settings={settings}
+        today={today}
+        busy={busy}
+        onSettle={(settled) =>
+          run('settle', () => api.settleAssignee(b.id, a.id, settled), settled ? (settleMode(b) === 'upi' ? `Marked paid — ${a.name} is notified.` : `Marked received — ${a.name} is notified.`) : 'Undone.')
+        }
+      />
       {request && (
         <div className="request-note for-admin">
           <div>
@@ -184,9 +290,10 @@ export default function BookingsTab({ data, api, patch, toast }) {
     const [s, e] = rangeOf(b);
     return (p.busy || []).find((k) => k.date === b.date && (!k.start || (k.start < e && s < k.end)));
   };
-  // The admin's commission: a share of bills above a set amount. Shown here only — never to customers or the team.
+  // The admin's commission: a share of each member's bhet on bills above a set amount (each member sees only their own).
   const rate = Number(settings.commissionRate) || 0;
-  const commissionOf = (b) => (rate > 0 && b.amount > (Number(settings.commissionAbove) || 0) && b.status !== 'cancelled' ? Math.round((b.amount * rate) / 100) : 0);
+  const commissionOf = (b) => (b.status === 'cancelled' ? 0 : (b.assignees || []).reduce((s, a) => s + dutyCommission(settings, b, a), 0));
+  const owedTotal = (mode) => bookings.filter((b) => settleMode(b) === mode).reduce((s, b) => s + unsettled(settings, b, today).reduce((t, x) => t + x.amount, 0), 0);
   const setAssignees = async (b, personIds) => {
     setBusy(b.id + 'assign');
     try {
@@ -212,10 +319,12 @@ export default function BookingsTab({ data, api, patch, toast }) {
       { label: 'Offers to review', value: bookings.filter(offerPending).length, tone: 'warn' },
       { label: 'Team requests', value: bookings.filter((b) => active(b) && teamRequests(b).length).length, tone: 'danger' },
       { label: 'Collected', value: rupees(bookings.filter((b) => b.paymentStatus === 'paid').reduce((sum, b) => sum + (b.amount || 0), 0)), tone: 'success', wide: true },
+      { label: 'To pay the team · UPI bookings, sewa done', value: rupees(owedTotal('upi')), tone: 'warn', wide: true },
+      { label: 'To take from the team · cash commission', value: rupees(owedTotal('cash')), tone: 'danger', wide: true },
       ...(rate > 0
         ? [
             {
-              label: `Your commission (${rate}% above ${rupees(settings.commissionAbove || 0)}) · paid / billed · admin only`,
+              label: `Your commission (${rate}% of bhet, bills above ${rupees(settings.commissionAbove || 0)}) · paid / billed`,
               value: `${rupees(bookings.filter((b) => b.paymentStatus === 'paid').reduce((s, b) => s + commissionOf(b), 0))} / ${rupees(bookings.reduce((s, b) => s + commissionOf(b), 0))}`,
               tone: 'gold',
               wide: true,
@@ -224,7 +333,7 @@ export default function BookingsTab({ data, api, patch, toast }) {
         : []),
     ],
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [bookings, today, rate, settings.commissionAbove],
+    [bookings, today, settings],
   );
 
   const list = useMemo(() => {
@@ -235,6 +344,7 @@ export default function BookingsTab({ data, api, patch, toast }) {
       if (filter === 'unassigned') return active(b) && b.date >= today && !(b.assignees || []).length;
       if (filter === 'offers') return offerPending(b);
       if (filter === 'team') return active(b) && teamRequests(b).length > 0;
+      if (filter === 'payouts') return unsettled(settings, b, today).length > 0;
       if (filter === 'all') return true;
       return b.status === filter;
     });
@@ -245,7 +355,7 @@ export default function BookingsTab({ data, api, patch, toast }) {
       const kb = b.date + b.slotTime;
       return asc ? ka.localeCompare(kb) : kb.localeCompare(ka) || b.createdAt.localeCompare(a.createdAt);
     });
-  }, [bookings, filter, query, today]);
+  }, [bookings, filter, query, today, settings]);
 
   const groupSize = useMemo(() => {
     const count = {};
@@ -698,7 +808,7 @@ export default function BookingsTab({ data, api, patch, toast }) {
                                 {(b.assignees || []).length > 0 && (
                                   <ul className="assignee-list">
                                     {b.assignees.map((a) => (
-                                      <AssigneeRow key={a.id} b={b} a={a} person={personById(a.id)} roles={roles} candidates={candidates} api={api} replace={replace} toast={toast} />
+                                      <AssigneeRow key={a.id} b={b} a={a} person={personById(a.id)} roles={roles} candidates={candidates} api={api} replace={replace} toast={toast} settings={settings} today={today} />
                                     ))}
                                   </ul>
                                 )}
@@ -748,9 +858,9 @@ export default function BookingsTab({ data, api, patch, toast }) {
                               </div>
                               {commissionOf(b) > 0 && (
                                 <p className="commission-line">
-                                  Your commission ({rate}%): <strong>{rupees(commissionOf(b))}</strong>
-                                  {(b.assignees || []).some((a) => a.pay != null) && ` · Team bhet: ${rupees((b.assignees || []).reduce((s, a) => s + (a.pay || 0), 0))}`}
-                                  <small> · only you see this</small>
+                                  Your commission ({rate}% of the bhet): <strong>{rupees(commissionOf(b))}</strong>
+                                  {` · Team bhet: ${rupees((b.assignees || []).reduce((s, a) => s + (a.pay || 0), 0))}`}
+                                  <small> · {settleMode(b) === 'cash' ? 'the team collects the cash and gives you this' : 'kept out of what you pay the team'}</small>
                                 </p>
                               )}
                               {b.paymentStatus === 'submitted' && <p>Customer says they paid by UPI · UTR <code>{b.utr}</code>. Check your bank/UPI app, then verify.</p>}

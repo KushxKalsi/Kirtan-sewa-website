@@ -5221,6 +5221,61 @@ input:focus-visible + .tick {
   flex: 1 1 220px;
   min-width: 0;
 }
+/* What the admin pays a member (UPI) or takes from them (cash commission) on a customer booking. */
+.settle-box {
+  display: grid;
+  gap: 10px;
+  margin-top: 4px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--stroke-gold);
+  background: rgba(233, 180, 76, 0.06);
+}
+.settle-box.due {
+  border-color: var(--danger-text);
+}
+.settle-box.settled {
+  opacity: 0.8;
+}
+.settle-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 13.5px;
+}
+.settle-top > svg {
+  color: var(--gold);
+}
+.settle-top > span:first-of-type {
+  flex: 1 1 200px;
+  min-width: 0;
+}
+.settle-upi {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+}
+.settle-upi-info {
+  display: grid;
+  gap: 6px;
+  justify-items: start;
+  min-width: 0;
+  font-size: 13px;
+}
+.settle-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+.duty-owe {
+  margin-top: 10px;
+}
+.duty-owe.owes {
+  border-color: var(--danger-text);
+}
 .chip.role-chip {
   color: var(--gold);
   border-color: var(--stroke-gold);

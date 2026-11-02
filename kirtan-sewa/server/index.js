@@ -228,9 +228,23 @@ const personOf = (id) => (db.people || []).find((p) => p.id === id);
 const teamView = (b) =>
   (b.assignees || []).map((a) => ({ name: personOf(a.id)?.name || a.name, address: personOf(a.id)?.address || '', role: ROLES[personOf(a.id)?.role] || '' }));
 
+/* Settling a member's bhet on a customer booking. UPI: the customer paid the admin, who pays the member their bhet less
+ * the commission. Cash: the member keeps their whole bhet out of the cash and owes the admin the commission.
+ * The commission is commissionRate % of each bhet, only on bills above commissionAbove. */
+const settleMode = (b) => (b.paymentMethod === 'upi' || b.paymentMethod === 'cash' ? b.paymentMethod : '');
+function dutyCommission(b, a) {
+  const rate = Number(db.settings.commissionRate) || 0;
+  return rate > 0 && (b.amount || 0) > (Number(db.settings.commissionAbove) || 0) ? Math.round(((a.pay || 0) * rate) / 100) : 0;
+}
+// What the admin pays (UPI) or receives (cash) for this person: fixed once settled.
+const settleAmount = (b, a) => (a.settledAt ? a.settledAmount : settleMode(b) === 'cash' ? dutyCommission(b, a) : (a.pay || 0) - dutyCommission(b, a));
+// The sewa is over for this person: they marked it done, or its day has passed.
+const dutyOver = (b, a) => b.status !== 'cancelled' && (b.status === 'completed' || !!a.doneAt || b.date < todayKey());
+
 // What a team member sees for a booking they are (or were) assigned to. Only their own pay is shown.
 const dutyView = (b, person) => {
   const mine = (b.assignees || []).find((a) => a.id === person.id) || {};
+  const commission = dutyCommission(b, mine);
   const payRequest = db.messages.findLast((m) => m.kind === 'pay-request' && m.bookingId === b.id && m.thread === threadOf('m', person.id));
   return {
     id: b.id,
@@ -250,6 +264,13 @@ const dutyView = (b, person) => {
     cancelReason: b.status === 'cancelled' ? b.cancelReason : '',
     with: teamView({ assignees: (b.assignees || []).filter((a) => a.id !== person.id) }).map((t) => (t.role ? `${t.name} (${t.role})` : t.name)),
     pay: mine.pay ?? null,
+    paymentMethod: settleMode(b),
+    commissionRate: commission ? Number(db.settings.commissionRate) : 0,
+    commission: mine.settledAt && settleMode(b) === 'cash' ? mine.settledAmount : commission,
+    net: mine.pay == null ? null : settleMode(b) === 'upi' ? settleAmount(b, mine) : mine.pay - commission, // what is theirs
+    doneAt: mine.doneAt || '',
+    over: dutyOver(b, mine),
+    settledAt: mine.settledAt || '',
     state: mine.state || 'assigned',
     confirmedAt: mine.confirmedAt || '',
     cancelRequest: mine.cancelRequest || null,
@@ -387,6 +408,8 @@ function notifyPerson(person, kind, b, extra = {}) {
     day: { title: extra.evening ? 'Sewa tomorrow 🙏' : 'Sewa today 🙏', body: `${what} · ${when} ${at}. Customer: ${b.name}, ${b.phone}.` },
     soon: { title: `Sewa starts at ${time} ⏰`, body: `${what} ${at}. Customer: ${b.name}, ${b.phone}.` },
     pay: { title: 'Sewa bhet updated', body: `${what} on ${shortDate(b.date)}: you will get ${rupee(extra.pay || 0)}.` },
+    paidOut: { title: 'Bhet sent 💰', body: `The admin sent you ${rupee(extra.amount || 0)} by UPI for ${what} on ${shortDate(b.date)}. Waheguru Ji 🙏` },
+    commissionIn: { title: 'Commission received ✓', body: `The admin has your ${rupee(extra.amount || 0)} commission for ${what} on ${shortDate(b.date)} — thank you 🙏` },
     cancelApproved: { title: 'Duty cancellation approved', body: `You are no longer doing ${what} on ${shortDate(b.date)}, ${when}.` },
     cancelRejected: { title: 'Duty cancellation not accepted', body: `Please do ${what} on ${shortDate(b.date)}, ${when}.${extra.note ? ` “${extra.note}”` : ''}` },
   };
@@ -1166,6 +1189,24 @@ app.post('/api/team/duties/:id/confirm', requireMember, async (req, res) => {
   tellIfConfirmed(booking);
   await save();
   tellAdmin('duty-ok', `${req.person.name} confirmed ✅${teamConfirmed(booking) ? (booking.status === 'confirmed' ? ' · the customer is told it is confirmed' : ' · the whole team is in — confirm the booking') : ''}`, slotText(booking), booking.ref);
+  res.json(teamPayload(req.person));
+});
+
+// The member marks the sewa done (on the day or after). The admin is sent their QR to pay them (UPI), or told they
+// hold the commission (cash). Once everyone on it is done, the booking is completed.
+app.post('/api/team/duties/:id/done', requireMember, async (req, res) => {
+  const { booking, mine } = findDuty(req);
+  if (booking.status !== 'confirmed' && booking.status !== 'completed') fail(400, 'Only a confirmed sewa can be marked done.');
+  if (booking.date > todayKey()) fail(400, 'You can mark it done on the day of the sewa.');
+  if (mine.doneAt) fail(400, 'You already marked this sewa done.');
+  mine.doneAt = new Date().toISOString();
+  if (booking.status === 'confirmed' && booking.assignees.every((a) => a.doneAt)) booking.status = 'completed';
+  booking.updatedAt = mine.doneAt;
+  await save();
+  const amount = settleAmount(booking, mine);
+  const mode = settleMode(booking);
+  const next = mode === 'upi' ? `pay them ${rupee(amount)} by UPI — tap to scan their QR` : mode === 'cash' && amount > 0 ? `they collected cash and owe you ${rupee(amount)} commission` : slotText(booking);
+  tellAdmin('duty-done', `${req.person.name} finished the sewa ✅`, `${booking.ref} · ${next}`, booking.ref);
   res.json(teamPayload(req.person));
 });
 
@@ -1970,6 +2011,26 @@ app.patch('/api/admin/bookings/:id/assignees/:personId', async (req, res) => {
   booking.updatedAt = new Date().toISOString();
   await save();
   if (changed && pay !== null) notifyPerson(personOf(a.id), 'pay', booking, { pay });
+  res.json({ booking });
+});
+
+// UPI: the admin paid this member their bhet. Cash: the admin received the commission from them. Or undo either.
+app.patch('/api/admin/bookings/:id/assignees/:personId/settle', async (req, res) => {
+  const booking = findBooking(req.params.id);
+  const a = findAssignee(booking, req.params.personId);
+  const mode = settleMode(booking);
+  if (!mode) fail(400, 'The customer has not chosen UPI or cash for this booking.');
+  if (req.body?.settled === false) {
+    Object.assign(a, { settledAt: '', settledAmount: null });
+  } else {
+    if (booking.status === 'cancelled') fail(400, 'This booking is cancelled.');
+    if (a.pay == null) fail(400, `Set ${a.name}’s bhet first.`);
+    if (a.settledAt) fail(400, 'Already marked.');
+    Object.assign(a, { settledAmount: settleAmount(booking, a), settledAt: new Date().toISOString() });
+  }
+  booking.updatedAt = new Date().toISOString();
+  await save();
+  if (a.settledAt) notifyPerson(personOf(a.id), mode === 'upi' ? 'paidOut' : 'commissionIn', booking, { amount: a.settledAmount });
   res.json({ booking });
 });
 

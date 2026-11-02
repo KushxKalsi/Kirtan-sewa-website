@@ -34,7 +34,7 @@ const defaults = () => ({
     upiQr: '',
     paymentNote: 'Bhet is as per your shardha. You can pay by UPI now or in cash on the day.',
     offerMin: 1500, // customers may offer their own amount, from this much
-    commissionRate: 10, // admin commission (%) on bills above commissionAbove — amounts shown to admins only
+    commissionRate: 10, // admin commission (%) of each member's bhet on bills above commissionAbove
     commissionAbove: 3500,
     gallery: [],
     testimonials: [
