@@ -87,6 +87,7 @@ export const adminApi = (token) => ({
   deletePerson: (id) => request(`/admin/people/${id}`, { method: 'DELETE', token }),
   assign: (id, personIds) => request(`/admin/bookings/${id}/assign`, { method: 'PATCH', body: { personIds }, token }),
   setAssigneePay: (id, personId, pay) => request(`/admin/bookings/${id}/assignees/${personId}`, { method: 'PATCH', body: { pay }, token }),
+  confirmAssignee: (id, personId, confirmed) => request(`/admin/bookings/${id}/assignees/${personId}/confirm`, { method: 'PATCH', body: { confirmed }, token }),
   resolveDutyCancel: (id, personId, action, note) => request(`/admin/bookings/${id}/assignees/${personId}/cancel`, { method: 'PATCH', body: { action, note }, token }),
   replaceAssignee: (id, fromId, toId) => request(`/admin/bookings/${id}/replace`, { method: 'POST', body: { fromId, toId }, token }),
   answerOffer: (id, action, note) => request(`/admin/bookings/${id}/offer`, { method: 'PATCH', body: { action, note }, token }),

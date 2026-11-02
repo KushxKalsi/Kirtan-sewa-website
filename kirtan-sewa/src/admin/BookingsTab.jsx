@@ -34,6 +34,9 @@ const overlap = (a, b) => {
 };
 const PAY_TEXT = { unpaid: 'Unpaid', submitted: 'To verify', paid: 'Paid' };
 const offerPending = (b) => b.offer?.status === 'pending' && active(b);
+// Same rule as the server: the customer and the team see "confirmed" only once you confirmed and everyone assigned accepted.
+const teamOk = (b) => (b.assignees || []).length > 0 && b.assignees.every((a) => a.state === 'confirmed');
+const awaitingTeam = (b) => b.status === 'confirmed' && !teamOk(b);
 const teamRequests = (b) => (b.assignees || []).filter((a) => a.cancelRequest?.status === 'pending');
 const OFFER_TEXT = { pending: 'waiting for you', accepted: 'accepted', countered: 'you set another amount', declined: 'declined' };
 
@@ -64,7 +67,25 @@ function AssigneeRow({ b, a, person, roles, candidates, api, replace, toast }) {
           {person?.role && <small className="muted"> · {roles[person.role]}</small>}
           {a.replaces && <small className="muted"> · in place of {a.replaces}</small>}
         </span>
-        <span className={`pay-tag ${a.state === 'confirmed' ? 'pay-paid' : 'pay-submitted'}`}>{a.state === 'confirmed' ? 'Confirmed ✓' : 'Not confirmed yet'}</span>
+        <span className={`pay-tag ${a.state === 'confirmed' ? 'pay-paid' : 'pay-submitted'}`}>{a.state === 'confirmed' ? (a.confirmedBy === 'admin' ? 'Confirmed by you ✓' : 'Confirmed ✓') : 'Not confirmed yet'}</span>
+        {active(b) &&
+          (a.state === 'confirmed' ? (
+            a.confirmedBy === 'admin' && (
+              <button type="button" className="chip" onClick={() => run('confirm', () => api.confirmAssignee(b.id, a.id, false), `${a.name} marked as not confirmed.`)} disabled={!!busy}>
+                <Undo2 size={12} /> Undo
+              </button>
+            )
+          ) : (
+            <button
+              type="button"
+              className="btn btn-primary btn-sm"
+              onClick={() => run('confirm', () => api.confirmAssignee(b.id, a.id, true), `${a.name} marked as confirmed.`)}
+              disabled={!!busy}
+              title="They said yes (e.g. on the phone) — confirm for them"
+            >
+              {busy === 'confirm' ? <Loader2 size={14} className="spin" /> : <Check size={14} />} Confirm for {a.name.split(' ')[0]}
+            </button>
+          ))}
         {person?.phone && (
           <a className="chip" href={`tel:${person.phone}`}>
             <Phone size={12} /> Call
@@ -183,7 +204,8 @@ export default function BookingsTab({ data, api, patch, toast }) {
     () => [
       { label: 'Upcoming', value: bookings.filter((b) => active(b) && b.date >= today).length, tone: 'gold' },
       { label: 'Awaiting confirmation', value: bookings.filter((b) => b.status === 'pending' && b.date >= today).length, tone: 'warn' },
-      { label: 'Confirmed', value: bookings.filter((b) => b.status === 'confirmed').length, tone: 'success' },
+      { label: 'Waiting for the team to confirm', value: bookings.filter((b) => active(b) && b.date >= today && !teamOk(b)).length, tone: 'warn' },
+      { label: 'Confirmed (you + team)', value: bookings.filter((b) => b.status === 'confirmed' && teamOk(b)).length, tone: 'success' },
       { label: 'Cancelled', value: bookings.filter((b) => b.status === 'cancelled').length, tone: 'danger' },
       { label: 'Cancel requests', value: bookings.filter(hasRequest).length, tone: 'danger' },
       { label: 'Payments to verify', value: bookings.filter((b) => b.paymentStatus === 'submitted' && b.status !== 'cancelled').length, tone: 'warn' },
@@ -277,7 +299,7 @@ export default function BookingsTab({ data, api, patch, toast }) {
     try {
       const { booking } = await api.setStatus(b.id, status, why, amt);
       replace(booking);
-      toast(`Booking ${booking.ref} marked ${status}.`);
+      toast(status === 'confirmed' && awaitingTeam(booking) ? `Booking ${booking.ref} confirmed by you. The customer sees it as confirmed (with the bill) once the team accepts.` : `Booking ${booking.ref} marked ${status}.`);
       return true;
     } catch (e) {
       toast(e.message, 'error');
@@ -296,7 +318,13 @@ export default function BookingsTab({ data, api, patch, toast }) {
     try {
       const { booking } = await api.answerOffer(b.id, action, note);
       replace(booking);
-      toast(action === 'accept' ? `Offer accepted — bill ${rupees(booking.amount)} sent to ${booking.name}.` : 'Offer declined — the customer sees your message in their chat.');
+      toast(
+        action !== 'accept'
+          ? 'Offer declined — the customer sees your message in their chat.'
+          : awaitingTeam(booking)
+            ? `Offer accepted (${rupees(booking.amount)}). ${booking.name} sees it confirmed, with the bill, once the team accepts.`
+            : `Offer accepted — bill ${rupees(booking.amount)} sent to ${booking.name}.`,
+      );
       return true;
     } catch (e) {
       toast(e.message, 'error');
@@ -529,7 +557,9 @@ export default function BookingsTab({ data, api, patch, toast }) {
                         )}
                       </span>
                     </span>
-                    <span className={`badge badge-${b.status}`}>{b.status}</span>
+                    <span className={`badge badge-${awaitingTeam(b) ? 'pending' : b.status}`} title={awaitingTeam(b) ? 'You confirmed — the customer sees it as pending until the team accepts' : undefined}>
+                      {awaitingTeam(b) ? 'awaiting team' : b.status}
+                    </span>
                     <motion.span className="ab-chevron" animate={{ rotate: open ? 180 : 0 }}>
                       <ChevronDown size={18} />
                     </motion.span>
