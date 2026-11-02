@@ -380,7 +380,7 @@ export default function Account() {
             {me && <p className="muted">{me.phone}</p>}
           </div>
           <div className="account-head-actions">
-            <Link to="/" state={{ scrollTo: 'book' }} className="btn btn-primary btn-sm">
+            <Link to="/" className="btn btn-primary btn-sm">
               <CalendarPlus size={16} /> Book a date
             </Link>
             <button className="btn btn-ghost btn-sm" onClick={logout}>
