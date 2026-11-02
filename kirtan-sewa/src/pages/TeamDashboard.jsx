@@ -61,7 +61,7 @@ const replyOf = (x) => x.reply || (x.personId ? 'accepted' : ''); // approved be
 const live = (d) => d.status === 'pending' || d.status === 'confirmed';
 const dayKey = (d) => format(d, 'yyyy-MM-dd');
 
-function DutyCard({ duty, today, person, index, busy, onConfirm, onCancel, onWithdraw, onPay }) {
+function DutyCard({ duty, today, person, index, busy, onConfirm, onDone, onCancel, onWithdraw, onPay }) {
   const { site } = useSite();
   const past = duty.date < today;
   const status = past && duty.status !== 'cancelled' ? 'completed' : duty.status;
@@ -70,6 +70,8 @@ function DutyCard({ duty, today, person, index, busy, onConfirm, onCancel, onWit
   const upcoming = live(duty) && !past;
   const canCancel = upcoming && duty.date > lockedFrom && duty.cancelRequest?.status !== 'pending';
   const adminTel = site?.settings.phone?.replace(/[^\d+]/g, '');
+  const canFinish = (duty.status === 'confirmed' || duty.status === 'completed') && duty.date <= today && !duty.doneAt;
+  const owes = duty.paymentMethod === 'cash' && duty.commission > 0 && duty.over && !duty.settledAt; // cash commission still with them
 
   return (
     <motion.article
@@ -88,7 +90,8 @@ function DutyCard({ duty, today, person, index, busy, onConfirm, onCancel, onWit
         </div>
         <div className="duty-badges">
           <span className={`badge badge-${status}`}>{status}</span>
-          {upcoming && (duty.state === 'confirmed' ? <span className="pay-tag pay-paid">You confirmed</span> : <span className="pay-tag pay-submitted">Please confirm</span>)}
+          {upcoming && !duty.doneAt && (duty.state === 'confirmed' ? <span className="pay-tag pay-paid">You confirmed</span> : <span className="pay-tag pay-submitted">Please confirm</span>)}
+          {duty.doneAt && <span className="pay-tag pay-paid">You marked it done</span>}
         </div>
       </header>
       <ul className="bc-list">
@@ -129,14 +132,49 @@ function DutyCard({ duty, today, person, index, busy, onConfirm, onCancel, onWit
         <div className="duty-pay">
           <HandCoins size={18} />
           <div>
-            <strong>{duty.pay != null ? rupees(duty.pay) : 'Bhet not set yet'}</strong>
-            <span>{duty.payRequest ? `You asked for ${rupees(duty.payRequest.amount)} — waiting for the admin` : 'Your bhet for this sewa'}</span>
+            <strong>{duty.pay != null ? rupees(duty.paymentMethod === 'upi' ? duty.net : duty.pay) : 'Bhet not set yet'}</strong>
+            <span>
+              {duty.payRequest
+                ? `You asked for ${rupees(duty.payRequest.amount)} — waiting for the admin`
+                : duty.pay == null || !duty.paymentMethod
+                  ? 'Your bhet for this sewa'
+                  : duty.paymentMethod === 'upi'
+                    ? duty.settledAt
+                      ? 'Sent to you by UPI ✓'
+                      : `You get this by UPI from the admin ${duty.over ? '— on its way' : 'after the sewa'}${duty.commission ? ` (bhet ${rupees(duty.pay)} − ${duty.commissionRate}% commission ${rupees(duty.commission)})` : ''}`
+                    : 'Your bhet — keep it from the cash the customer pays'}
+            </span>
           </div>
-          {!past && (
+          {!past && !duty.doneAt && (
             <button className="btn btn-ghost btn-sm" onClick={() => onPay(duty)}>
               Ask for a change
             </button>
           )}
+        </div>
+      )}
+      {duty.status !== 'cancelled' && duty.pay != null && duty.paymentMethod === 'cash' && duty.commission > 0 && (
+        <div className={`duty-pay duty-owe ${owes ? 'owes' : ''}`}>
+          <Banknote size={18} />
+          <div>
+            <strong className={duty.settledAt ? '' : 'balance-neg'}>{duty.settledAt ? rupees(duty.commission) : `−${rupees(duty.commission)}`}</strong>
+            <span>
+              {duty.settledAt
+                ? `Commission given to the admin ✓ · yours ${rupees(duty.net)}`
+                : owes
+                  ? `You owe the admin this ${duty.commissionRate}% commission — please give it · yours ${rupees(duty.net)}`
+                  : `Give this ${duty.commissionRate}% commission to the admin after the sewa · yours ${rupees(duty.net)}`}
+            </span>
+          </div>
+        </div>
+      )}
+      {canFinish && (
+        <div className="ab-actions duty-actions">
+          <button className="btn btn-primary btn-sm" onClick={() => onDone(duty)} disabled={!!busy}>
+            {busy === duty.id + 'done' ? <Loader2 size={15} className="spin" /> : <CircleCheck size={15} />} Mark sewa done
+          </button>
+          <span className="fine-print">
+            {duty.paymentMethod === 'upi' ? 'The admin is told to send your bhet by UPI.' : duty.paymentMethod === 'cash' && duty.commission > 0 ? 'The admin is told you have the cash.' : 'The admin is told it is done.'}
+          </span>
         </div>
       )}
 
@@ -216,17 +254,23 @@ function Duties({ data, team, apply, toast }) {
     }
   };
 
-  const upcoming = duties.filter((d) => live(d) && d.date >= today);
-  const done = duties.filter((d) => d.date < today && d.status !== 'cancelled');
+  const upcoming = duties.filter((d) => live(d) && d.date >= today && !d.doneAt);
+  const done = duties.filter((d) => (d.date < today || d.doneAt) && d.status !== 'cancelled');
   const shown = filter === 'upcoming' ? upcoming : filter === 'done' ? done : duties;
-  const earned = done.reduce((s, d) => s + (d.pay || 0), 0);
-  const coming = upcoming.reduce((s, d) => s + (d.pay || 0), 0);
+  const theirs = (d) => d.net ?? d.pay ?? 0; // bhet after the admin's commission
+  const earned = done.reduce((s, d) => s + theirs(d), 0);
+  const coming = upcoming.reduce((s, d) => s + theirs(d), 0);
+  const unsettled = duties.filter((d) => d.status !== 'cancelled' && d.over && d.pay != null && !d.settledAt);
+  const toGet = unsettled.filter((d) => d.paymentMethod === 'upi').reduce((s, d) => s + d.net, 0);
+  const owed = unsettled.filter((d) => d.paymentMethod === 'cash').reduce((s, d) => s + d.commission, 0);
   const stats = [
     { label: 'Upcoming sewas', value: upcoming.length, tone: 'gold' },
     { label: 'Waiting for your confirmation', value: upcoming.filter((d) => d.state !== 'confirmed').length, tone: 'warn' },
     { label: 'Sewas done', value: done.length, tone: 'success' },
     { label: 'Bhet earned', value: rupees(earned), tone: 'success' },
     { label: 'Bhet for upcoming sewas', value: rupees(coming), tone: 'gold' },
+    { label: 'To get from the admin (UPI)', value: rupees(toGet), tone: 'gold' },
+    { label: 'You owe the admin (cash commission)', value: owed ? <span className="balance-neg">−{rupees(owed)}</span> : rupees(0), tone: owed ? 'danger' : 'success' },
   ];
 
   return (
@@ -262,6 +306,7 @@ function Duties({ data, team, apply, toast }) {
             index={i}
             busy={busy}
             onConfirm={(x) => run(x.id + 'confirm', () => team.confirmDuty(x.id), 'Thank you — the admin can see you confirmed.')}
+            onDone={(x) => run(x.id + 'done', () => team.markDutyDone(x.id), 'Marked done — Waheguru Ji 🙏')}
             onWithdraw={(x) => run(x.id + 'withdraw', () => team.withdrawDutyCancel(x.id), 'Request withdrawn.')}
             onCancel={(x) => {
               setReason('');
@@ -1342,7 +1387,7 @@ export default function TeamDashboard() {
               <t.icon size={16} />
               <span>{t.label}</span>
               {t.id === 'chat' && data?.unread > 0 && <em className="tab-badge">{data.unread}</em>}
-              {t.id === 'duties' && data && data.duties.some((d) => live(d) && d.date >= data.today && d.state !== 'confirmed') && <em className="tab-badge">!</em>}
+              {t.id === 'duties' && data && data.duties.some((d) => (live(d) && d.date >= data.today && d.state !== 'confirmed') || (d.paymentMethod === 'cash' && d.commission > 0 && d.over && !d.settledAt)) && <em className="tab-badge">!</em>}
               {t.id === 'leave' && (data?.bookedMe?.some((l) => l.sewas.some((x) => x.reply === 'waiting')) || data?.commissionDue?.length > 0) && <em className="tab-badge">!</em>}
             </button>
           ))}

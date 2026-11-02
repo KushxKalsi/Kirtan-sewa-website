@@ -165,7 +165,7 @@ export default function SettingsTab({ data, api, patch, toast }) {
         </div>
         <div>
           <h3>Your commission</h3>
-          <p className="muted">Worked out on each bill above the amount below. The amounts show only in this admin panel; the site footer carries a one-line note in small print. Set the rate to 0 to turn it off.</p>
+          <p className="muted">On bills above the amount below you keep this share of each team member’s bhet. UPI: you pay them their bhet less it. Cash: they keep the whole bhet and give it to you. Each member sees only their own share; the site footer carries a one-line note in small print. Set the rate to 0 to turn it off.</p>
         </div>
         <div className="grid-2">
           <label>
