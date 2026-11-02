@@ -116,7 +116,13 @@ function readLocation(v) {
 }
 // Bookings never block a time: several requests (and bookings) may share one. A time is only
 // unavailable when the admin blocks it on purpose (blockedTimes) or blocks the whole date.
-const isBooked = (b) => b.status === 'confirmed' || b.status === 'completed';
+// The admin confirming (or accepting an offer) is not enough: the customer and the team see a booking as confirmed only
+// once everyone assigned to it has accepted too. Until then it shows as pending to them.
+const teamConfirmed = (b) => (b.assignees || []).length > 0 && b.assignees.every((a) => a.state === 'confirmed');
+const shownStatus = (b) => (b.status === 'confirmed' && !teamConfirmed(b) ? 'pending' : b.status);
+const isBooked = (b) => shownStatus(b) === 'confirmed' || b.status === 'completed';
+// Bookings confirmed before this rule: their customer was already told, so remember that team (no second message).
+for (const b of db.bookings) if (b.status === 'confirmed' && b.confirmedTeam === undefined && teamConfirmed(b)) b.confirmedTeam = b.assignees.map((a) => a.id).sort().join(',');
 
 const publicSettings = () => {
   const { ...s } = db.settings;
@@ -197,7 +203,7 @@ const customerView = (b) => ({
   name: b.name,
   address: b.address,
   notes: b.notes,
-  status: b.status,
+  status: shownStatus(b),
   cancelReason: b.cancelReason,
   cancelledBy: b.cancelledBy,
   cancelledAt: b.cancelledAt,
@@ -235,7 +241,7 @@ const dutyView = (b, person) => {
     slotId: b.slotId,
     slotLabel: b.slotLabel,
     slotTime: b.slotTime,
-    status: b.status,
+    status: shownStatus(b),
     name: b.name,
     phone: b.phone,
     address: b.address,
@@ -325,7 +331,7 @@ function notifyBooking(b, kind) {
   const when = `${b.serviceName} · ${shortDate(b.date)}, ${slotName(b)}`;
   const pay = b.paymentMethod === 'cash' ? 'pay in cash on the day.' : b.paymentMethod === 'upi' ? 'tap to pay by UPI.' : 'tap to see your bill.';
   const messages = {
-    confirmed: { title: 'Booking confirmed 🙏', body: `${when}. Bill ${rupee(b.amount)} — ${pay}` },
+    confirmed: { title: 'Booking confirmed 🙏', body: `${when}${teamView(b).length ? ` with ${teamView(b).map((t) => t.name).join(', ')}` : ''}. Bill ${rupee(b.amount)} — ${pay}` },
     billUpdated: { title: 'Bill updated', body: `${when}: the amount is now ${rupee(b.amount)}.` },
     paid: { title: 'Payment received ✅', body: `${rupee(b.amount)} for ${when}. Waheguru Ji, thank you!` },
     cancelled: { title: 'Booking cancelled', body: `${when} was cancelled. Reason: ${b.cancelReason}` },
@@ -334,6 +340,17 @@ function notifyBooking(b, kind) {
     team: { title: 'Your sewa team 🙏', body: `${teamView(b).map((t) => t.name).join(', ')} will do ${when}.` },
   };
   notifyPhone(b.phone, { ...messages[kind], url: '/account', tag: `${b.ref}-${kind}` }).catch(() => {});
+}
+
+// Tells the customer once the booking is really confirmed (admin + whole team), and again if the team changes after that.
+// Call before save(): it records which team the customer was told about.
+function tellIfConfirmed(b) {
+  if (b.status !== 'confirmed' || !teamConfirmed(b)) return;
+  const team = b.assignees.map((a) => a.id).sort().join(',');
+  if (b.confirmedTeam === team) return;
+  const first = !b.confirmedTeam;
+  b.confirmedTeam = team;
+  notifyBooking(b, first ? 'confirmed' : 'team');
 }
 
 /* ---------- team member notifications ---------- */
@@ -406,7 +423,7 @@ async function flushTeam(id, before) {
     if (t && Date.now() >= t.soon) done.soon = true;
   }
   for (const pid of removed) notifyPerson(personOf(pid), 'unassigned', b);
-  if (now.length) notifyBooking(b, 'team');
+  tellIfConfirmed(b); // e.g. the one who hadn't accepted was taken off
   await save();
 }
 
@@ -1146,8 +1163,9 @@ app.post('/api/team/duties/:id/confirm', requireMember, async (req, res) => {
   const { booking, mine } = findDuty(req);
   if (!isActive(booking) || booking.date < todayKey()) fail(400, 'This sewa is no longer upcoming.');
   Object.assign(mine, { state: 'confirmed', confirmedAt: new Date().toISOString() });
+  tellIfConfirmed(booking);
   await save();
-  tellAdmin('duty-ok', `${req.person.name} confirmed ✅`, slotText(booking), booking.ref);
+  tellAdmin('duty-ok', `${req.person.name} confirmed ✅${teamConfirmed(booking) ? (booking.status === 'confirmed' ? ' · the customer is told it is confirmed' : ' · the whole team is in — confirm the booking') : ''}`, slotText(booking), booking.ref);
   res.json(teamPayload(req.person));
 });
 
@@ -1387,6 +1405,7 @@ app.post('/api/team/leaves/:id/answer', requireMember, async (req, res) => {
     try {
       changed.push({ booking: b, before: replaceAssignee(b, leave.personId, p.id, netPay(leave, x)) });
       Object.assign(b.assignees.find((a) => a.id === p.id), { state: 'confirmed', confirmedAt: at });
+      tellIfConfirmed(b);
     } catch (e) {
       skipped.push(`${b.ref}: ${e.message}`);
     }
@@ -1810,9 +1829,11 @@ app.patch('/api/admin/bookings/:id', async (req, res) => {
   }
   booking.status = status;
   booking.updatedAt = new Date().toISOString();
+  // The customer hears "confirmed" (with the bill) once the team has accepted too; a new amount only once they can see the bill.
+  if (status === 'confirmed' && prevStatus !== 'confirmed') tellIfConfirmed(booking);
+  else if (status === 'confirmed' && prevAmount !== booking.amount && booking.confirmedTeam) notifyBooking(booking, 'billUpdated');
+  if (status !== 'confirmed' && status !== 'completed') booking.confirmedTeam = '';
   await save();
-  if (status === 'confirmed' && prevStatus !== 'confirmed') notifyBooking(booking, 'confirmed');
-  else if (status === 'confirmed' && prevAmount !== booking.amount) notifyBooking(booking, 'billUpdated');
   if (status === 'cancelled' && prevStatus !== 'cancelled') {
     notifyBooking(booking, 'cancelled');
     notifyTeamCancelled(booking);
@@ -1911,6 +1932,9 @@ app.patch('/api/admin/bookings/:id/offer', async (req, res) => {
     billBooking(booking, offer.amount);
     settleOffer(booking, offer.amount);
     booking.status = 'confirmed';
+    // Accepting the offer is the admin's yes only — the customer is told once the team has accepted too.
+    if (prevStatus !== 'confirmed') tellIfConfirmed(booking);
+    else if (booking.confirmedTeam) notifyBooking(booking, 'billUpdated');
   } else if (req.body?.action === 'decline') {
     const note = str(req.body.note, 300);
     Object.assign(offer, { status: 'declined', note: note || offer.note, reply: note, answeredAt: new Date().toISOString() });
@@ -1928,7 +1952,6 @@ app.patch('/api/admin/bookings/:id/offer', async (req, res) => {
   }
   booking.updatedAt = new Date().toISOString();
   await save();
-  if (req.body.action === 'accept') notifyBooking(booking, prevStatus === 'confirmed' ? 'billUpdated' : 'confirmed');
   res.json({ booking });
 });
 
@@ -1947,6 +1970,19 @@ app.patch('/api/admin/bookings/:id/assignees/:personId', async (req, res) => {
   booking.updatedAt = new Date().toISOString();
   await save();
   if (changed && pay !== null) notifyPerson(personOf(a.id), 'pay', booking, { pay });
+  res.json({ booking });
+});
+
+// The admin marks a team member as confirmed for them (e.g. they said yes on the phone), or takes it back.
+app.patch('/api/admin/bookings/:id/assignees/:personId/confirm', async (req, res) => {
+  const booking = findBooking(req.params.id);
+  const a = findAssignee(booking, req.params.personId);
+  if (!isActive(booking)) fail(400, `This booking is ${booking.status}.`);
+  if (req.body?.confirmed === false) Object.assign(a, { state: 'assigned', confirmedAt: '', confirmedBy: '' });
+  else if (a.state !== 'confirmed') Object.assign(a, { state: 'confirmed', confirmedAt: new Date().toISOString(), confirmedBy: 'admin' });
+  tellIfConfirmed(booking);
+  booking.updatedAt = new Date().toISOString();
+  await save();
   res.json({ booking });
 });
 

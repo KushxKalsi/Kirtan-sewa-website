@@ -12,6 +12,7 @@ const LEGEND = [
   ['cancelled', 'Cancelled'],
 ];
 const startOf = (slotTime) => (slotTime || '').split('–')[0].trim();
+const awaitingTeam = (b) => b.status === 'confirmed' && !((b.assignees || []).length && b.assignees.every((a) => a.state === 'confirmed'));
 
 /** Every booking, team booking and team member's own kirtan on a month calendar; tapping one opens it in its own tab. */
 export default function CalendarTab({ data, openBooking, openTab }) {
@@ -31,8 +32,9 @@ export default function CalendarTab({ data, openBooking, openTab }) {
         time: `${b.slotLabel} · ${rangeTo12(b.slotTime || '')}`,
         title: b.serviceName,
         sub: [b.categoryName, `${b.name} · ${b.ref}`, (b.assignees || []).length ? `👤 ${b.assignees.map((a) => a.name + (a.state === 'confirmed' ? ' ✓' : '')).join(', ')}` : 'Not assigned'].filter(Boolean).join(' · '),
-        tone: b.status,
-        tag: b.status,
+        // You confirmed but the team hasn't accepted yet: still pending for the customer.
+        tone: awaitingTeam(b) ? 'pending' : b.status,
+        tag: awaitingTeam(b) ? 'awaiting team' : b.status,
         onOpen: () => openBooking(b.ref),
       }));
     const team = (data.leaves || [])
