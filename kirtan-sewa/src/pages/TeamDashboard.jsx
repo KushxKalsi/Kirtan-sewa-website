@@ -6,6 +6,7 @@ import {
   Ban,
   Banknote,
   CalendarDays,
+  CalendarRange,
   Check,
   CircleAlert,
   CircleCheck,
@@ -33,6 +34,7 @@ import {
 import Modal from '../components/Modal';
 import NotifyButton from '../components/NotifyButton';
 import ChatBox from '../components/ChatBox';
+import BookingCalendar from '../components/BookingCalendar';
 import { TeamBillModal } from '../components/Bill';
 import { UpiScan } from '../components/PaymentBox';
 import LocationPicker from '../components/LocationPicker';
@@ -47,6 +49,7 @@ import { ease } from '../lib/motion';
 
 const TABS = [
   { id: 'duties', label: 'My sewas', icon: ListChecks },
+  { id: 'calendar', label: 'Calendar', icon: CalendarRange },
   { id: 'leave', label: 'Team booking', icon: UsersRound },
   { id: 'chat', label: 'Chat with admin', icon: MessagesSquare },
   { id: 'profile', label: 'Profile & documents', icon: UserRound },
@@ -879,6 +882,73 @@ function TeamBooking({ data, team, apply, toast }) {
   );
 }
 
+const CAL_LEGEND = [
+  ['pending', 'Please confirm'],
+  ['confirmed', 'You confirmed'],
+  ['completed', 'Done'],
+  ['team', 'Going for a teammate'],
+  ['leave', 'Someone in your place'],
+];
+
+/** Their sewas, the teammates' bookings they go for, and their own team bookings on one month calendar. */
+function TeamCalendar({ data, openTab }) {
+  const { today, duties, leaves, roles } = data;
+  const events = useMemo(() => {
+    const dutyOf = (id) => duties.find((d) => d.id === id);
+    const nameOf = (id) => data.teammates.find((t) => t.id === id)?.name || 'A team member';
+    const mine = duties
+      .filter((d) => d.status !== 'cancelled')
+      .map((d) => {
+        const done = d.date < today;
+        return {
+          id: d.id,
+          date: d.date,
+          start: dutyStart(d),
+          time: `${d.slotLabel} · ${rangeTo12(d.slotTime)}`,
+          title: d.serviceName,
+          sub: [d.categoryName, d.address].filter(Boolean).join(' · '),
+          tone: done ? 'completed' : d.state === 'confirmed' ? 'confirmed' : 'pending',
+          tag: done ? 'Done' : d.state === 'confirmed' ? 'You confirmed' : 'Please confirm',
+          onOpen: () => openTab('duties'),
+        };
+      });
+    const forTeammates = (data.bookedMe || []).flatMap((l) =>
+      l.sewas.map((x, i) => ({
+        id: `${l.id}-${i}`,
+        date: x.date,
+        start: x.start,
+        time: x.start ? rangeTo12(`${x.start} – ${x.end}`) : 'Whole day',
+        title: `In place of ${l.name}`,
+        sub: [x.categoryName, x.serviceName, x.role && `as ${roles[x.role]}`, rupees(x.pay)].filter(Boolean).join(' · '),
+        tone: 'team',
+        tag: x.reply === 'waiting' ? 'Your answer needed' : 'You accepted',
+        onOpen: () => openTab('leave'),
+      })),
+    );
+    const away = leaves
+      .filter((l) => ['pending', 'assigned', 'approved'].includes(l.status))
+      .flatMap((l) =>
+        (l.picks || []).map((x, i) => {
+          const d = x.bookingId && dutyOf(x.bookingId);
+          return {
+            id: `${l.id}-${i}`,
+            date: x.date || d?.date || l.from,
+            start: x.start || (d ? dutyStart(d) : ''),
+            time: x.start ? rangeTo12(`${x.start} – ${x.end}`) : d ? rangeTo12(d.slotTime) : 'Whole day',
+            title: `Team booking · ${roles[x.role] || 'Teammate'}`,
+            sub: [x.categoryName || d?.categoryName, d?.serviceName, x.personId ? `${nameOf(x.personId)} goes` : 'The admin will assign someone'].filter(Boolean).join(' · '),
+            tone: 'leave',
+            tag: LEAVE_TEXT[l.status],
+            onOpen: () => openTab('leave'),
+          };
+        }),
+      );
+    return [...mine, ...forTeammates, ...away];
+  }, [data, duties, leaves, roles, today, openTab]);
+
+  return <BookingCalendar events={events} today={today} legend={CAL_LEGEND} empty="No sewas on this day." />;
+}
+
 function DocSlot({ kind, label, doc, team, apply, toast }) {
   const ref = useRef(null);
   const [busy, setBusy] = useState(false);
@@ -1157,6 +1227,7 @@ export default function TeamDashboard() {
           </div>
         )}
         {data && tab === 'duties' && <Duties {...ctx} />}
+        {data && tab === 'calendar' && <TeamCalendar data={data} openTab={setTab} />}
         {data && tab === 'leave' && <TeamBooking {...ctx} />}
         {data && tab === 'chat' && (
           <ChatBox side="member" title="Chat with the admin" subtitle="Bhet, timings, team bookings — anything" callPhone={site?.settings.phone} callLabel="Call admin" load={chatLoad} send={chatSend} onMessages={chatSeen} />
