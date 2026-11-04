@@ -14,6 +14,7 @@ const LINKS = [
   { id: 'about', label: 'About' },
   { id: 'sewa', label: 'Sewa' },
   { id: 'book', label: 'Calendar' },
+  { id: 'gallery', label: 'Posts' },
   { id: 'sangat', label: 'Sangat' },
   { id: 'contact', label: 'Contact' },
 ];
