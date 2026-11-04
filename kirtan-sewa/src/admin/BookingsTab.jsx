@@ -16,6 +16,7 @@ const FILTERS = [
   { id: 'offers', label: 'Offers' },
   { id: 'team', label: 'Team requests' },
   { id: 'payouts', label: 'Team payments' },
+  { id: 'due', label: 'Payment due' },
   { id: 'pending', label: 'Pending' },
   { id: 'confirmed', label: 'Confirmed' },
   { id: 'completed', label: 'Completed' },
@@ -24,6 +25,8 @@ const FILTERS = [
 ];
 
 const active = (b) => b.status === 'pending' || b.status === 'confirmed';
+// The kirtan day has come and the customer hasn't paid: it can't be completed until they do.
+const paymentDue = (b, today) => b.status === 'confirmed' && b.date <= today && b.paymentStatus !== 'paid';
 const hasRequest = (b) => b.cancelRequest?.status === 'pending' && active(b);
 // Members whose sewa is over and whose bhet (UPI) or cash commission is not settled yet, with the amount.
 const unsettled = (settings, b, today) =>
@@ -316,6 +319,7 @@ export default function BookingsTab({ data, api, patch, toast }) {
       { label: 'Cancelled', value: bookings.filter((b) => b.status === 'cancelled').length, tone: 'danger' },
       { label: 'Cancel requests', value: bookings.filter(hasRequest).length, tone: 'danger' },
       { label: 'Payments to verify', value: bookings.filter((b) => b.paymentStatus === 'submitted' && b.status !== 'cancelled').length, tone: 'warn' },
+      { label: 'Payment due (kirtan day reached)', value: bookings.filter((b) => paymentDue(b, today)).length, tone: 'danger' },
       { label: 'Offers to review', value: bookings.filter(offerPending).length, tone: 'warn' },
       { label: 'Team requests', value: bookings.filter((b) => active(b) && teamRequests(b).length).length, tone: 'danger' },
       { label: 'Collected', value: rupees(bookings.filter((b) => b.paymentStatus === 'paid').reduce((sum, b) => sum + (b.amount || 0), 0)), tone: 'success', wide: true },
@@ -345,6 +349,7 @@ export default function BookingsTab({ data, api, patch, toast }) {
       if (filter === 'offers') return offerPending(b);
       if (filter === 'team') return active(b) && teamRequests(b).length > 0;
       if (filter === 'payouts') return unsettled(settings, b, today).length > 0;
+      if (filter === 'due') return paymentDue(b, today);
       if (filter === 'all') return true;
       return b.status === filter;
     });
@@ -622,6 +627,7 @@ export default function BookingsTab({ data, api, patch, toast }) {
                       <strong>
                         {b.serviceName}
                         {b.categoryName && <small className="ab-cat"> · {b.categoryName}</small>}
+                        {b.emergency && <span className="emergency-tag">🚨 Emergency</span>}
                       </strong>
                       <span>
                         {b.slotLabel} · {rangeTo12(b.slotTime)} · {format(fromKey(b.date), 'EEE')}
@@ -928,8 +934,13 @@ export default function BookingsTab({ data, api, patch, toast }) {
                               </button>
                             )}
                             {b.status === 'confirmed' && (
-                              <button className="btn btn-ghost btn-sm" onClick={() => setStatus(b, 'completed')} disabled={!!busy}>
-                                <CircleCheck size={15} /> Mark completed
+                              <button
+                                className="btn btn-ghost btn-sm"
+                                onClick={() => setStatus(b, 'completed')}
+                                disabled={!!busy || b.paymentStatus !== 'paid'}
+                                title={b.paymentStatus !== 'paid' ? 'Waiting for payment (cash or UPI) — record it first' : undefined}
+                              >
+                                <CircleCheck size={15} /> {b.paymentStatus === 'paid' ? 'Mark completed' : 'Mark completed (after payment)'}
                               </button>
                             )}
                             {active(b) && (

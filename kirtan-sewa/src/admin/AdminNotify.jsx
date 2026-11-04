@@ -38,9 +38,15 @@ export default function AdminNotify({ api, devices, toast, onChange }) {
 
   return (
     <>
-      <button className={`btn btn-sm ${on ? 'btn-ghost notify-on' : 'btn-primary'}`} onClick={() => (on ? setOpen(true) : enable())} disabled={!!busy}>
+      <button
+        className={`btn btn-sm ${on ? 'btn-ghost notify-on icon-only' : 'btn-primary'}`}
+        onClick={() => (on ? setOpen(true) : enable())}
+        disabled={!!busy}
+        aria-label={on ? 'Notifications on — settings' : undefined}
+        title={on ? 'Notifications are on' : undefined}
+      >
         {busy === 'on' ? <Loader2 size={15} className="spin" /> : on ? <BellRing size={15} /> : <Bell size={15} />}
-        {on ? 'Notifications on' : 'Turn on notifications'}
+        {!on && 'Turn on notifications'}
       </button>
 
       <Modal open={open} onClose={() => setOpen(false)} title="Admin notifications" subtitle="This device is notified about every customer action.">

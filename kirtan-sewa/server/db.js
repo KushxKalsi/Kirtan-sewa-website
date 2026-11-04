@@ -132,7 +132,7 @@ const defaults = () => ({
   pushSubs: {}, // phone (last 10 digits) -> browser push subscriptions
   adminPushSubs: [], // admin devices that get a notification for every customer action
   publicPushSubs: [], // visitors who only asked for Gurpurab reminders
-  gurpurabs: seedGurpurabs(), // Prakash / Jyoti Jot / Shaheedi days (admin → Gurpurab)
+  gurpurabs: seedGurpurabs(), // Prakash / Gurgaddi / Jyoti Jot / Shaheedi days (admin → Gurpurab)
 });
 
 /* ---------------- storage ----------------
@@ -462,6 +462,15 @@ export async function initDb() {
     : base;
   for (const key of ['users', 'messages', 'threads', 'leaves', 'people', 'categories', 'blockedTimes', 'gurpurabs', 'adminPushSubs', 'publicPushSubs']) db[key] ||= [];
   db.pushSubs ||= {};
+  // Seed days added in newer versions (e.g. Gurgaddi Diwas). Days already there, edited or not, are left alone;
+  // ones the admin deleted are remembered so they don't come back.
+  db.meta.gurpurabSeeded ||= db.gurpurabs.map((g) => g.id);
+  for (const g of seedGurpurabs()) {
+    if (db.meta.gurpurabSeeded.includes(g.id)) continue;
+    db.meta.gurpurabSeeded.push(g.id);
+    if (!db.gurpurabs.some((x) => x.id === g.id)) db.gurpurabs.push(g);
+  }
+  db.gurpurabs.sort((a, b) => a.date.localeCompare(b.date));
   await save();
   console.log(`[sewa] Storage: ${store.name}`);
 }

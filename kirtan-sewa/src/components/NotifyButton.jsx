@@ -4,13 +4,15 @@ import { Bell, BellRing, CircleAlert, Loader2 } from 'lucide-react';
 import { enableNotifications, isIos, isStandalone, permission, pushSupported, subscribedFor } from '../lib/push';
 import { ease } from '../lib/motion';
 
-/** Card asking the logged-in customer (or team member) to allow notifications for their account. */
+/** Card asking the logged-in customer (or team member) to allow notifications for their account. Once they're on it goes away. */
 export default function NotifyButton({ phone, client, compact = false, team = false }) {
   const [on, setOn] = useState(() => permission() === 'granted' && subscribedFor(phone));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const iosNeedsInstall = !pushSupported() && isIos() && !isStandalone();
+  const [justOn, setJustOn] = useState(false); // show "on" once, right after turning it on, then hide
   if (!phone || !client || (!pushSupported() && !iosNeedsInstall)) return null;
+  if (on && !justOn) return null;
 
   const enable = async () => {
     setBusy(true);
@@ -18,6 +20,8 @@ export default function NotifyButton({ phone, client, compact = false, team = fa
     try {
       await enableNotifications(client, phone);
       setOn(true);
+      setJustOn(true);
+      setTimeout(() => setJustOn(false), 4000);
     } catch (e) {
       setError(e.message);
     } finally {

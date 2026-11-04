@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Banknote, Check, CircleAlert, CircleCheck, Copy, FileText, Hourglass, Loader2, Smartphone } from 'lucide-react';
+import { Banknote, BellRing, Check, CircleAlert, CircleCheck, Copy, FileText, Hourglass, Loader2, Smartphone } from 'lucide-react';
 import { useSite } from './SiteContext';
 import { BillModal } from './Bill';
 import { useAuth } from './AuthContext';
@@ -63,6 +63,8 @@ export default function PaymentBox({ booking, onUpdated }) {
   const billed = booking.status !== 'pending' && booking.amount > 0;
   const method = methods.includes(booking.paymentMethod) ? booking.paymentMethod : '';
   const canChange = status === 'unpaid' && methods.length > 1;
+  // On (or after) the day of the kirtan an unpaid bill is due: the booking is completed only once it is paid.
+  const due = billed && status === 'unpaid' && booking.date <= (site?.today || '');
 
   const run = async (key, fn) => {
     setBusy(key);
@@ -142,7 +144,16 @@ export default function PaymentBox({ booking, onUpdated }) {
   }
 
   return (
-    <motion.section className="pay-box" initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, ease }}>
+    <motion.section className={`pay-box ${due ? 'due' : ''}`} initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, ease }}>
+      {due && (
+        <p className="pay-due">
+          <BellRing size={16} />
+          <span>
+            <strong>{booking.date === site?.today ? 'Kirtan day — please pay now' : 'Payment due'}</strong>
+            {method === 'cash' ? ' Hand the cash to the jatha.' : ' Pay by UPI below and enter the transaction ID.'} Your booking is completed once the payment is received.
+          </span>
+        </p>
+      )}
       <div className="pay-head">
         <div>
           <h4>Payment</h4>

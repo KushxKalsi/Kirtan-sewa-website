@@ -5,6 +5,7 @@ import {
   Ban,
   CalendarDays,
   CalendarPlus,
+  Siren,
   CircleAlert,
   Clock,
   ExternalLink,
@@ -99,6 +100,7 @@ function BookingCard({ booking, today, index, offerMin, onChange, onRequestCance
           <span className="bc-ref">{booking.ref}</span>
           <h2>{booking.serviceName}</h2>
           {booking.categoryName && <span className="bc-cat">{booking.categoryName}</span>}
+          {booking.emergency && <span className="emergency-tag">🚨 Emergency</span>}
         </div>
         <span className={`badge badge-${booking.status}`}>{booking.status}</span>
       </header>
@@ -382,6 +384,9 @@ export default function Account() {
           <div className="account-head-actions">
             <Link to="/" className="btn btn-primary btn-sm">
               <CalendarPlus size={16} /> Book a date
+            </Link>
+            <Link to="/" state={{ emergency: true }} className="btn btn-sm btn-emergency">
+              <Siren size={16} /> Emergency kirtan
             </Link>
             <button className="btn btn-ghost btn-sm" onClick={logout}>
               <LogOut size={16} /> Log out
