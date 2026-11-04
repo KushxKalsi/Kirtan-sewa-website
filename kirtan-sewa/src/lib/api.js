@@ -1,5 +1,20 @@
-async function request(path, { method = 'GET', body, token } = {}) {
+import { readStore, writeStore } from './storage';
+
+// This browser's random id, so a visitor who isn't logged in can like a post once.
+function deviceId() {
+  let id = readStore('sewa.device', '');
+  if (!/^[a-z0-9]{16,64}$/.test(id)) {
+    id = Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, '0')).join('');
+    writeStore('sewa.device', id);
+  }
+  return id;
+}
+// Logged in on this device as a customer or team member: likes count once per account.
+const sessionToken = () => readStore('sewa.session', null)?.token;
+
+async function request(path, { method = 'GET', body, token, device } = {}) {
   const headers = {};
+  if (device) headers['X-Device'] = deviceId();
   if (body !== undefined) headers['Content-Type'] = 'application/json';
   if (token) headers.Authorization = `Bearer ${token}`;
   let res;
@@ -27,6 +42,12 @@ export const api = {
   register: (body) => request('/auth/register', { method: 'POST', body }),
   registerTeam: (body) => request('/auth/register-team', { method: 'POST', body }),
   login: (body) => request('/auth/login', { method: 'POST', body }),
+  posts: ({ member = '', before = '', limit = 12 } = {}) => request(`/posts?member=${member}&before=${encodeURIComponent(before)}&limit=${limit}`, { device: true, token: sessionToken() }),
+  post: (id) => request(`/posts/${id}`, { device: true, token: sessionToken() }),
+  member: (id) => request(`/members/${id}`),
+  likePost: (id) => request(`/posts/${id}/like`, { method: 'POST', body: {}, device: true, token: sessionToken() }),
+  sharePost: (id) => request(`/posts/${id}/share`, { method: 'POST', body: {} }),
+  reportPost: (id, reason) => request(`/posts/${id}/report`, { method: 'POST', body: { reason }, device: true, token: sessionToken() }),
 };
 
 // A logged-in customer ("sangat" account).
@@ -69,6 +90,12 @@ export const teamApi = (token) => ({
   sendChat: (text) => request('/team/chat', { method: 'POST', body: { text }, token }),
   changePassword: (current, password) => request('/team/password', { method: 'POST', body: { current, password }, token }),
   pushSubscribe: (subscription) => request('/push/subscribe', { method: 'POST', body: { subscription }, token }),
+  posts: () => request('/team/posts', { token }),
+  startUpload: (type, size) => request('/team/media', { method: 'POST', body: { type, size }, token }),
+  createPost: (post) => request('/team/posts', { method: 'POST', body: post, token }),
+  deletePost: (id) => request(`/team/posts/${id}`, { method: 'DELETE', token }),
+  setPhoto: (id) => request('/team/photo', { method: 'PUT', body: { id }, token }),
+  posterText: (dutyId, body) => request(`/team/duties/${dutyId}/poster-text`, { method: 'POST', body, token }),
 });
 
 export const adminApi = (token) => ({
@@ -118,6 +145,13 @@ export const adminApi = (token) => ({
   deleteGurpurab: (id) => request(`/admin/gurpurabs/${id}`, { method: 'DELETE', token }),
   notifyGurpurab: (id) => request(`/admin/gurpurabs/${id}/notify`, { method: 'POST', body: {}, token }),
   uploadGurpurabImage: (dataUrl) => request('/admin/gurpurab-images', { method: 'POST', body: { dataUrl }, token }),
+  posts: () => request('/admin/posts', { token }),
+  startUpload: (type, size) => request('/admin/media', { method: 'POST', body: { type, size }, token }),
+  createPost: (post) => request('/admin/posts', { method: 'POST', body: post, token }),
+  updatePost: (id, body) => request(`/admin/posts/${id}`, { method: 'PATCH', body, token }),
+  deletePost: (id) => request(`/admin/posts/${id}`, { method: 'DELETE', token }),
+  addTrack: (id, title) => request('/admin/audio-library', { method: 'POST', body: { id, title }, token }),
+  deleteTrack: (id) => request(`/admin/audio-library/${id}`, { method: 'DELETE', token }),
 });
 
 export const adminLogin = (password) => request('/admin/login', { method: 'POST', body: { password } });

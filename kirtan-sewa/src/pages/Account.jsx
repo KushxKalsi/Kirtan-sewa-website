@@ -4,6 +4,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import {
   Ban,
   CalendarDays,
+  Gauge,
   CalendarPlus,
   Siren,
   CircleAlert,
@@ -27,7 +28,8 @@ import PaymentBox from '../components/PaymentBox';
 import NotifyButton from '../components/NotifyButton';
 import ChatBox from '../components/ChatBox';
 import LocationPicker from '../components/LocationPicker';
-import IntlTours from '../components/IntlTours';
+import DashShell from '../components/DashShell';
+import AccountOverview from '../components/AccountOverview';
 import { useAuth } from '../components/AuthContext';
 import { useSite } from '../components/SiteContext';
 import { useToast } from '../components/Toast';
@@ -38,6 +40,7 @@ import { ease } from '../lib/motion';
 
 const REASONS = ['Event date changed', 'Event postponed or called off', 'Booked another jatha', 'Booked by mistake', 'Other'];
 const TABS = [
+  { id: 'overview', label: 'Overview', icon: Gauge },
   { id: 'bookings', label: 'My bookings', icon: CalendarDays },
   { id: 'chat', label: 'Chat with jatha', icon: MessagesSquare },
   { id: 'profile', label: 'Profile', icon: UserRound },
@@ -293,7 +296,7 @@ export default function Account() {
   const { site } = useSite();
   const toast = useToast();
   const [params] = useSearchParams();
-  const [tab, setTab] = useState(params.get('chat') ? 'chat' : 'bookings');
+  const [tab, setTab] = useState(params.get('chat') ? 'chat' : params.get('tab') === 'bookings' ? 'bookings' : 'overview');
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
   const [cancelFor, setCancelFor] = useState(null);
@@ -373,7 +376,7 @@ export default function Account() {
   const today = data?.today || '';
 
   return (
-    <main className="page manage account">
+    <main className="page manage account dash-page">
       <div className="container manage-inner account-inner">
         <header className="account-head">
           <div>
@@ -394,69 +397,60 @@ export default function Account() {
           </div>
         </header>
 
-        <IntlTours compact />
-
         {me && <NotifyButton phone={me.phone} client={user} compact />}
 
-        <nav className="admin-tabs account-tabs" role="tablist">
-          {TABS.map((t) => (
-            <button key={t.id} role="tab" aria-selected={tab === t.id} className={tab === t.id ? 'active' : ''} onClick={() => setTab(t.id)}>
-              {tab === t.id && <motion.span layoutId="account-tab" className="admin-tab-bg" transition={{ type: 'spring', stiffness: 400, damping: 34 }} />}
-              <t.icon size={16} />
-              <span>{t.label}</span>
-              {t.id === 'chat' && data?.unread > 0 && <em className="tab-badge">{data.unread}</em>}
-            </button>
-          ))}
-        </nav>
+        <DashShell name="account" tabs={TABS.map((t) => ({ ...t, badge: t.id === 'chat' ? data?.unread || null : null }))} tab={tab} onTab={setTab}>
 
-        {error && (
-          <div className="form-error manage-error">
-            <CircleAlert size={18} /> {error}
-          </div>
-        )}
-        {!data && !error && (
-          <div className="admin-loading">
-            <Loader2 className="spin" />
-          </div>
-        )}
+          {error && (
+            <div className="form-error manage-error">
+              <CircleAlert size={18} /> {error}
+            </div>
+          )}
+          {!data && !error && (
+            <div className="admin-loading">
+              <Loader2 className="spin" />
+            </div>
+          )}
 
-        {data && tab === 'bookings' && (
-          <>
-            {data.bookings.length === 0 ? (
-              <div className="admin-empty glass">
-                No bookings yet.{' '}
-                <Link to="/" state={{ scrollTo: 'book' }}>
-                  Check dates and book your first sewa
-                </Link>
-                .
-              </div>
-            ) : (
-              <p className="results-count">
-                {data.bookings.length} booking{data.bookings.length === 1 ? '' : 's'}
-              </p>
-            )}
-            <AnimatePresence mode="popLayout">
-              {data.bookings.map((b, i) => (
-                <BookingCard key={b.ref} booking={b} today={today} index={i} offerMin={offerMin} onChange={replace} onRequestCancel={openCancel} onOffer={openOffer} />
-              ))}
-            </AnimatePresence>
-          </>
-        )}
+          {data && tab === 'overview' && <AccountOverview data={data} openTab={setTab} />}
+          {data && tab === 'bookings' && (
+            <>
+              {data.bookings.length === 0 ? (
+                <div className="admin-empty glass">
+                  No bookings yet.{' '}
+                  <Link to="/" state={{ scrollTo: 'book' }}>
+                    Check dates and book your first sewa
+                  </Link>
+                  .
+                </div>
+              ) : (
+                <p className="results-count">
+                  {data.bookings.length} booking{data.bookings.length === 1 ? '' : 's'}
+                </p>
+              )}
+              <AnimatePresence mode="popLayout">
+                {data.bookings.map((b, i) => (
+                  <BookingCard key={b.ref} booking={b} today={today} index={i} offerMin={offerMin} onChange={replace} onRequestCancel={openCancel} onOffer={openOffer} />
+                ))}
+              </AnimatePresence>
+            </>
+          )}
 
-        {data && tab === 'chat' && (
-          <ChatBox
-            side="user"
-            title="Chat with the jatha"
-            subtitle="About the bhet, timings, the venue or anything else"
-            callPhone={site?.settings.phone}
-            callLabel="Call jatha"
-            load={chatLoad}
-            send={chatSend}
-            onMessages={chatSeen}
-          />
-        )}
+          {data && tab === 'chat' && (
+            <ChatBox
+              side="user"
+              title="Chat with the jatha"
+              subtitle="About the bhet, timings, the venue or anything else"
+              callPhone={site?.settings.phone}
+              callLabel="Call jatha"
+              load={chatLoad}
+              send={chatSend}
+              onMessages={chatSeen}
+            />
+          )}
 
-        {data && tab === 'profile' && <Profile me={me} onSaved={(u) => setData((d) => ({ ...d, user: u }))} />}
+          {data && tab === 'profile' && <Profile me={me} onSaved={(u) => setData((d) => ({ ...d, user: u }))} />}
+        </DashShell>
       </div>
 
       <Modal

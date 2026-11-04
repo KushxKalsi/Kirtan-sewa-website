@@ -133,6 +133,8 @@ const defaults = () => ({
   adminPushSubs: [], // admin devices that get a notification for every customer action
   publicPushSubs: [], // visitors who only asked for Gurpurab reminders
   gurpurabs: seedGurpurabs(), // Prakash / Gurgaddi / Jyoti Jot / Shaheedi days (admin → Gurpurab)
+  posts: [], // photos / videos of kirtans posted by team members and the admin, shown on the site
+  audioLibrary: [], // Gurbani tracks the admin uploads for members to put on their posts
 });
 
 /* ---------------- storage ----------------
@@ -280,6 +282,15 @@ const TABLES = {
     rows: (d) => d.messages.map((m) => ({ id: m.id, thread: m.thread, sender: m.from, kind: m.kind, booking_id: m.bookingId || null, created_at: timeOrNull(m.at), data: m })),
   },
   chat_threads: { cols: {}, rows: (d) => d.threads.map((t) => ({ id: t.id, data: t })) },
+  posts: {
+    cols: { person_id: 'text', hidden: 'boolean', likes: 'integer', created_at: 'timestamptz' },
+    indexes: ['CREATE INDEX IF NOT EXISTS posts_person ON posts (person_id, created_at)'],
+    rows: (d) => d.posts.map((p) => ({ id: p.id, person_id: p.personId || null, hidden: !!p.hidden, likes: (p.likedBy || []).length, created_at: timeOrNull(p.createdAt), data: p })),
+  },
+  audio_library: {
+    cols: { position: 'integer', title: 'text' },
+    rows: (d) => d.audioLibrary.map((a, i) => ({ id: a.id, position: i, title: a.title, data: a })),
+  },
   push_subscriptions: {
     cols: { scope: 'text', owner: 'text', endpoint: 'text' },
     rows: (d) => [
@@ -313,6 +324,8 @@ function assemble(t) {
     leaves: t.leave_requests.map((r) => r.data).sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || '')),
     messages: t.chat_messages.map((r) => r.data).sort((a, b) => a.at.localeCompare(b.at)),
     threads: t.chat_threads.map((r) => r.data),
+    posts: t.posts.map((r) => r.data).sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
+    audioLibrary: byPos(t.audio_library).map((r) => r.data),
     pushSubs,
     adminPushSubs: subs.filter((s) => s.scope === 'admin').map((s) => s.data),
     publicPushSubs: subs.filter((s) => s.scope === 'public').map((s) => s.data),
@@ -460,7 +473,7 @@ export async function initDb() {
   db = stored
     ? { ...base, ...stored, meta: { ...base.meta, ...stored.meta }, settings: { ...base.settings, ...stored.settings } }
     : base;
-  for (const key of ['users', 'messages', 'threads', 'leaves', 'people', 'categories', 'blockedTimes', 'gurpurabs', 'adminPushSubs', 'publicPushSubs']) db[key] ||= [];
+  for (const key of ['users', 'messages', 'threads', 'leaves', 'people', 'categories', 'blockedTimes', 'gurpurabs', 'adminPushSubs', 'publicPushSubs', 'posts', 'audioLibrary']) db[key] ||= [];
   db.pushSubs ||= {};
   // Seed days added in newer versions (e.g. Gurgaddi Diwas). Days already there, edited or not, are left alone;
   // ones the admin deleted are remembered so they don't come back.

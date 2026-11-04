@@ -5,7 +5,7 @@ import About from '../sections/About';
 import Gurpurab from '../sections/Gurpurab';
 import Services from '../sections/Services';
 import Booking from '../sections/Booking';
-import Gallery from '../sections/Gallery';
+import SewaFeed from '../sections/SewaFeed';
 import Testimonials from '../sections/Testimonials';
 import Contact from '../sections/Contact';
 import { scrollToId } from '../lib/scroll';
@@ -40,7 +40,7 @@ export default function Home({ ready }) {
       <About />
       <Services onBook={(id, categoryId) => setPreselect({ id, categoryId, n: Date.now() })} />
       <Booking preselect={preselect} />
-      <Gallery />
+      <SewaFeed />
       <Testimonials />
       <Contact />
     </main>

@@ -9,6 +9,8 @@ import { initPush, pushPublicKey, addSubscription, notifyPhone, addAdminSubscrip
 import { GURPURAB_KINDS } from './gurpurabs.js';
 import { checkPassword, hashPassword, passwordProblem, sessions } from './auth.js';
 import { reversePlace, searchPlaces } from './geo.js';
+import { MEDIA_KINDS, kindOfType, mediaRedirect, readLocal, removeMedia, storageName, storeLocal, uploadTarget, r2On } from './media.js';
+import { posterAiOn, writePosterText } from './poster.js';
 import { format, subMonths } from 'date-fns';
 
 await initDb();
@@ -2418,6 +2420,294 @@ app.delete('/api/admin/bookings/:id', async (req, res) => {
   res.json({ ok: true });
 });
 
+/* ---------- posts: photos and videos of kirtans, shown on the site ----------
+ * Team members (and the admin, as the jatha or for a member) post 1–10 photos / videos with a caption and optional
+ * music. Visitors like (once per account or device) and share them; each member has a public profile with their posts.
+ * Files are uploaded first (POST …/media gives a one-time upload link), then the post names them. */
+const MAX_POST_MEDIA = 10;
+const uploads = new Map(); // upload id -> { owner, key, kind, type, at, done } — kept for a few hours
+const UPLOAD_TTL = 6 * 60 * 60 * 1000;
+// Files uploaded before R2 was set up stay in the built-in storage; their links say so (?l=1).
+const mediaUrl = (id, local) => `/api/media/${id}${local ? '?l=1' : ''}`;
+
+function startUpload(owner, body) {
+  for (const [id, u] of uploads) if (Date.now() - u.at > UPLOAD_TTL) uploads.delete(id);
+  const type = str(body?.type, 60).toLowerCase();
+  const kind = kindOfType(type);
+  if (!kind) fail(400, 'Choose a photo (JPG, PNG, WebP), a video (MP4, WebM, MOV) or an audio file (MP3, M4A, WAV).');
+  const size = Number(body?.size) || 0;
+  const max = MEDIA_KINDS[kind].max;
+  if (size > max) fail(400, `That ${kind} is too large (max ${Math.round(max / 1024 / 1024)} MB).`);
+  const id = uid();
+  const key = crypto.randomBytes(16).toString('hex');
+  uploads.set(id, { owner, key, kind, type, at: Date.now(), done: false });
+  return { id, kind, ...uploadTarget(id, key) };
+}
+// The files a new post (or profile photo / library track) names: uploaded by the same person, of an allowed kind.
+function claimUploads(ids, owner, kinds) {
+  return [...new Set((Array.isArray(ids) ? ids : []).map((x) => str(x, 20)))].map((id) => {
+    const u = uploads.get(id);
+    if (!u || u.owner !== owner || !kinds.includes(u.kind)) fail(400, 'A file was not uploaded (or the upload expired). Please add it again.');
+    if (!r2On && !u.done) fail(400, 'A file is still uploading. Please wait a moment.');
+    uploads.delete(id);
+    return { id, kind: u.kind, type: u.type, ...(!r2On && { local: true }) };
+  });
+}
+
+app.post('/api/team/media', requireMember, (req, res) => res.json(startUpload(`m:${req.person.id}`, req.body)));
+app.post('/api/admin/media', (req, res) => res.json(startUpload('admin', req.body)));
+// Without R2 the browser sends the file here, with the one-time key it was given.
+app.put('/api/media/:id', express.raw({ type: () => true, limit: '100mb' }), async (req, res) => {
+  const u = uploads.get(req.params.id);
+  if (!u || u.done) fail(404, 'This upload link has expired. Please add the file again.');
+  if (str(req.query.key, 40) !== u.key) fail(403, 'This upload link is not valid. Please add the file again.');
+  if (!Buffer.isBuffer(req.body) || !req.body.length) fail(400, 'The file is empty.');
+  if (req.body.length > MEDIA_KINDS[u.kind].max) fail(413, `That ${u.kind} is too large.`);
+  await storeLocal(req.params.id, u.type, req.body);
+  u.done = true;
+  res.json({ ok: true });
+});
+// Served from R2, or from storage with Range support (needed to seek in videos, and for Safari to play them at all).
+app.get('/api/media/:id', async (req, res) => {
+  if (!/^[a-f0-9]{16}$/.test(req.params.id)) fail(404, 'Not found.');
+  const to = !req.query.l && mediaRedirect(req.params.id);
+  if (to) return res.set('Cache-Control', 'public, max-age=3600').redirect(302, to);
+  const file = await readLocal(req.params.id);
+  if (!file) fail(404, 'Not found.');
+  const total = file.buffer.length;
+  res.set({ 'Accept-Ranges': 'bytes', 'Cache-Control': 'public, max-age=604800, immutable' }).type(file.type);
+  const range = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range || '');
+  if (!range || (!range[1] && !range[2])) return res.send(file.buffer);
+  const start = range[1] ? Number(range[1]) : Math.max(0, total - Number(range[2]));
+  const end = range[1] && range[2] ? Math.min(Number(range[2]), total - 1) : total - 1;
+  if (start > end || start >= total) return res.status(416).set('Content-Range', `bytes */${total}`).end();
+  res.status(206).set('Content-Range', `bytes ${start}-${end}/${total}`).send(file.buffer.subarray(start, end + 1));
+});
+
+const jathaAuthor = () => ({ id: '', name: db.settings.siteName, role: 'Jatha', photo: db.settings.aboutImage || '' });
+const memberAuthor = (p) => ({ id: p.id, name: p.name, role: ROLES[p.role] || '', photo: p.photo ? mediaUrl(p.photo, p.photoLocal) : '' });
+const authorOf = (post) => (post.personId ? personOf(post.personId) : null);
+// Shown on the site: not hidden, and by the jatha or a member who is still active.
+const postVisible = (post) => !post.hidden && (!post.personId || (authorOf(post)?.active && !authorOf(post)?.pending));
+// Who is looking, for likes: a logged-in account, or this browser's own random id.
+function viewerKey(req) {
+  const s = sessionOf(req);
+  if (s?.role === 'user') return `u:${s.user.id}`;
+  if (s?.role === 'member') return `m:${s.person.id}`;
+  const device = str(req.headers['x-device'], 64);
+  return /^[a-z0-9]{16,64}$/i.test(device) ? `d:${crypto.createHash('sha1').update(device).digest('hex').slice(0, 20)}` : '';
+}
+const publicPost = (post, viewer = '') => ({
+  id: post.id,
+  author: post.personId ? memberAuthor(authorOf(post) || { id: post.personId, name: post.authorName || 'Team member' }) : jathaAuthor(),
+  caption: post.caption,
+  media: post.media.map((m) => ({ id: m.id, kind: m.kind, url: mediaUrl(m.id, m.local) })),
+  audio: post.audio && { url: mediaUrl(post.audio.id, post.audio.local), title: post.audio.title, start: post.audio.start || 0 },
+  poster: !!post.poster,
+  likes: (post.likedBy || []).length,
+  liked: !!viewer && (post.likedBy || []).includes(viewer),
+  shares: post.shares || 0,
+  createdAt: post.createdAt,
+});
+// What the author and the admin see as well.
+const ownPost = (post) => ({ ...publicPost(post), hidden: !!post.hidden, reports: (post.reports || []).length, bookingId: post.bookingId || '' });
+const libraryView = () => db.audioLibrary.map((a) => ({ id: a.id, title: a.title, url: mediaUrl(a.mediaId, a.local) }));
+
+// A new post from the body: { caption, media: [upload ids], audio: { id | libraryId, title, start }, bookingId, poster }.
+function readPost(body, owner, personId) {
+  const media = claimUploads((body?.media || []).slice(0, MAX_POST_MEDIA + 1), owner, ['image', 'video']);
+  if (!media.length) fail(400, 'Add at least one photo or video.');
+  if (media.length > MAX_POST_MEDIA) fail(400, `Add up to ${MAX_POST_MEDIA} photos and videos.`);
+  let audio = null;
+  const a = body?.audio;
+  if (a?.libraryId) {
+    const track = db.audioLibrary.find((t) => t.id === str(a.libraryId, 20));
+    if (!track) fail(400, 'That music is no longer in the library.');
+    audio = { id: track.mediaId, title: track.title, libraryId: track.id, ...(track.local && { local: true }) };
+  } else if (a?.id) {
+    const file = claimUploads([a.id], owner, ['audio'])[0];
+    audio = { id: file.id, title: str(a.title, 80) || 'Music', ...(file.local && { local: true }) };
+  }
+  if (audio) audio.start = Math.max(0, Math.min(3600, Math.round(Number(a.start) || 0)));
+  const bookingId = str(body?.bookingId, 20);
+  if (bookingId && !db.bookings.some((b) => b.id === bookingId && (!personId || (b.assignees || []).some((x) => x.id === personId)))) fail(400, 'That kirtan was not found.');
+  return { id: uid(), personId, caption: str(body?.caption, 1000), media: media.map(({ type: _, ...m }) => m), audio, bookingId, poster: body?.poster === true, likedBy: [], shares: 0, reports: [], hidden: false, createdAt: new Date().toISOString() };
+}
+// Removes a post and its files (library music stays).
+async function dropPost(post) {
+  db.posts = db.posts.filter((p) => p !== post);
+  await save();
+  for (const m of post.media) await removeMedia(m.id, m.local);
+  if (post.audio && !post.audio.libraryId) await removeMedia(post.audio.id, post.audio.local);
+}
+
+app.get('/api/posts', (req, res) => {
+  const member = str(req.query.member, 20);
+  const before = str(req.query.before, 40);
+  const limit = Math.min(30, Math.max(1, Number(req.query.limit) || 12));
+  const viewer = viewerKey(req);
+  const list = db.posts
+    .filter((p) => postVisible(p) && (!member || p.personId === member) && (!before || p.createdAt < before))
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  res.json({ posts: list.slice(0, limit).map((p) => publicPost(p, viewer)), more: list.length > limit });
+});
+app.get('/api/posts/:id', (req, res) => {
+  const post = db.posts.find((p) => p.id === req.params.id);
+  if (!post || !postVisible(post)) fail(404, 'This post is no longer available.');
+  res.json({ post: publicPost(post, viewerKey(req)) });
+});
+app.get('/api/members/:id', (req, res) => {
+  const p = personOf(req.params.id);
+  if (!p?.active || p.pending) fail(404, 'This team member was not found.');
+  const posts = db.posts.filter((x) => x.personId === p.id && postVisible(x));
+  res.json({
+    member: {
+      ...memberAuthor(p),
+      kirtans: db.bookings.filter((b) => b.status === 'completed' && (b.assignees || []).some((a) => a.id === p.id)).length,
+      posts: posts.length,
+      photos: posts.reduce((t, x) => t + x.media.filter((m) => m.kind === 'image').length, 0),
+      videos: posts.reduce((t, x) => t + x.media.filter((m) => m.kind === 'video').length, 0),
+      likes: posts.reduce((t, x) => t + (x.likedBy || []).length, 0),
+    },
+  });
+});
+app.post('/api/posts/:id/like', async (req, res) => {
+  const post = db.posts.find((p) => p.id === req.params.id);
+  if (!post || !postVisible(post)) fail(404, 'This post is no longer available.');
+  const viewer = viewerKey(req);
+  if (!viewer) fail(400, 'Please reload the page and try again.');
+  throttle(`like:${viewer}`, 120);
+  post.likedBy ||= [];
+  const liked = !post.likedBy.includes(viewer);
+  post.likedBy = liked ? [...post.likedBy, viewer] : post.likedBy.filter((k) => k !== viewer);
+  await save();
+  res.json({ likes: post.likedBy.length, liked });
+});
+app.post('/api/posts/:id/share', async (req, res) => {
+  const post = db.posts.find((p) => p.id === req.params.id);
+  if (!post || !postVisible(post)) fail(404, 'This post is no longer available.');
+  throttle(`share:${req.ip}:${post.id}`, 5);
+  post.shares = (post.shares || 0) + 1;
+  await save();
+  res.json({ shares: post.shares });
+});
+app.post('/api/posts/:id/report', async (req, res) => {
+  const post = db.posts.find((p) => p.id === req.params.id);
+  if (!post || !postVisible(post)) fail(404, 'This post is no longer available.');
+  const viewer = viewerKey(req) || `ip:${req.ip}`;
+  post.reports ||= [];
+  if (!post.reports.some((r) => r.by === viewer)) {
+    post.reports.push({ by: viewer, reason: str(req.body?.reason, 300), at: new Date().toISOString() });
+    await save();
+    alertAdmin('⚠️ A post was reported', `${authorOf(post)?.name || db.settings.siteName}: “${post.caption.slice(0, 60)}”${req.body?.reason ? ` · ${str(req.body.reason, 100)}` : ''}`, '/admin?tab=posts', `post-${post.id}`);
+  }
+  res.json({ ok: true });
+});
+
+// Team member: their posts, the music library and their public profile photo.
+const teamPosts = (p) => ({
+  posts: db.posts.filter((x) => x.personId === p.id).sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map(ownPost),
+  library: libraryView(),
+  photo: p.photo ? mediaUrl(p.photo, p.photoLocal) : '',
+  limits: Object.fromEntries(Object.entries(MEDIA_KINDS).map(([k, v]) => [k, v.max])),
+  posterAi: posterAiOn,
+});
+app.get('/api/team/posts', requireMember, (req, res) => res.json(teamPosts(req.person)));
+app.post('/api/team/posts', requireMember, async (req, res) => {
+  const p = req.person;
+  throttle(`post:${p.id}`, 30);
+  db.posts.push(readPost(req.body, `m:${p.id}`, p.id));
+  await save();
+  res.status(201).json(teamPosts(p));
+});
+app.delete('/api/team/posts/:id', requireMember, async (req, res) => {
+  const post = db.posts.find((x) => x.id === req.params.id && x.personId === req.person.id);
+  if (!post) fail(404, 'Post not found.');
+  await dropPost(post);
+  res.json(teamPosts(req.person));
+});
+app.put('/api/team/photo', requireMember, async (req, res) => {
+  const p = req.person;
+  const old = { id: p.photo, local: p.photoLocal };
+  const file = req.body?.id ? claimUploads([req.body.id], `m:${p.id}`, ['image'])[0] : null;
+  Object.assign(p, { photo: file?.id || '', photoLocal: !!file?.local });
+  await save();
+  if (old.id && old.id !== p.photo) await removeMedia(old.id, old.local);
+  res.json(teamPosts(p));
+});
+
+// Poster wording for a kirtan they were given (a few per day, to keep the AI cost small).
+const posterUses = new Map(); // `${personId}:${date}` -> count
+app.post('/api/team/duties/:id/poster-text', requireMember, async (req, res) => {
+  const { booking } = findDuty(req);
+  const key = `${req.person.id}:${todayKey()}`;
+  if ((posterUses.get(key) || 0) >= 10) fail(429, 'You have made 10 posters today. Please try again tomorrow.');
+  posterUses.set(key, (posterUses.get(key) || 0) + 1);
+  const b = req.body || {};
+  const gurpurab = (db.gurpurabs || []).find((g) => g.active && g.date === booking.date);
+  const [start, end] = rangeOf(booking);
+  const details = {
+    occasion: str(b.occasion, 120) || (gurpurab ? `${gpKind(gurpurab).label} ${gurpurab.name}` : ''),
+    sewa: booking.serviceName,
+    category: booking.categoryName || '',
+    venue: str(b.venue, 200) || booking.address,
+    memberName: str(b.name, 80) || req.person.name,
+    memberFrom: str(b.from, 80),
+    date: booking.date,
+    start,
+    end,
+  };
+  try {
+    res.json({ text: await writePosterText(details) });
+  } catch (e) {
+    if (e.status === 400) throw e;
+    console.error('[sewa] Poster text failed:', e.message);
+    fail(400, 'The AI could not write the poster just now. Please try again, or type the wording yourself.');
+  }
+});
+
+// Admin: every post (hide, delete, post as the jatha or for a member) and the music library.
+const adminPosts = () => ({ posts: [...db.posts].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map(ownPost), library: libraryView(), storage: storageName });
+app.get('/api/admin/posts', (_req, res) => res.json(adminPosts()));
+app.post('/api/admin/posts', async (req, res) => {
+  const personId = str(req.body?.personId, 20);
+  if (personId && !db.people.some((p) => p.id === personId && p.active)) fail(400, 'Choose an active team member, or post as the jatha.');
+  db.posts.push(readPost(req.body, 'admin', personId));
+  await save();
+  res.status(201).json(adminPosts());
+});
+app.patch('/api/admin/posts/:id', async (req, res) => {
+  const post = db.posts.find((x) => x.id === req.params.id);
+  if (!post) fail(404, 'Post not found.');
+  if (typeof req.body?.hidden === 'boolean') post.hidden = req.body.hidden;
+  if (req.body?.clearReports) post.reports = [];
+  await save();
+  res.json(adminPosts());
+});
+app.delete('/api/admin/posts/:id', async (req, res) => {
+  const post = db.posts.find((x) => x.id === req.params.id);
+  if (!post) fail(404, 'Post not found.');
+  await dropPost(post);
+  res.json(adminPosts());
+});
+app.post('/api/admin/audio-library', async (req, res) => {
+  const title = str(req.body?.title, 80);
+  if (title.length < 2) fail(400, 'Give the track a name.');
+  const [file] = claimUploads([req.body?.id], 'admin', ['audio']);
+  db.audioLibrary.push({ id: uid(), title, mediaId: file.id, ...(file.local && { local: true }), createdAt: new Date().toISOString() });
+  await save();
+  res.status(201).json(adminPosts());
+});
+app.delete('/api/admin/audio-library/:id', async (req, res) => {
+  const track = db.audioLibrary.find((t) => t.id === req.params.id);
+  if (!track) fail(404, 'Track not found.');
+  if (db.posts.some((p) => p.audio?.libraryId === track.id)) fail(400, 'Some posts use this music. Delete those posts first.');
+  db.audioLibrary = db.audioLibrary.filter((t) => t !== track);
+  await save();
+  await removeMedia(track.mediaId, track.local);
+  res.json(adminPosts());
+});
+
 app.use('/api', (_req, _res, next) => next(new HttpError(404, 'Not found.')));
 
 /* ---------------- static (production) ---------------- */
@@ -2429,6 +2719,32 @@ if (fs.existsSync(dist)) {
     res.sendFile(path.join(dist, req.path));
   });
   app.use(express.static(dist, { maxAge: '7d', index: false }));
+  // Shared post / profile links get a title and picture in WhatsApp and other link previews.
+  const page = () => fs.readFileSync(path.join(dist, 'index.html'), 'utf8'); // read each time: a rebuild changes it
+  const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+  const withPreview = (req, title, text, image) => {
+    const origin = `${req.get('x-forwarded-proto')?.split(',')[0] || req.protocol}://${req.get('host')}`;
+    const tags = [
+      ['og:title', title],
+      ['og:description', text],
+      ['og:url', origin + req.originalUrl],
+      ['og:type', 'article'],
+      ...(image ? [['og:image', image.startsWith('http') ? image : origin + image]] : []),
+    ].map(([k, v]) => `<meta property="${k}" content="${esc(v)}" />`);
+    return page().replace('</head>', `${tags.join('')}<meta name="twitter:card" content="summary_large_image" /></head>`);
+  };
+  app.get('/p/:id', (req, res) => {
+    const post = db.posts.find((p) => p.id === req.params.id);
+    if (!post || !postVisible(post)) return res.send(page());
+    const who = post.personId ? authorOf(post)?.name : db.settings.siteName;
+    const image = post.media.find((m) => m.kind === 'image');
+    res.send(withPreview(req, `${who} · ${db.settings.siteName}`, post.caption || 'Gurbani Kirtan sewa', image && mediaUrl(image.id, image.local)));
+  });
+  app.get('/m/:id', (req, res) => {
+    const p = personOf(req.params.id);
+    if (!p?.active) return res.send(page());
+    res.send(withPreview(req, `${p.name}${ROLES[p.role] ? ` · ${ROLES[p.role]}` : ''}`, `Kirtan photos and videos · ${db.settings.siteName}`, p.photo && mediaUrl(p.photo, p.photoLocal)));
+  });
   app.use((req, res, next) => {
     if (req.method !== 'GET' || req.path.startsWith('/api')) return next();
     res.sendFile(path.join(dist, 'index.html'));

@@ -32,6 +32,9 @@ folder on persistent storage and back it up. Set `DATA_DIR=/some/path` to store 
 | `PHOTON_URL`     | Place search service for the map picker   | `https://photon.komoot.io` |
 | `KEEP_ALIVE_URL` | Public address to ping every 10 min (Render sets `RENDER_EXTERNAL_URL` itself) | — |
 | `KEEP_ALIVE`     | Set to `off` to disable the keep-awake ping | on             |
+| `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET` | Cloudflare R2 bucket for post photos, videos and music (see **Posts** below) | built-in storage |
+| `R2_PUBLIC_URL`  | The bucket's public address (r2.dev or your own domain), so files load straight from Cloudflare | signed links |
+| `ANTHROPIC_API_KEY` | Lets **Generate poster** write the Punjabi wording with Claude | members type it |
 
 ## Deploy free on Render (with Neon Postgres)
 
@@ -66,9 +69,13 @@ empty, it copies `data/db.json` into it. Upload the UPI QR again afterwards.
   members create their own account there too, choosing Head Ragi, Side Ragi or Tabla, picking where they are based on the map (required) and adding their documents (Aadhaar card required; jatha photos and bank
   proof optional); it waits under **Team →
   Waiting for approval** until the admin approves it (and ticks their sewas). The admin can still add people directly.
+- **Dashboards** (`/account`, `/team`, `/admin`) open on an **Overview**: a few number cards (tap one to open that
+  section), a **Needs your action** list, and what is coming up. On a computer the sections are in a menu on the
+  left; on a phone they are in a bar at the bottom (the rest under **More**).
 - **`/account`** (customers): their bookings, bills and payments, map location, price offers, cancellation
   requests, and a chat with the jatha. `/manage` now redirects here.
-- **`/team`** (team members): their sewas, profile and documents, team bookings and a chat with the admin.
+- **`/team`** (team members): their sewas, profile and documents, team bookings, posts and a chat with the admin.
+- **`/m/<id>`** and **`/p/<id>`**: a team member's public profile, and one shared post.
 - **`/admin`**:
   - **Bookings**: confirm, complete, cancel with a reason, restore or delete. The **Cancel requests** filter lists
     customers' cancellation requests, which you can **Approve** (this frees the slot) or **Reject** (with an optional message).
@@ -111,11 +118,13 @@ Each time slot takes one booking per day, across all sewas, because there is one
   8 AM) and **2 hours before** the start. Assigning waits 30 seconds to settle, so ticking people on and off
   sends one message.
 
-## Gurpurab (Prakash Purab, Jyoti Jot Divas, Shaheedi Purab)
+## Gurpurab (Prakash Purab, Gurgaddi Diwas, Jyoti Jot Divas, Shaheedi Purab)
 
-- **Admin → Gurpurab** lists the Prakash Purab and Jyoti Jot Divas of all ten Gurus, the Shaheedi Purab of Guru
+- **Admin → Gurpurab** lists the Prakash Purab and Jyoti Jot Divas of all ten Gurus, the Gurgaddi Diwas of Guru
+  Angad Dev Ji to Guru Gobind Singh Ji and of Sri Guru Granth Sahib Ji, the Shaheedi Purab of Guru
   Arjan Dev Ji and Guru Tegh Bahadur Ji, and the Bhagats in the SGPC calendar (Ravidas Ji, Dhanna Ji,
-  Kabir Ji). Dates are from the SGPC calendar for Nanakshahi 558 (March 2026 – March 2027). Add others with
+  Kabir Ji). Days added to this list in a newer version appear by themselves on the next start; days you
+  deleted don't come back. Dates are from the SGPC calendar for Nanakshahi 558 (March 2026 – March 2027). Add others with
   **Add day**.
 - Most of these follow the moon, so dates change every year. When the SGPC publishes the new Jantri, open each
   day under "Passed this year" and set its new date.
@@ -212,12 +221,16 @@ The uploaded QR image is saved in `data/uploads/`.
   starting in less than 1 day is still sent, marked **Emergency**, and one can't be withdrawn within 1 day of its
   start. Admin → **Team bookings** lists each request with a choice of people (the role asked for first, then those
   who do that type of kirtan, then nearest); **Assign & ask them** needs a person for every request (one person can't be in two places at once). Each
-  person assigned is asked on their **Team booking** page to **Accept** or say they **can't go**; a sewa is handed
-  over (at the bhet offered) only when they accept, and the booking shows **Booked** once everyone has. If someone
+  person assigned is asked on their **Team booking** page to **Accept** or say they **can't go**. If someone
   declines, it comes back to the admin to choose someone else.
+- **Steps to booked:** request sent → teammate assigned → teammate accepted → **admin confirms it to the member**
+  (Admin → Team bookings → **Confirm**) → with **UPI**, the member then sees the QR, pays and sends the transaction
+  ID, and it is **Booked** when the admin verifies the payment; with **cash** it is booked as soon as the admin
+  confirms. Both sides see these steps as a progress line. A sewa is handed over (at the bhet offered) only once it
+  is booked.
 - The member pays the bhet they offer (cash or UPI; they never see the commission); the admin keeps a **10% commission** out of it and marks it
   received. The people assigned see — and get, on any sewa handed to them — their bhet after the 10%.
-- **UPI:** choosing UPI shows the admin's QR. After sending the request they enter the UPI transaction ID (UTR);
+- **UPI:** the QR and **Pay now** appear once the admin has confirmed. They enter the UPI transaction ID (UTR);
   Admin → Team bookings shows it with **Verify payment** or **Not received** (they're told, and can send it again).
 - **Cash:** the member pays the whole bhet to the people who go, so each one owes the admin the 10% on what they
   accepted. They see it as a **negative balance** (e.g. −₹150) on their Team booking page; Admin → Team bookings lists
@@ -226,6 +239,50 @@ The uploaded QR image is saved in `data/uploads/`.
   the admin cancels it or keeps it. The admin can also reject, cancel or **delete** any team booking. Team bookings never block
   anyone: a member can make several on the same dates and can still be assigned on them. Any booking can
   also be handed to someone else with **Replace** under its team.
+
+## Emergency kirtan and payment before "Completed"
+
+- **Emergency kirtan:** today can be booked only as an emergency kirtan, starting **at least 2 hours from now**
+  (button at the top of the booking section and on the customer's dashboard). Other days book as before. The admin
+  gets a 🚨 notification and the booking carries an **Emergency** tag.
+- **Payment before completion:** a booking can be marked **Completed** only once the customer's payment is recorded
+  (cash, or UPI verified). When every team member marks the sewa done but the customer hasn't paid, it waits for
+  the payment and completes when you record it. On the kirtan day the customer's payment box says the payment is
+  due; Admin → Bookings has a **Payment due** filter.
+
+## Posts, profiles and posters
+
+- **Posts:** team members (Team → **Posts**) and the admin (Admin → **Posts**, as the jatha or for a member) post
+  up to 10 photos and videos (videos up to 60 seconds) with a caption and optional **music**: an audio file from the
+  phone, a recording made in the browser, or a track from the admin's **Gurbani music library**. Posts show on the
+  home page under **Sewa in action** (the old gallery shows until there are posts) and on the member's profile.
+- **On the site:** visitors like a post (once per account, or once per device when not logged in), **share** it
+  (the phone's share sheet, WhatsApp or copy link — shared links show a picture in WhatsApp) and tap the name under
+  the picture to open the member's **profile** with all their photos and videos. Anyone can **report** a post; the
+  admin sees reported posts and can hide or delete any post.
+- **Generate poster:** on a kirtan in **My sewas**, a member taps **Generate poster**, checks the details (occasion,
+  village, name) and the poster is drawn in the style of a Punjab Gurdwara poster with their photo. With
+  `ANTHROPIC_API_KEY` set, Claude writes the Punjabi (Gurmukhi) wording; every line can be changed. They then choose
+  **Post to my profile**, **Download** or **Don't post**. Each member can generate up to 10 a day.
+- **Where files go:** without R2 they are stored like the other files (Postgres or `DATA_DIR`), with lower limits
+  (photos 6 MB, videos 30 MB). That is fine to start, but the free Neon database is only 0.5 GB, so set up R2
+  before members post many videos.
+
+**Cloudflare R2 setup** (10 GB free):
+
+1. Cloudflare dashboard → R2 → **Create bucket** (e.g. `kirtan-sewa-media`).
+2. Bucket → Settings → **Public access**: turn on the r2.dev address (or connect your own domain) and copy it into
+   `R2_PUBLIC_URL`. Without it, files are served through short-lived signed links instead.
+3. Bucket → Settings → **CORS policy**, so browsers can upload and the poster maker can read photos:
+
+   ```json
+   [{ "AllowedOrigins": ["https://<your-site>.onrender.com"], "AllowedMethods": ["GET", "PUT"], "AllowedHeaders": ["Content-Type"], "MaxAgeSeconds": 3600 }]
+   ```
+
+4. R2 → **Manage API tokens** → create a token with **Object Read & Write** for that bucket. Put its Access Key ID
+   and Secret into `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY`, your account ID into `R2_ACCOUNT_ID` and the bucket
+   name into `R2_BUCKET`, then restart. Admin → Posts shows which storage is in use. Files posted before R2 was set
+   up stay in the built-in storage and keep working; new ones go to R2.
 
 ## Map location and nearest team member
 
@@ -241,7 +298,7 @@ The uploaded QR image is saved in `data/uploads/`.
 One table per kind of record, each with `id`, a few typed columns for searching and reporting, the full record in
 `data` (jsonb) and `updated_at`: `bookings`, `booking_assignments` (who does each booking, bhet, confirmed),
 `users`, `team_members`, `leave_requests`, `chat_messages`, `chat_threads`, `services`, `categories`,
-`time_slots`, `blocked_dates`, `blocked_times`, `gurpurabs`, `settings`, `push_subscriptions`, `app_meta`, and
+`time_slots`, `blocked_dates`, `blocked_times`, `gurpurabs`, `posts`, `audio_library`, `settings`, `push_subscriptions`, `app_meta`, and
 `files` (UPI QR, Gurpurab pictures, team documents, as bytea). Password hashes are kept only in their own column.
 Only rows that changed are written. On the first start after upgrading, the data in the old single `sewa_store`
 table is copied into the new tables automatically; `sewa_store` is left untouched as a backup.

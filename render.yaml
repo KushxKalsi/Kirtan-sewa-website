@@ -17,3 +17,17 @@ services:
         sync: false # you type it in the Render dashboard
       - key: DATABASE_URL
         sync: false # Postgres connection string from Neon (free) — keeps bookings safe
+      # Cloudflare R2 for post photos / videos / music (optional — see README "Posts")
+      - key: R2_ACCOUNT_ID
+        sync: false
+      - key: R2_ACCESS_KEY_ID
+        sync: false
+      - key: R2_SECRET_ACCESS_KEY
+        sync: false
+      - key: R2_BUCKET
+        sync: false
+      - key: R2_PUBLIC_URL
+        sync: false
+      # Claude API key for the Punjabi wording on generated posters (optional)
+      - key: ANTHROPIC_API_KEY
+        sync: false
