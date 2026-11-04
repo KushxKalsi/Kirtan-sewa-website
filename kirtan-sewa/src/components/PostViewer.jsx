@@ -1,4 +1,5 @@
-import { Heart, Images, Music, Play } from 'lucide-react';
+import { useEffect, useLayoutEffect, useRef } from 'react';
+import { Heart, Images, Loader2, Music, Play, X } from 'lucide-react';
 import Modal from './Modal';
 import PostCard from './PostCard';
 
@@ -38,6 +39,56 @@ export default function PostViewer({ open, onClose }) {
   return (
     <Modal open={!!open} onClose={onClose} size="post-modal">
       {open && <PostCard post={open.post} startIndex={open.index || 0} />}
+    </Modal>
+  );
+}
+
+function FeedList({ posts, startId, more, loading, onLoadMore, onClose }) {
+  const headRef = useRef(null);
+  const endRef = useRef(null);
+
+  // Open at the post that was tapped, just under the header; the newer posts are above it.
+  useLayoutEffect(() => {
+    const head = headRef.current;
+    const card = head?.parentElement.querySelector(`[data-post="${startId}"]`);
+    if (card) head.closest('.modal').scrollTop = card.offsetTop - head.offsetHeight;
+  }, [startId]);
+  // Load older posts as the bottom of the feed comes near.
+  useEffect(() => {
+    const el = endRef.current;
+    if (!el || !more || loading) return;
+    const io = new IntersectionObserver(([e]) => e.isIntersecting && onLoadMore(), { root: el.closest('.modal'), rootMargin: '600px 0px' });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [more, loading, onLoadMore]);
+
+  return (
+    <>
+      <div className="post-feed-head" ref={headRef}>
+        <strong>Posts</strong>
+        <button type="button" className="icon-btn" onClick={onClose} aria-label="Close">
+          <X size={18} />
+        </button>
+      </div>
+      <div className="post-feed-list">
+        {posts.map((p) => (
+          <div key={p.id} data-post={p.id}>
+            <PostCard post={p} />
+          </div>
+        ))}
+      </div>
+      <div className="post-feed-end" ref={endRef}>
+        {loading ? <Loader2 size={18} className="spin" /> : !more && 'You have seen all the posts'}
+      </div>
+    </>
+  );
+}
+
+/** Posts opened over the page as one scrolling feed, Instagram style: scroll up for newer posts, down for older ones. */
+export function PostFeedViewer({ posts, openId, more, loading, onLoadMore, onClose }) {
+  return (
+    <Modal open={!!openId} onClose={onClose} size="post-modal post-feed">
+      {openId && <FeedList posts={posts} startId={openId} more={more} loading={loading} onLoadMore={onLoadMore} onClose={onClose} />}
     </Modal>
   );
 }

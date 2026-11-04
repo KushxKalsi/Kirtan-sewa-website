@@ -39,6 +39,7 @@ export default function PostCard({ post: initial, startIndex = 0 }) {
   const [shareOpen, setShareOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const [playing, setPlaying] = useState(false);
+  const cardRef = useRef(null);
   const trackRef = useRef(null);
   const audioRef = useRef(null);
   const many = post.media.length > 1;
@@ -50,6 +51,19 @@ export default function PostCard({ post: initial, startIndex = 0 }) {
     if (el && startIndex) el.scrollTo({ left: startIndex * el.clientWidth });
   }, [startIndex]);
   useEffect(() => () => audioRef.current?.pause(), []);
+  // Stop the music and videos once the post scrolls out of sight (the feed viewer keeps the other posts on screen).
+  useEffect(() => {
+    const el = cardRef.current;
+    if (!el || !('IntersectionObserver' in window)) return;
+    const io = new IntersectionObserver(([e]) => {
+      if (e.isIntersecting) return;
+      audioRef.current?.pause();
+      setPlaying(false);
+      el.querySelectorAll('video').forEach((v) => v.pause());
+    });
+    io.observe(el);
+    return () => io.disconnect();
+  }, []);
 
   const go = (i) => {
     const el = trackRef.current;
@@ -115,7 +129,7 @@ export default function PostCard({ post: initial, startIndex = 0 }) {
   };
 
   return (
-    <article className="post-card">
+    <article className="post-card" ref={cardRef}>
       <div className="post-media">
         <div className="post-track" ref={trackRef} onScroll={onScroll}>
           {post.media.map((m, i) => (

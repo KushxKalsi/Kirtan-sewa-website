@@ -1,9 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { Images, Loader2 } from 'lucide-react';
 import SplitText from '../components/SplitText';
 import Reveal from '../components/Reveal';
-import PostViewer, { PostTile } from '../components/PostViewer';
+import { PostFeedViewer, PostTile } from '../components/PostViewer';
 import { useSite } from '../components/SiteContext';
 import { api } from '../lib/api';
 import { ease } from '../lib/motion';
@@ -32,7 +32,8 @@ export default function SewaFeed() {
       .catch(() => setPosts([]));
   }, []);
 
-  const loadMore = async () => {
+  const loadMore = useCallback(async () => {
+    if (loading) return;
     setLoading(true);
     try {
       const r = await api.posts({ limit: PAGE, before: posts[posts.length - 1].createdAt });
@@ -43,7 +44,9 @@ export default function SewaFeed() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [posts, loading]);
+
+  const closeFeed = useCallback(() => setOpen(null), []);
 
   if (posts?.length === 0 && site?.settings.gallery?.length) return <Gallery />;
 
@@ -56,7 +59,7 @@ export default function SewaFeed() {
           </Reveal>
           <SplitText className="section-title" text="From our kirtans" highlight={[2]} />
           <Reveal delay={0.1}>
-            <p className="section-lead">Photos and videos the jatha posts from their kirtans. Tap one to see more, like it or share it, and tap a name to see all of their sewa.</p>
+            <p className="section-lead">Photos and videos the jatha posts from their kirtans. Tap one to scroll through them all, like them or share them, and tap a name to see all of their sewa.</p>
           </Reveal>
         </div>
         {posts?.length === 0 && (
@@ -67,7 +70,7 @@ export default function SewaFeed() {
         <div className="post-grid">
           {(posts || []).map((p, i) => (
             <motion.div key={p.id} initial={{ opacity: 0, y: 40 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: '-40px' }} transition={{ duration: 0.7, ease, delay: (i % 3) * 0.08 }}>
-              <PostTile post={p} onClick={() => setOpen({ post: p })} />
+              <PostTile post={p} onClick={() => setOpen(p.id)} />
             </motion.div>
           ))}
         </div>
@@ -79,7 +82,7 @@ export default function SewaFeed() {
           </div>
         )}
       </div>
-      <PostViewer open={open} onClose={() => setOpen(null)} />
+      <PostFeedViewer posts={posts || []} openId={open} more={more} loading={loading} onLoadMore={loadMore} onClose={closeFeed} />
     </section>
   );
 }

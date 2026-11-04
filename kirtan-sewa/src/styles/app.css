@@ -6277,6 +6277,57 @@ a.author-chip:hover strong {
   border: 0;
   border-radius: 0;
 }
+.modal.post-feed {
+  width: min(520px, 100%);
+  height: min(92vh, 980px);
+  max-height: none;
+}
+.modal.post-feed > .modal-close {
+  display: none;
+}
+.post-feed-head {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px 10px 18px;
+  background: color-mix(in srgb, var(--bg) 85%, transparent);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--border);
+}
+.post-feed-head strong {
+  font-family: var(--font-display);
+  font-size: 20px;
+}
+.modal.post-feed .post-card {
+  border-bottom: 1px solid var(--border);
+}
+.post-feed-end {
+  display: flex;
+  justify-content: center;
+  padding: 22px 16px 28px;
+  font-size: 13px;
+  color: var(--muted);
+}
+@media (max-width: 640px) {
+  .modal.post-feed {
+    height: 100dvh;
+    max-height: 100dvh;
+    border-radius: 0;
+    padding-bottom: 0;
+  }
+  .modal.post-feed::before {
+    display: none;
+  }
+  .post-feed-head {
+    padding-top: max(10px, env(safe-area-inset-top));
+  }
+  .post-feed-end {
+    padding-bottom: max(28px, env(safe-area-inset-bottom));
+  }
+}
 
 .container.narrow {
   max-width: 620px;
