@@ -6,19 +6,18 @@ import { useSite } from './SiteContext';
 import { useAuth } from './AuthContext';
 import { useGoTo } from './useGoTo';
 import ThemeToggle from './ThemeToggle';
-import LanguageSwitch from './LanguageSwitch';
-import { currentLang } from '../lib/lang';
 import { ease } from '../lib/motion';
 import { lockScroll, unlockScroll } from '../lib/scroll';
 
-// Menu labels are written by hand in each language (the page translator gets some of these wrong, e.g. "Posts").
-const LINK_TEXT = {
-  en: ['Gurpurab', 'About', 'Sewa', 'Calendar', 'Posts', 'Sangat', 'Contact', 'Home', 'Book now'],
-  pa: ['ਗੁਰਪੁਰਬ', 'ਸਾਡੇ ਬਾਰੇ', 'ਸੇਵਾ', 'ਕੈਲੰਡਰ', 'ਪੋਸਟਾਂ', 'ਸੰਗਤ', 'ਸੰਪਰਕ', 'ਮੁੱਖ ਪੰਨਾ', 'ਹੁਣੇ ਬੁੱਕ ਕਰੋ'],
-  hi: ['गुरपुरब', 'हमारे बारे में', 'सेवा', 'कैलेंडर', 'पोस्ट', 'संगत', 'संपर्क', 'होम', 'अभी बुक करें'],
-};
-const TEXT = LINK_TEXT[currentLang()] || LINK_TEXT.en;
-const LINKS = ['gurpurab', 'about', 'sewa', 'book', 'gallery', 'sangat', 'contact'].map((id, i) => ({ id, label: TEXT[i] }));
+const LINKS = [
+  { id: 'gurpurab', label: 'Gurpurab' },
+  { id: 'about', label: 'About' },
+  { id: 'sewa', label: 'Sewa' },
+  { id: 'book', label: 'Calendar' },
+  { id: 'gallery', label: 'Posts' },
+  { id: 'sangat', label: 'Sangat' },
+  { id: 'contact', label: 'Contact' },
+];
 
 export default function Navbar() {
   const { site } = useSite();
@@ -65,7 +64,7 @@ export default function Navbar() {
 
           <nav className="nav-links" onMouseLeave={() => setHovered(null)}>
             {LINKS.map((l) => (
-              <button key={l.id} onClick={() => go(l.id)} onMouseEnter={() => setHovered(l.id)} translate="no">
+              <button key={l.id} onClick={() => go(l.id)} onMouseEnter={() => setHovered(l.id)}>
                 {hovered === l.id && <motion.span layoutId="nav-hover" className="nav-hover" transition={{ type: 'spring', stiffness: 400, damping: 32 }} />}
                 <span>{l.label}</span>
               </button>
@@ -78,10 +77,9 @@ export default function Navbar() {
               <span className="nm-full">{me.full}</span>
               <span className="nm-short">{me.short}</span>
             </Link>
-            <LanguageSwitch />
             <ThemeToggle className="nav-theme" />
             <button className="btn btn-primary btn-sm nav-cta" onClick={() => go('book')}>
-              <CalendarDays size={16} /> <span translate="no">{TEXT[8]}</span>
+              <CalendarDays size={16} /> Book now
             </button>
             <button className="icon-btn nav-burger" onClick={() => setOpen((o) => !o)} aria-label={open ? 'Close menu' : 'Open menu'} aria-expanded={open}>
               <AnimatePresence mode="wait" initial={false}>
@@ -112,9 +110,9 @@ export default function Navbar() {
             transition={{ duration: 0.7, ease: [0.76, 0, 0.24, 1] }}
           >
             <motion.ul initial="hidden" animate="show" exit="hidden" variants={{ show: { transition: { staggerChildren: 0.06, delayChildren: 0.25 } }, hidden: {} }}>
-              {[{ id: 'top', label: TEXT[7] }, ...LINKS].map((l, i) => (
+              {[{ id: 'top', label: 'Home' }, ...LINKS].map((l, i) => (
                 <motion.li key={l.id} variants={{ hidden: { y: 50, opacity: 0 }, show: { y: 0, opacity: 1, transition: { duration: 0.6, ease } } }}>
-                  <button onClick={() => go(l.id)} translate="no">
+                  <button onClick={() => go(l.id)}>
                     <span className="mm-index">0{i + 1}</span>
                     {l.label}
                   </button>
@@ -128,7 +126,6 @@ export default function Navbar() {
               <Link to={me.to} className="btn btn-ghost btn-block">
                 <me.icon size={18} /> {session ? me.full : 'Log in / create account'}
               </Link>
-              <LanguageSwitch block />
               <ThemeToggle className="menu-theme" showLabel />
             </motion.div>
           </motion.div>
