@@ -6277,55 +6277,282 @@ a.author-chip:hover strong {
   border: 0;
   border-radius: 0;
 }
-.modal.post-feed {
-  width: min(520px, 100%);
-  height: min(92vh, 980px);
-  max-height: none;
+
+/* ---------- reels: posts full screen, one at a time ---------- */
+.reels {
+  position: fixed;
+  inset: 0;
+  z-index: 85;
+  background: #000;
+  color: #fff;
 }
-.modal.post-feed > .modal-close {
+.reels-scroller {
+  position: absolute;
+  inset: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scroll-snap-type: y mandatory;
+  scrollbar-width: none;
+}
+.reels-scroller::-webkit-scrollbar {
   display: none;
 }
-.post-feed-head {
-  position: sticky;
-  top: 0;
+.reel {
+  position: relative;
+  display: grid;
+  place-items: center;
+  height: 100dvh;
+  scroll-snap-align: start;
+  scroll-snap-stop: always;
+}
+.reel-frame {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #000;
+}
+.reel-track {
+  display: flex;
+  height: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: none;
+  touch-action: manipulation;
+}
+.reel-track::-webkit-scrollbar {
+  display: none;
+}
+.reel-slide {
+  position: relative;
+  flex: 0 0 100%;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  scroll-snap-align: center;
+}
+.reel-slide > img:not(.reel-blur),
+.reel-slide video {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.reel-blur {
+  position: absolute;
+  inset: -40px;
+  width: calc(100% + 80px);
+  height: calc(100% + 80px);
+  object-fit: cover;
+  filter: blur(36px) brightness(0.45);
+}
+.reel-frame::after {
+  content: '';
+  position: absolute;
+  inset: auto 0 0;
+  height: 45%;
+  pointer-events: none;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.75), transparent);
+}
+.reel-burst {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 2;
+  margin: -48px 0 0 -48px;
+  color: #ff4d6d;
+  pointer-events: none;
+  filter: drop-shadow(0 6px 24px rgba(0, 0, 0, 0.5));
+}
+.reel-side-nav {
+  position: absolute;
+  top: 50%;
+  z-index: 2;
+  transform: translateY(-50%);
+  border: 0;
+  border-radius: 50%;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.45);
+}
+.reel-side-nav:disabled {
+  opacity: 0;
+  pointer-events: none;
+}
+.reel-side-nav.prev {
+  left: 10px;
+}
+.reel-side-nav.next {
+  right: 10px;
+}
+.reel-dots {
+  top: 64px;
+  bottom: auto;
+  z-index: 2;
+}
+.reel-info {
+  position: absolute;
+  left: 16px;
+  right: 80px;
+  bottom: max(22px, env(safe-area-inset-bottom));
+  z-index: 2;
+  display: grid;
+  justify-items: start;
+  gap: 8px;
+  font-size: 14px;
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.6);
+}
+.reel-info .author-chip,
+.reel-info .author-text small {
+  color: #fff;
+}
+.reel-caption {
+  margin: 0;
+  max-width: 100%;
+  white-space: pre-line;
+  cursor: pointer;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.reel-caption.open {
+  display: block;
+  max-height: 40vh;
+  overflow-y: auto;
+}
+.reel-music {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  font-size: 13px;
+}
+.reel-music span {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.reel-info time {
+  font-size: 12px;
+  opacity: 0.75;
+}
+.reel-actions {
+  position: absolute;
+  right: 10px;
+  bottom: max(26px, env(safe-area-inset-bottom));
+  z-index: 2;
+  display: grid;
+  gap: 18px;
+}
+.reel-act {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  min-width: 52px;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #fff;
+  filter: drop-shadow(0 1px 6px rgba(0, 0, 0, 0.6));
+}
+.reel-act.liked {
+  color: #ff4d6d;
+}
+.reel-share-menu {
+  position: absolute;
+  right: 70px;
+  bottom: 90px;
+  z-index: 3;
+  display: grid;
+  padding: 8px;
+  border-radius: 16px;
+  background: rgba(20, 20, 24, 0.92);
+  backdrop-filter: blur(12px);
+}
+.reel-share-menu .btn {
+  justify-content: flex-start;
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.18);
+  background: transparent;
+}
+.reel-share-menu .danger-text {
+  color: #ffb3b3;
+}
+.reels-top {
+  position: absolute;
+  inset: 0 0 auto;
   z-index: 3;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 10px 12px 10px 18px;
-  background: color-mix(in srgb, var(--bg) 85%, transparent);
-  backdrop-filter: blur(10px);
-  border-bottom: 1px solid var(--border);
+  padding: max(12px, env(safe-area-inset-top)) 12px 12px 18px;
+  pointer-events: none;
+  background: linear-gradient(to bottom, rgba(0, 0, 0, 0.55), transparent);
 }
-.post-feed-head strong {
+.reels-top strong {
   font-family: var(--font-display);
-  font-size: 20px;
+  font-size: 22px;
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.6);
 }
-.modal.post-feed .post-card {
-  border-bottom: 1px solid var(--border);
+.reels-top .icon-btn,
+.reels-step .icon-btn {
+  pointer-events: auto;
+  border: 0;
+  border-radius: 50%;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.14);
 }
-.post-feed-end {
-  display: flex;
-  justify-content: center;
-  padding: 22px 16px 28px;
-  font-size: 13px;
-  color: var(--muted);
+.reels-top .icon-btn:hover,
+.reels-step .icon-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.26);
 }
-@media (max-width: 640px) {
-  .modal.post-feed {
-    height: 100dvh;
-    max-height: 100dvh;
-    border-radius: 0;
-    padding-bottom: 0;
+.reels-step {
+  position: absolute;
+  top: 50%;
+  right: 24px;
+  z-index: 3;
+  display: none;
+  gap: 10px;
+  transform: translateY(-50%);
+}
+.reels-loading {
+  position: absolute;
+  bottom: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+}
+/* Wider screens: a phone-shaped reel in the middle, with the buttons beside it. */
+@media (min-width: 641px) {
+  .reel-frame {
+    width: auto;
+    height: calc(100dvh - 32px);
+    aspect-ratio: 9 / 16;
+    max-width: calc(100vw - 200px);
+    overflow: visible;
   }
-  .modal.post-feed::before {
-    display: none;
+  .reel-track,
+  .reel-frame::after {
+    border-radius: 16px;
   }
-  .post-feed-head {
-    padding-top: max(10px, env(safe-area-inset-top));
+  .reel-frame::after {
+    border-radius: 0 0 16px 16px;
   }
-  .post-feed-end {
-    padding-bottom: max(28px, env(safe-area-inset-bottom));
+  .reel-actions {
+    right: -72px;
+    bottom: 10px;
+  }
+  .reel-info {
+    right: 16px;
+  }
+  .reel-share-menu {
+    right: -64px;
+    bottom: 200px;
+  }
+  .reel-dots {
+    top: 16px;
+  }
+  .reels-step {
+    display: grid;
   }
 }
 

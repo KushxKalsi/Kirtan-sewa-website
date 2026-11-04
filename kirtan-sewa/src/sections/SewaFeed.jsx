@@ -1,12 +1,15 @@
 import { useCallback, useEffect, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Images, Loader2 } from 'lucide-react';
 import SplitText from '../components/SplitText';
 import Reveal from '../components/Reveal';
-import { PostFeedViewer, PostTile } from '../components/PostViewer';
+import { PostTile } from '../components/PostViewer';
+import Reels, { onOpenReels } from '../components/Reels';
 import { useSite } from '../components/SiteContext';
 import { api } from '../lib/api';
 import { ease } from '../lib/motion';
+import { scrollToId } from '../lib/scroll';
 import Gallery from './Gallery';
 
 const PAGE = 9;
@@ -21,6 +24,16 @@ export default function SewaFeed() {
   const [more, setMore] = useState(false);
   const [loading, setLoading] = useState(false);
   const [open, setOpen] = useState(null);
+  // The header's Posts link (from this page, or from another page via the route state) opens the reels.
+  const [wantReels, setWantReels] = useState(!!useLocation().state?.reels);
+
+  useEffect(() => onOpenReels(() => setWantReels(true)), []);
+  useEffect(() => {
+    if (!wantReels || !posts) return;
+    setWantReels(false);
+    if (posts.length) setOpen(posts[0].id);
+    else scrollToId('gallery');
+  }, [wantReels, posts]);
 
   useEffect(() => {
     api
@@ -33,7 +46,6 @@ export default function SewaFeed() {
   }, []);
 
   const loadMore = useCallback(async () => {
-    if (loading) return;
     setLoading(true);
     try {
       const r = await api.posts({ limit: PAGE, before: posts[posts.length - 1].createdAt });
@@ -44,9 +56,9 @@ export default function SewaFeed() {
     } finally {
       setLoading(false);
     }
-  }, [posts, loading]);
-
-  const closeFeed = useCallback(() => setOpen(null), []);
+  }, [posts]);
+  const updatePost = useCallback((post) => setPosts((list) => list.map((p) => (p.id === post.id ? post : p))), []);
+  const closeReels = useCallback(() => setOpen(null), []);
 
   if (posts?.length === 0 && site?.settings.gallery?.length) return <Gallery />;
 
@@ -59,7 +71,7 @@ export default function SewaFeed() {
           </Reveal>
           <SplitText className="section-title" text="From our kirtans" highlight={[2]} />
           <Reveal delay={0.1}>
-            <p className="section-lead">Photos and videos the jatha posts from their kirtans. Tap one to scroll through them all, like them or share them, and tap a name to see all of their sewa.</p>
+            <p className="section-lead">Photos and videos the jatha posts from their kirtans. Tap one to scroll through them like reels, and tap a name to see all of their sewa.</p>
           </Reveal>
         </div>
         {posts?.length === 0 && (
@@ -82,7 +94,7 @@ export default function SewaFeed() {
           </div>
         )}
       </div>
-      <PostFeedViewer posts={posts || []} openId={open} more={more} loading={loading} onLoadMore={loadMore} onClose={closeFeed} />
+      <Reels posts={posts || []} openId={open} more={more} loading={loading} onLoadMore={loadMore} onChange={updatePost} onClose={closeReels} />
     </section>
   );
 }

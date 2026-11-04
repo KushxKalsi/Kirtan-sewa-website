@@ -28,58 +28,23 @@ export function AuthorChip({ author, small }) {
   );
 }
 
-/**
- * One post: swipe through its photos and videos, like it, share it, play its music, and open the member's profile from
- * the chip under the picture.
- */
-export default function PostCard({ post: initial, startIndex = 0 }) {
+/** A post's like, share, copy-link and report actions, used by the card and the reels. */
+export function usePostActions(initial, onChange) {
   const toast = useToast();
   const [post, setPost] = useState(initial);
-  const [index, setIndex] = useState(startIndex);
   const [shareOpen, setShareOpen] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [playing, setPlaying] = useState(false);
-  const cardRef = useRef(null);
-  const trackRef = useRef(null);
-  const audioRef = useRef(null);
-  const many = post.media.length > 1;
 
   useEffect(() => setPost(initial), [initial]);
-  // Open at the photo that was tapped.
-  useEffect(() => {
-    const el = trackRef.current;
-    if (el && startIndex) el.scrollTo({ left: startIndex * el.clientWidth });
-  }, [startIndex]);
-  useEffect(() => () => audioRef.current?.pause(), []);
-  // Stop the music and videos once the post scrolls out of sight (the feed viewer keeps the other posts on screen).
-  useEffect(() => {
-    const el = cardRef.current;
-    if (!el || !('IntersectionObserver' in window)) return;
-    const io = new IntersectionObserver(([e]) => {
-      if (e.isIntersecting) return;
-      audioRef.current?.pause();
-      setPlaying(false);
-      el.querySelectorAll('video').forEach((v) => v.pause());
-    });
-    io.observe(el);
-    return () => io.disconnect();
-  }, []);
-
-  const go = (i) => {
-    const el = trackRef.current;
-    if (el) el.scrollTo({ left: Math.max(0, Math.min(post.media.length - 1, i)) * el.clientWidth, behavior: 'smooth' });
-  };
-  const onScroll = () => {
-    const el = trackRef.current;
-    if (el) setIndex(Math.round(el.scrollLeft / el.clientWidth));
-  };
 
   const like = async () => {
     const before = post;
-    setPost((p) => ({ ...p, liked: !p.liked, likes: p.likes + (p.liked ? -1 : 1) }));
+    const next = { ...post, liked: !post.liked, likes: post.likes + (post.liked ? -1 : 1) };
+    setPost(next);
     try {
       const r = await api.likePost(post.id);
-      setPost((p) => ({ ...p, ...r }));
+      setPost({ ...next, ...r });
+      onChange?.({ ...next, ...r });
     } catch (e) {
       setPost(before);
       toast(e.message, 'error');
@@ -116,6 +81,60 @@ export default function PostCard({ post: initial, startIndex = 0 }) {
       toast(e.message, 'error');
     }
   };
+  return { post, like, share, copy, report, shareOpen, copied };
+}
+
+/** WhatsApp, copy link and report, shown when the phone has no share sheet. */
+export function ShareMenu({ actions: { post, copy, report, shareOpen, copied }, className = '' }) {
+  return (
+    <AnimatePresence>
+      {shareOpen && (
+        <motion.div className={`post-share-menu ${className}`} initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }}>
+          <a className="btn btn-ghost btn-sm" href={`https://wa.me/?text=${encodeURIComponent(`${post.caption ? `${post.caption}\n` : ''}${postLink(post.id)}`)}`} target="_blank" rel="noreferrer">
+            <MessageCircle size={15} /> WhatsApp
+          </a>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={copy}>
+            {copied ? <Check size={15} /> : <Link2 size={15} />} {copied ? 'Copied' : 'Copy link'}
+          </button>
+          <button type="button" className="btn btn-ghost btn-sm danger-text" onClick={report}>
+            <Flag size={15} /> Report
+          </button>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+}
+
+/**
+ * One post: swipe through its photos and videos, like it, share it, play its music, and open the member's profile from
+ * the chip under the picture.
+ */
+export default function PostCard({ post: initial, startIndex = 0 }) {
+  const toast = useToast();
+  const actions = usePostActions(initial);
+  const { post, like, share } = actions;
+  const [index, setIndex] = useState(startIndex);
+  const [playing, setPlaying] = useState(false);
+  const trackRef = useRef(null);
+  const audioRef = useRef(null);
+  const many = post.media.length > 1;
+
+  // Open at the photo that was tapped.
+  useEffect(() => {
+    const el = trackRef.current;
+    if (el && startIndex) el.scrollTo({ left: startIndex * el.clientWidth });
+  }, [startIndex]);
+  useEffect(() => () => audioRef.current?.pause(), []);
+
+  const go = (i) => {
+    const el = trackRef.current;
+    if (el) el.scrollTo({ left: Math.max(0, Math.min(post.media.length - 1, i)) * el.clientWidth, behavior: 'smooth' });
+  };
+  const onScroll = () => {
+    const el = trackRef.current;
+    if (el) setIndex(Math.round(el.scrollLeft / el.clientWidth));
+  };
+
   // Browsers only play sound after a tap, so music starts from the music button.
   const toggleMusic = () => {
     const a = audioRef.current;
@@ -129,7 +148,7 @@ export default function PostCard({ post: initial, startIndex = 0 }) {
   };
 
   return (
-    <article className="post-card" ref={cardRef}>
+    <article className="post-card">
       <div className="post-media">
         <div className="post-track" ref={trackRef} onScroll={onScroll}>
           {post.media.map((m, i) => (
@@ -177,21 +196,7 @@ export default function PostCard({ post: initial, startIndex = 0 }) {
             <Share2 size={19} />
           </button>
         </div>
-        <AnimatePresence>
-          {shareOpen && (
-            <motion.div className="post-share-menu" initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }}>
-              <a className="btn btn-ghost btn-sm" href={`https://wa.me/?text=${encodeURIComponent(`${post.caption ? `${post.caption}\n` : ''}${postLink(post.id)}`)}`} target="_blank" rel="noreferrer">
-                <MessageCircle size={15} /> WhatsApp
-              </a>
-              <button type="button" className="btn btn-ghost btn-sm" onClick={copy}>
-                {copied ? <Check size={15} /> : <Link2 size={15} />} {copied ? 'Copied' : 'Copy link'}
-              </button>
-              <button type="button" className="btn btn-ghost btn-sm danger-text" onClick={report}>
-                <Flag size={15} /> Report
-              </button>
-            </motion.div>
-          )}
-        </AnimatePresence>
+        <ShareMenu actions={actions} />
         {post.caption && <p className="post-caption">{post.caption}</p>}
         <time className="post-time" dateTime={post.createdAt}>
           {formatDistanceToNowStrict(new Date(post.createdAt), { addSuffix: true })}
