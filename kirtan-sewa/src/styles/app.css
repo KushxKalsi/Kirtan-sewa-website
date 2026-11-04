@@ -194,6 +194,16 @@
   align-items: center;
   gap: 7px;
   border-radius: 999px;
+  white-space: nowrap;
+}
+/* Seven links: tighter between the widest screens and the burger menu. */
+@media (max-width: 1320px) {
+  .nav-links {
+    gap: 0;
+  }
+  .nav-links button {
+    padding: 8px 11px;
+  }
 }
 .nav-manage:hover,
 .nav-manage.active {
@@ -6053,6 +6063,13 @@ input:focus-visible + .tick {
   align-items: center;
   gap: 5px;
   flex-shrink: 0;
+}
+.feed-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  text-align: center;
 }
 .feed-more {
   display: flex;
