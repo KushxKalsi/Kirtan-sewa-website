@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { addDays, endOfMonth, format, startOfMonth } from 'date-fns';
-import { ArrowLeft, ArrowRight, CalendarDays, CalendarHeart, Check, Clock, Loader2, LogOut, Sparkles, CircleAlert, MapPin, MousePointerClick, Plus, Tag, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, CalendarDays, CalendarHeart, Check, Clock, Loader2, LogOut, Siren, Sparkles, CircleAlert, MapPin, MousePointerClick, Plus, Tag, X } from 'lucide-react';
 import Calendar from '../components/Calendar';
 import SplitText from '../components/SplitText';
 import Reveal from '../components/Reveal';
@@ -14,7 +14,7 @@ import { useAuth } from '../components/AuthContext';
 import { useSite } from '../components/SiteContext';
 import { useToast } from '../components/Toast';
 import { api } from '../lib/api';
-import { fromKey, prettyDate, rangeTo12, slotTime, toKey } from '../lib/date';
+import { fromKey, prettyDate, rangeTo12, slotTime, to12, toKey } from '../lib/date';
 import { serviceIcon } from '../lib/icons';
 import { scrollToId } from '../lib/scroll';
 import { ease } from '../lib/motion';
@@ -30,6 +30,10 @@ const itemKey = (it) => [it.date, it.slotId, it.start, it.end, it.serviceId, it.
 const overlaps = (s1, e1, s2, e2) => s1 < e2 && s2 < e1; // HH:MM strings compare correctly
 const rangeOf = (time) => (time || '').split('–').map((t) => t.trim());
 const minutes = (t) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3));
+// Today can only be booked as an emergency kirtan, starting at least 2 hours from now (the server checks it too).
+const EMERGENCY_LEAD_MIN = 120;
+const emergencyEarliest = () => minutes(nowHHMM()) + EMERGENCY_LEAD_MIN;
+const fromMinutes = (m) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
 
 const panelAnim = {
   initial: { opacity: 0, x: 40, filter: 'blur(6px)' },
@@ -107,7 +111,12 @@ export default function Booking({ preselect }) {
       categories.find((c) => c.id === preselect.categoryId) ||
       categories.find((c) => c.id === categoryId && c.serviceIds.includes(preselect.id)) ||
       categories.find((c) => c.serviceIds.includes(preselect.id));
-    if (preselect.date) {
+    if (preselect.emergency) {
+      // "Emergency kirtan" from the account page: open today with the time form ready.
+      setMonth(startOfMonth(fromKey(today)));
+      setDate(today);
+      setCustomOpen(true);
+    } else if (preselect.date) {
       // From a Gurpurab: open that date on the calendar (the sewa is chosen next).
       setMonth(startOfMonth(fromKey(preselect.date)));
       setDate(preselect.date);
@@ -120,17 +129,6 @@ export default function Booking({ preselect }) {
     setTimeout(() => scrollToId('booking-calendar', -90), 400); // after the popup has closed
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [preselect]);
-
-  // On phones the sewa row scrolls sideways: bring the chosen sewa into view.
-  useEffect(() => {
-    if (!serviceId) return;
-    const t = setTimeout(() => {
-      const row = document.querySelector('.svc-picker');
-      const chip = row?.querySelector('.svc-chip.active');
-      if (row && chip && row.scrollWidth > row.clientWidth) row.scrollTo({ left: chip.offsetLeft - row.clientWidth / 2 + chip.offsetWidth / 2, behavior: 'smooth' });
-    }, 500);
-    return () => clearTimeout(t);
-  }, [serviceId, categoryId]);
 
   const loadAvailability = useCallback(async () => {
     setLoadingAvail(true);
@@ -181,6 +179,7 @@ export default function Booking({ preselect }) {
       if (blockAt(key, slot.start, slot.end)) return 'booked';
       if (!isOffered(slot)) return 'not-offered';
       if (key === today && slot.start <= nowHHMM()) return 'passed';
+      if (key === today && minutes(slot.start) < emergencyEarliest()) return 'soon';
       return 'free';
     },
     [blockAt, isOffered, today],
@@ -195,7 +194,7 @@ export default function Booking({ preselect }) {
       const states = slots.map((sl) => slotState(key, sl));
       const daySlots = states.map((st, i) => ({ booked: st === 'booked', offered: st === 'free', picked: picksAt(key, slots[i].id).length > 0 }));
       const picked = selection.filter((it) => it.date === key).length;
-      const offered = slots.filter((sl, i) => isOffered(sl) && states[i] !== 'passed').length;
+      const offered = slots.filter((sl, i) => isOffered(sl) && states[i] !== 'passed' && states[i] !== 'soon').length;
       const free = states.filter((st) => st === 'free').length;
       if (offered === 0) return { state: 'closed', slots: daySlots, picked, gurpurab };
       if (free === 0) return { state: 'full', slots: daySlots, picked, gurpurab };
@@ -237,7 +236,10 @@ export default function Booking({ preselect }) {
     const { start, end } = custom;
     if (!start || !end) return setCustomError('Enter both a start and an end time.');
     if (minutes(end) - minutes(start) < 30) return setCustomError('The end time must be at least 30 minutes after the start.');
-    if (date === today && start <= nowHHMM()) return setCustomError('That time has already passed today.');
+    if (date === today && minutes(start) < emergencyEarliest()) {
+      const earliest = emergencyEarliest();
+      return setCustomError(earliest >= 24 * 60 ? 'It’s too late for an emergency kirtan today — please book for tomorrow.' : `An emergency kirtan today must start at least 2 hours from now — the earliest is ${to12(fromMinutes(earliest))}.`);
+    }
     const block = blockAt(date, start, end);
     if (block) return setCustomError(`The jatha is not available ${rangeTo12(`${block.start} – ${block.end}`)} — please choose a time outside it.`);
     if (selection.some((it) => it.slotId === CUSTOM && it.date === date && it.start === start && it.end === end && it.serviceId === service.id)) return setCustomError('You already picked this time for this sewa.');
@@ -247,6 +249,12 @@ export default function Booking({ preselect }) {
     setCustomOpen(false);
   };
   const removeItem = (it) => setSelection((list) => list.filter((x) => x !== it));
+
+  const openEmergency = () => {
+    setMonth(startOfMonth(fromKey(today)));
+    pickDate(today);
+    if (!needsSewa()) setCustomOpen(true);
+  };
 
   const pickDate = (key) => {
     setDate(key);
@@ -309,7 +317,10 @@ export default function Booking({ preselect }) {
                 style={{ '--accent': svc?.color }}
               >
                 <button type="button" className="basket-item" onClick={() => editable && pickDate(it.date)} disabled={!editable}>
-                  <strong>{prettyDate(it.date, 'EEE, d MMM')}</strong>
+                  <strong>
+                    {prettyDate(it.date, 'EEE, d MMM')}
+                    {it.date === today && <span className="emergency-tag">🚨 Emergency</span>}
+                  </strong>
                   <span>
                     {sl?.label} · {sl && slotTime(sl)}
                   </span>
@@ -358,6 +369,14 @@ export default function Booking({ preselect }) {
 
         <Reveal id="booking-calendar" className="booking-shell glass" y={60}>
           <div className="booking-left">
+            <button type="button" className="emergency-btn" onClick={openEmergency}>
+              <Siren size={18} />
+              <span>
+                <strong>Emergency kirtan</strong>
+                <small>Need kirtan today? Book for a time at least 2 hours from now.</small>
+              </span>
+              <ArrowRight size={16} />
+            </button>
             {hasCats && (
               <>
                 <p className={`step-hint ${category ? 'done' : ''}`} ref={catStepRef}>
@@ -433,8 +452,14 @@ export default function Booking({ preselect }) {
                     style={{ '--accent': s.color }}
                   >
                     {active && <motion.span layoutId="svc-active" className="svc-chip-bg" transition={{ type: 'spring', stiffness: 400, damping: 34 }} />}
-                    <Icon size={16} />
-                    <span>{s.name}</span>
+                    <span className="svc-chip-icon">
+                      <Icon size={18} />
+                    </span>
+                    <span className="svc-chip-text">
+                      <strong>{s.name}</strong>
+                      {s.gurmukhi && <span className="gurmukhi">{s.gurmukhi}</span>}
+                      {s.duration && <small>{s.duration}</small>}
+                    </span>
                   </button>
                 );
               })}
@@ -602,6 +627,15 @@ export default function Booking({ preselect }) {
                       </span>
                     </motion.p>
                   ))}
+                  {date === today && (
+                    <p className="emergency-banner">
+                      <Siren size={16} />
+                      <span>
+                        <strong>Today is booked as an emergency kirtan.</strong> Choose a time starting at least 2 hours from now
+                        {emergencyEarliest() < 24 * 60 ? ` (from ${to12(fromMinutes(emergencyEarliest()))})` : ' — it’s too late for today'}.
+                      </span>
+                    </p>
+                  )}
                   <p className="panel-sub">
                     {service ? (
                       <>
@@ -621,7 +655,7 @@ export default function Booking({ preselect }) {
                         <motion.button
                           key={sl.id}
                           type="button"
-                          className={`slot s-${st} ${selected ? 'selected' : ''}`}
+                          className={`slot s-${st === 'soon' ? 'passed' : st} ${selected ? 'selected' : ''}`}
                           disabled={st !== 'free' && !selected}
                           title={selected && service && !picks.some((it) => it.serviceId === service.id) ? `Tap to also add ${service.name}` : undefined}
                           aria-pressed={selected}
@@ -659,6 +693,8 @@ export default function Booking({ preselect }) {
                               'Not available'
                             ) : st === 'passed' ? (
                               'Time passed'
+                            ) : st === 'soon' ? (
+                              'Under 2 hours away'
                             ) : (
                               'Not offered'
                             )}
@@ -712,7 +748,7 @@ export default function Booking({ preselect }) {
                         </motion.button>
                       ))}
                   </motion.div>
-                  {customAllowed && (
+                  {(customAllowed || date === today) && (
                     <div className={`custom-time ${customOpen ? 'open' : ''}`}>
                       {!customOpen ? (
                         <button

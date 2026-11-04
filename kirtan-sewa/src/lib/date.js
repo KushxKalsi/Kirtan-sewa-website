@@ -5,7 +5,7 @@ export const toKey = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d
 export const fromKey = (key) => parseISO(key);
 export const prettyDate = (key, pattern = 'EEEE, d MMMM yyyy') => format(fromKey(key), pattern);
 
-const to12 = (hhmm) => {
+export const to12 = (hhmm) => {
   const [h, m] = hhmm.split(':').map(Number);
   const suffix = h >= 12 ? 'PM' : 'AM';
   return `${((h + 11) % 12) + 1}:${pad(m)} ${suffix}`;

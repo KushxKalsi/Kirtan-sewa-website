@@ -25,9 +25,11 @@ export default function Home({ ready }) {
   // Arriving from another page with a section to jump to.
   useEffect(() => {
     const id = location.state?.scrollTo;
-    if (!id) return;
+    const emergency = location.state?.emergency;
+    if (!id && !emergency) return;
+    if (emergency) setPreselect({ emergency: true, n: Date.now() }); // Booking opens today and scrolls itself
     // Clearing the state re-runs this effect, so the timer is intentionally not cancelled.
-    setTimeout(() => scrollToId(id), 500);
+    else setTimeout(() => scrollToId(id), 500);
     navigate('.', { replace: true, state: null });
   }, [location.state, navigate]);
 

@@ -1,4 +1,4 @@
-// Prakash Purab, Jyoti Jot Divas and Shaheedi Purab of the Gurus and Bhagats.
+// Prakash Purab, Gurgaddi Diwas, Jyoti Jot Divas and Shaheedi Purab of the Gurus and Bhagats.
 //
 // Dates are from the SGPC calendar, Nanakshahi Samvat 558 (March 2026 – March 2027), as listed at
 // https://www.sikhnet.com/pages/sikh-gurpurab-calendar and checked against
@@ -11,6 +11,7 @@ export const GURPURAB_KINDS = {
   prakash: { label: 'Prakash Purab', gurmukhi: 'ਪ੍ਰਕਾਸ਼ ਪੁਰਬ' },
   'jyoti-jot': { label: 'Jyoti Jot Divas', gurmukhi: 'ਜੋਤੀ ਜੋਤਿ ਦਿਵਸ' },
   shaheedi: { label: 'Shaheedi Purab', gurmukhi: 'ਸ਼ਹੀਦੀ ਪੁਰਬ' },
+  gurgaddi: { label: 'Gurgaddi Diwas', gurmukhi: 'ਗੁਰਗੱਦੀ ਦਿਵਸ' },
 };
 
 const GURUS = {
@@ -27,6 +28,7 @@ const GURUS = {
   ravidas: ['Bhagat Ravidas Ji', 'ਭਗਤ ਰਵਿਦਾਸ ਜੀ'],
   dhanna: ['Bhagat Dhanna Ji', 'ਭਗਤ ਧੰਨਾ ਜੀ'],
   kabir: ['Bhagat Kabir Ji', 'ਭਗਤ ਕਬੀਰ ਜੀ'],
+  granth: ['Sri Guru Granth Sahib Ji', 'ਸ੍ਰੀ ਗੁਰੂ ਗ੍ਰੰਥ ਸਾਹਿਬ ਜੀ'],
 };
 
 // [who, kind, date]
@@ -54,6 +56,17 @@ const SGPC_558 = [
   ['ravidas', 'prakash', '2027-02-20'],
   ['dhanna', 'prakash', '2026-04-21'],
   ['kabir', 'prakash', '2026-06-29'],
+  // Gurgaddi Diwas (SikhNet and haryanacalendar.in agree on all of these for 558)
+  ['angad', 'gurgaddi', '2026-10-01'],
+  ['amardas', 'gurgaddi', '2026-03-19'],
+  ['ramdas', 'gurgaddi', '2026-09-24'],
+  ['arjan', 'gurgaddi', '2026-09-13'],
+  ['hargobind', 'gurgaddi', '2026-06-08'],
+  ['harrai', 'gurgaddi', '2026-03-17'],
+  ['harkrishan', 'gurgaddi', '2026-11-03'],
+  ['teghbahadur', 'gurgaddi', '2026-04-01'],
+  ['gobindsingh', 'gurgaddi', '2026-12-12'],
+  ['granth', 'gurgaddi', '2026-11-11'],
 ];
 
 export const seedGurpurabs = () =>

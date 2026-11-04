@@ -33,6 +33,7 @@ import {
   UsersRound,
 } from 'lucide-react';
 import Modal from '../components/Modal';
+import TeamBookingSteps from '../components/TeamBookingSteps';
 import NotifyButton from '../components/NotifyButton';
 import ChatBox from '../components/ChatBox';
 import BookingCalendar from '../components/BookingCalendar';
@@ -55,7 +56,7 @@ const TABS = [
   { id: 'chat', label: 'Chat with admin', icon: MessagesSquare },
   { id: 'profile', label: 'Profile & documents', icon: UserRound },
 ];
-const LEAVE_TEXT = { pending: 'Waiting for admin', assigned: 'Waiting for teammates', approved: 'Booked', rejected: 'Not approved', cancelled: 'Cancelled' };
+const LEAVE_TEXT = { pending: 'Waiting for admin', assigned: 'Waiting for teammates', accepted: 'Waiting for admin to confirm', 'awaiting-payment': 'Confirmed — pay to book', approved: 'Booked', rejected: 'Not approved', cancelled: 'Cancelled' };
 const REPLY_TEXT = { waiting: 'asked, not answered yet', accepted: 'accepted ✓', declined: 'can’t go — the admin will choose someone else' };
 const replyOf = (x) => x.reply || (x.personId ? 'accepted' : ''); // approved before replies existed = accepted
 const live = (d) => d.status === 'pending' || d.status === 'confirmed';
@@ -510,13 +511,8 @@ function TeamBooking({ data, team, apply, toast }) {
       }
       body = { ...form, to, picks: extras.map((x) => ({ role: x.role, categoryId: x.categoryId, pay: Number(x.pay), date: x.date || form.from, start: x.start, end: x.end })) };
     }
-    let sent;
-    if (await run('new', async () => (sent = await team.requestLeave(body)), emergency ? 'Emergency request sent to the admin.' : 'Request sent — the admin will assign the people.')) {
-      // Paying by UPI: straight on to the QR and the transaction ID for the admin to verify.
-      if (form.paymentMethod === 'upi' && upi.upiId && sent.leaves[0]) {
-        setUtr('');
-        setUpiFor(sent.leaves[0]);
-      }
+    // Paying by UPI comes later: once a teammate has accepted and the admin confirms.
+    if (await run('new', () => team.requestLeave(body), emergency ? 'Emergency request sent to the admin.' : 'Request sent — the admin will assign the people.')) {
       setForm(blankForm);
       setPicks({});
       setExtras([newExtra()]);
@@ -524,7 +520,7 @@ function TeamBooking({ data, team, apply, toast }) {
   };
   const canWithdraw = (l) => l.status === 'pending' && !l.cancelRequest && new Date(l.startsAt || fromKey(l.from)).getTime() - Date.now() >= DAY_MS;
   // Once the admin is on it (or it starts within a day), they ask the admin to cancel instead.
-  const canAskCancel = (l) => ['pending', 'assigned', 'approved'].includes(l.status) && l.to >= today && !canWithdraw(l) && l.cancelRequest?.status !== 'pending';
+  const canAskCancel = (l) => ['pending', 'assigned', 'accepted', 'awaiting-payment', 'approved'].includes(l.status) && l.to >= today && !canWithdraw(l) && l.cancelRequest?.status !== 'pending';
   const whatOf = (x) => {
     const d = x.bookingId && dutyOf(x.bookingId);
     const kind = x.categoryName || d?.categoryName;
@@ -645,8 +641,9 @@ function TeamBooking({ data, team, apply, toast }) {
             <motion.div key="team-upi" className="team-upi" initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} transition={{ duration: 0.3, ease }}>
               {upi.upiId ? (
                 <>
-                  <UpiScan settings={upi} amount={offered || undefined} note="Team booking bhet" />
-                  <p className="fine-print">After you send the request, enter the UPI transaction ID (UTR) — the admin verifies the payment.</p>
+                  <p className="fine-print">
+                    You pay {offered >= LEAVE_MIN_PAY ? <strong>{rupees(offered)}</strong> : 'the bhet'} by UPI (at least ₹{LEAVE_MIN_PAY} for each person) once a teammate has accepted and the admin confirms. The QR code then shows on your booking below; send the transaction ID (UTR) and it is booked when the admin verifies it.
+                  </p>
                 </>
               ) : (
                 <p className="muted">The admin’s UPI details aren’t set up yet — ask the admin in the chat.</p>
@@ -718,6 +715,29 @@ function TeamBooking({ data, team, apply, toast }) {
               {l.note && <span className="muted">Admin: {l.note}</span>}
               {l.status === 'pending' && <span className="muted">The admin will assign the people.</span>}
               {l.status === 'assigned' && <span className="muted">Waiting for the people assigned to accept.</span>}
+              {l.status === 'accepted' && <span className="muted">Your teammate accepted — waiting for the admin to confirm.</span>}
+              <TeamBookingSteps leave={l} />
+              {l.status === 'awaiting-payment' && l.paymentMethod === 'upi' && !l.commissionPaid && l.payment?.status !== 'submitted' && (
+                <div className="tb-pay-now">
+                  <span>
+                    <strong>Confirmed by the admin 🙏</strong> Pay {rupees(totalOf(l))} by UPI and send the transaction ID to book it.
+                  </span>
+                  {upi.upiId ? (
+                    <button
+                      type="button"
+                      className="btn btn-primary btn-sm"
+                      onClick={() => {
+                        setUtr('');
+                        setUpiFor(l);
+                      }}
+                    >
+                      <Smartphone size={15} /> Pay now
+                    </button>
+                  ) : (
+                    <span className="muted">The admin’s UPI details aren’t set up yet — ask the admin in the chat.</span>
+                  )}
+                </div>
+              )}
               {l.cancelRequest?.status === 'pending' && (
                 <span className="muted">
                   You asked to cancel: “{l.cancelRequest.reason}” — waiting for the admin.{' '}
@@ -741,13 +761,17 @@ function TeamBooking({ data, team, apply, toast }) {
                     <CircleAlert size={13} /> The admin couldn’t find your UPI payment (UTR {l.payment.utr}){l.payment.note ? `: ${l.payment.note}` : ''}. Please check and send it again.
                   </span>
                 ) : (
-                  ['pending', 'assigned', 'approved'].includes(l.status) && <span className="pay-line wait">Not paid yet</span>
+                  (['pending', 'assigned', 'accepted'].includes(l.status) ? (
+                    <span className="pay-line wait">You pay by UPI after the admin confirms</span>
+                  ) : (
+                    ['awaiting-payment', 'approved'].includes(l.status) && <span className="pay-line wait">Not paid yet</span>
+                  ))
                 ))}
               <span className="leave-item-actions">
                 <button type="button" className="link-btn" onClick={() => setBill(billOf(l))}>
                   <FileText size={13} /> Bill
                 </button>
-                {l.paymentMethod === 'upi' && !l.commissionPaid && l.payment?.status !== 'submitted' && ['pending', 'assigned', 'approved'].includes(l.status) && upi.upiId && (
+                {l.paymentMethod === 'upi' && !l.commissionPaid && l.payment?.status !== 'submitted' && ['awaiting-payment', 'approved'].includes(l.status) && upi.upiId && (
                   <button
                     type="button"
                     className="link-btn"
@@ -774,7 +798,7 @@ function TeamBooking({ data, team, apply, toast }) {
                 )}
               </span>
             </div>
-            <span className={`pay-tag ${l.status === 'approved' ? 'pay-paid' : l.status === 'pending' || l.status === 'assigned' ? 'pay-submitted' : 'req-tag'}`}>{LEAVE_TEXT[l.status] || l.status}</span>
+            <span className={`pay-tag ${l.status === 'approved' ? 'pay-paid' : ['pending', 'assigned', 'accepted', 'awaiting-payment', 'approved'].includes(l.status) ? 'pay-submitted' : 'req-tag'}`}>{LEAVE_TEXT[l.status] || l.status}</span>
             {canWithdraw(l) && (
               <button className="icon-btn" onClick={() => run(l.id, () => team.withdrawLeave(l.id), 'Request withdrawn.')} aria-label="Withdraw" title="Withdraw" disabled={!!busy}>
                 {busy === l.id ? <Loader2 size={16} className="spin" /> : <Trash2 size={16} />}
@@ -847,7 +871,7 @@ function TeamBooking({ data, team, apply, toast }) {
                     </span>
                   )}
                 </div>
-                <span className={`pay-tag ${waiting ? 'pay-submitted' : 'pay-paid'}`}>{waiting ? 'Your answer needed' : 'You accepted ✓'}</span>
+                <span className={`pay-tag ${waiting ? 'pay-submitted' : 'pay-paid'}`}>{waiting ? 'Your answer needed' : l.status === 'approved' ? 'Booked ✓' : 'You accepted ✓ — waiting for the admin'}</span>
               </div>
               );
             })}

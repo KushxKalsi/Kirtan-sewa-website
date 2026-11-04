@@ -9,6 +9,7 @@ import { ease } from '../lib/motion';
 
 const KINDS = [
   { id: 'prakash', label: 'Prakash Purab', gurmukhi: 'ਪ੍ਰਕਾਸ਼ ਪੁਰਬ' },
+  { id: 'gurgaddi', label: 'Gurgaddi Diwas', gurmukhi: 'ਗੁਰਗੱਦੀ ਦਿਵਸ' },
   { id: 'jyoti-jot', label: 'Jyoti Jot Divas', gurmukhi: 'ਜੋਤੀ ਜੋਤਿ ਦਿਵਸ' },
   { id: 'shaheedi', label: 'Shaheedi Purab', gurmukhi: 'ਸ਼ਹੀਦੀ ਪੁਰਬ' },
 ];
@@ -17,7 +18,7 @@ const blank = { kind: 'prakash', name: '', gurmukhi: '', date: '', images: [], a
 const imageUrl = (id) => `/api/gurpurab-images/${id}`;
 const MAX_IMAGES = 8;
 
-/** Prakash Purab / Jyoti Jot / Shaheedi days: dates, pictures for the home page carousel, and the one-month notice. */
+/** Prakash Purab / Gurgaddi / Jyoti Jot / Shaheedi days: dates, pictures for the home page carousel, and the one-month notice. */
 export default function GurpurabTab({ data, api, patch, toast }) {
   const all = data.gurpurabs || [];
   const today = data.today;

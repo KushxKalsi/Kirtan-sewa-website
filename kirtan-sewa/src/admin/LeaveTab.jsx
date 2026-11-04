@@ -1,18 +1,19 @@
 import { useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { format } from 'date-fns';
-import { Ban, Check, CircleCheck, FileText, Loader2, MapPin, MessagesSquare, Repeat, Send, Trash2, Undo2, UsersRound } from 'lucide-react';
+import { Ban, BadgeCheck, Check, CircleCheck, FileText, Loader2, MapPin, MessagesSquare, Repeat, Send, Trash2, Undo2, UsersRound } from 'lucide-react';
 import Modal from '../components/Modal';
 import { TeamBillModal } from '../components/Bill';
+import TeamBookingSteps from '../components/TeamBookingSteps';
 import { fromKey, prettyDate, rangeTo12 } from '../lib/date';
 import { distanceKm, kmText, mapsLink } from '../lib/geo';
 import { rupees } from '../lib/money';
 import { ease } from '../lib/motion';
 
-const STATUS = { pending: 'Waiting for you', assigned: 'Waiting for teammates', approved: 'Booked', rejected: 'Rejected', cancelled: 'Cancelled' };
+const STATUS = { pending: 'Waiting for you', assigned: 'Waiting for teammates', accepted: 'Accepted — confirm it', 'awaiting-payment': 'Waiting for their payment', approved: 'Booked', rejected: 'Rejected', cancelled: 'Cancelled' };
 const REPLY = { waiting: 'Asked — waiting for their yes', accepted: 'Accepted ✓', declined: 'Declined' };
 const replyOf = (x) => x.reply || (x.personId ? 'accepted' : ''); // approved before replies existed = accepted
-const live = (l) => l.status === 'pending' || l.status === 'assigned' || l.status === 'approved';
+const live = (l) => ['pending', 'assigned', 'accepted', 'awaiting-payment', 'approved'].includes(l.status);
 const asking = (l) => l.status === 'pending' || l.status === 'assigned';
 // The member pays the bhet offered; the admin keeps the commission out of it and the people who go get the rest.
 const cut = (l, x) => Math.round(((Number(x.pay) || 0) * (l.commissionRate ?? 0)) / 100);
@@ -64,7 +65,7 @@ export default function LeaveTab({ data, api, setData, toast, openChat }) {
   };
 
   const paySent = (l) => l.paymentMethod === 'upi' && !l.commissionPaid && l.payment?.status === 'submitted'; // UPI payment to verify
-  const needsYou = (l) => l.status === 'pending' || l.cancelRequest?.status === 'pending' || paySent(l);
+  const needsYou = (l) => l.status === 'pending' || l.status === 'accepted' || l.cancelRequest?.status === 'pending' || paySent(l);
   const rank = (l) => (needsYou(l) ? (l.emergency ? 0 : 1) : l.status === 'assigned' ? 2 : 3);
   const leaves = [...(data.leaves || [])]
     .filter((l) => (filter === 'current' ? needsYou(l) || (live(l) && l.to >= today) : true))
@@ -115,7 +116,7 @@ export default function LeaveTab({ data, api, setData, toast, openChat }) {
   });
 
   const mergeBookings = (list) => setData((d) => ({ ...d, bookings: d.bookings.map((b) => list.find((x) => x.id === b.id) || b) }));
-  const DONE = { approve: 'Sent — each person is asked to accept.', reject: 'Team booking rejected.', cancel: 'Team booking cancelled.', keep: 'Kept — they are told.', paid: 'Payment marked as received.', unpaid: 'Marked as not received.', settle: 'Commission received — their balance is cleared.', unsettle: 'Marked as not received.', delete: 'Team booking deleted.' };
+  const DONE = { approve: 'Sent — each person is asked to accept.', confirm: 'Confirmed — they are told.', reject: 'Team booking rejected.', cancel: 'Team booking cancelled.', keep: 'Kept — they are told.', paid: 'Payment marked as received.', unpaid: 'Marked as not received.', settle: 'Commission received — their balance is cleared.', unsettle: 'Marked as not received.', delete: 'Team booking deleted.' };
   const decide = async (l, action, extra = {}) => {
     setBusy(l.id + action);
     try {
@@ -127,7 +128,8 @@ export default function LeaveTab({ data, api, setData, toast, openChat }) {
         body = { ...body, assign: Object.fromEntries(idx.map((i) => [i, assignedFor(l, i)])) };
       }
       const res = action === 'delete' ? await api.deleteLeave(l.id) : await api.decideLeave(l.id, body);
-      setData((d) => ({ ...d, leaves: res.leaves }));
+      setData((d) => ({ ...d, leaves: res.leaves, ...(res.bookings && { bookings: res.bookings }) }));
+      if (res.skipped?.length) toast(`Not handed over: ${res.skipped.join('; ')}`, 'error');
       if (action === 'approve') setAssign((a) => ({ ...a, [l.id]: undefined }));
       toast(DONE[action]);
       return true;
@@ -157,7 +159,7 @@ export default function LeaveTab({ data, api, setData, toast, openChat }) {
       <div className="admin-section-head">
         <div>
           <h2>Team bookings</h2>
-          <p>Team members ask for a Head Ragi, Side Ragi or Tabla to go in their place — with the type of kirtan — and offer the bhet; you keep the commission out of it. The role asked for is listed first, then those who do that type of kirtan. Assign a person to each request: each one is asked to accept, and only then is it booked and their sewa handed over. If someone declines, the request comes back here to choose someone else. Team bookings never block anyone — several can share the same dates.</p>
+          <p>Team members ask for a Head Ragi, Side Ragi or Tabla to go in their place — with the type of kirtan — and offer the bhet; you keep the commission out of it. The role asked for is listed first, then those who do that type of kirtan. Assign a person to each request: each one is asked to accept. Once everyone has accepted, <strong>confirm it to the member</strong>. With UPI they then pay and send the transaction ID, and it is booked when you verify the payment; with cash it is booked as soon as you confirm. Their sewa is handed over only when it is booked. If someone declines, the request comes back here to choose someone else. Team bookings never block anyone — several can share the same dates.</p>
         </div>
       </div>
       {owed.length > 0 && (
@@ -221,7 +223,7 @@ export default function LeaveTab({ data, api, setData, toast, openChat }) {
                         <span className="commission-line">
                           They pay {rupees(m.total)} · your commission ({m.rate}%) <strong>{rupees(m.commission)}</strong> · teammates get {rupees(m.total - m.commission)}
                           {l.paymentMethod && ` · pays by ${l.paymentMethod === 'upi' ? 'UPI' : 'cash'}`}
-                          {l.paymentMethod === 'upi' && <small> · {l.commissionPaid ? 'payment received ✓' : l.payment?.status === 'rejected' ? 'payment not found — waiting for them to send it again' : paySent(l) ? 'payment sent — verify it below' : 'not paid yet'}</small>}
+                          {l.paymentMethod === 'upi' && <small> · {l.commissionPaid ? 'payment received ✓' : l.payment?.status === 'rejected' ? 'payment not found — waiting for them to send it again' : paySent(l) ? 'payment sent — verify it below' : l.status === 'awaiting-payment' ? 'waiting for their payment' : 'they pay after you confirm'}</small>}
                           {l.paymentMethod === 'cash' && <small> · paid in cash to the people who go — they owe you the commission</small>}
                         </span>
                       );
@@ -234,13 +236,29 @@ export default function LeaveTab({ data, api, setData, toast, openChat }) {
                     {l.note && <span className="muted">Your note: {l.note}</span>}
                     {l.cancelRequest?.status === 'rejected' && <span className="muted">Their request to cancel was turned down{l.cancelRequest.note ? `: ${l.cancelRequest.note}` : ''}.</span>}
                   </div>
-                  <span className={`pay-tag ${l.status === 'approved' ? 'pay-paid' : asking(l) ? 'pay-submitted' : 'req-tag'}`}>{STATUS[l.status] || l.status}</span>
+                  <span className={`pay-tag ${l.status === 'approved' ? 'pay-paid' : live(l) ? 'pay-submitted' : 'req-tag'}`}>{STATUS[l.status] || l.status}</span>
                   {openChat && (
                     <button className="icon-btn" onClick={() => openChat(`m:${l.personId}`)} aria-label="Chat" title="Chat">
                       <MessagesSquare size={16} />
                     </button>
                   )}
                 </div>
+
+                <TeamBookingSteps leave={l} />
+
+                {l.status === 'accepted' && (
+                  <div className="leave-pay-ask">
+                    <span>
+                      <strong>Everyone has accepted.</strong> Confirm it to {p?.name || l.personName}
+                      {l.paymentMethod === 'upi' && !l.commissionPaid ? ` — they then pay ${rupees(moneyOf(l).total)} by UPI, and it is booked when you verify it.` : ' — it is booked straight away.'}
+                    </span>
+                    <div className="ab-actions">
+                      <button className="btn btn-primary btn-sm" onClick={() => decide(l, 'confirm')} disabled={!!busy}>
+                        {busy === l.id + 'confirm' ? <Loader2 size={15} className="spin" /> : <BadgeCheck size={15} />} Confirm to {p?.name?.split(' ')[0] || 'member'}
+                      </button>
+                    </div>
+                  </div>
+                )}
 
                 {paySent(l) && (
                   <div className="leave-pay-ask">
@@ -381,7 +399,7 @@ export default function LeaveTab({ data, api, setData, toast, openChat }) {
                       <Undo2 size={15} /> Cancel
                     </button>
                   )}
-                  {l.paymentMethod !== 'cash' && !paySent(l) && (live(l) || l.commissionPaid) && (
+                  {l.paymentMethod !== 'cash' && !paySent(l) && (['awaiting-payment', 'approved'].includes(l.status) || l.commissionPaid) && (
                     <button className="btn btn-ghost btn-sm" onClick={() => decide(l, l.commissionPaid ? 'unpaid' : 'paid')} disabled={!!busy}>
                       {busy === l.id + 'paid' || busy === l.id + 'unpaid' ? <Loader2 size={15} className="spin" /> : <CircleCheck size={15} />} {l.commissionPaid ? 'Mark not received' : 'Payment received'}
                     </button>
