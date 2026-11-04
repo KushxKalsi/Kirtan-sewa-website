@@ -57,11 +57,11 @@ import { rupees } from '../lib/money';
 import { ease } from '../lib/motion';
 
 const TABS = [
+  { id: 'calendar', label: 'Calendar', icon: CalendarRange },
   { id: 'overview', label: 'Overview', icon: Gauge },
   { id: 'duties', label: 'My sewas', icon: ListChecks },
   { id: 'leave', label: 'Team booking', icon: UsersRound },
   { id: 'chat', label: 'Chat with admin', icon: MessagesSquare },
-  { id: 'calendar', label: 'Calendar', icon: CalendarRange },
   { id: 'posts', label: 'Posts', icon: Images },
   { id: 'profile', label: 'Profile & documents', icon: UserRound },
 ];
@@ -1355,7 +1355,7 @@ export default function TeamDashboard() {
   const { site } = useSite();
   const toast = useToast();
   const [params] = useSearchParams();
-  const [tab, setTab] = useState(params.get('chat') ? 'chat' : TABS.some((t) => t.id === params.get('tab')) ? params.get('tab') : 'overview');
+  const [tab, setTab] = useState(params.get('chat') ? 'chat' : TABS.some((t) => t.id === params.get('tab')) ? params.get('tab') : 'calendar');
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
 

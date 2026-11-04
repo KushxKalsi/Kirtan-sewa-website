@@ -23,9 +23,9 @@ import { useToast } from '../components/Toast';
 import { ease } from '../lib/motion';
 
 const TABS = [
+  { id: 'calendar', label: 'Calendar', icon: CalendarRange },
   { id: 'overview', label: 'Overview', icon: Gauge },
   { id: 'bookings', label: 'Bookings', icon: CalendarDays },
-  { id: 'calendar', label: 'Calendar', icon: CalendarRange },
   { id: 'chat', label: 'Chat', icon: MessagesSquare },
   { id: 'leave', label: 'Team bookings', icon: CalendarOff },
   { id: 'posts', label: 'Posts', icon: Images },
@@ -42,7 +42,7 @@ const TABS = [
 const linked = new URLSearchParams(window.location.search);
 
 export default function AdminDashboard({ token, onLogout }) {
-  const [tab, setTab] = useState(() => (linked.get('chat') ? 'chat' : TABS.some((t) => t.id === linked.get('tab')) ? linked.get('tab') : linked.get('q') ? 'bookings' : 'overview'));
+  const [tab, setTab] = useState(() => (linked.get('chat') ? 'chat' : TABS.some((t) => t.id === linked.get('tab')) ? linked.get('tab') : linked.get('q') ? 'bookings' : 'calendar'));
   const [chatThread, setChatThread] = useState(linked.get('chat') || '');
   const [data, setData] = useState(null);
   const { refresh: refreshSite } = useSite();
