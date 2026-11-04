@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
-import { CalendarDays, CalendarOff, CalendarRange, Clock, ExternalLink, HeartHandshake, Layers, LayoutGrid, Loader2, LogOut, MessagesSquare, Settings, Sparkles, Users } from 'lucide-react';
+import { CalendarDays, CalendarOff, CalendarRange, Clock, ExternalLink, Gauge, HeartHandshake, Images, Layers, LayoutGrid, Loader2, LogOut, MessagesSquare, Settings, Sparkles, Users } from 'lucide-react';
 import BookingsTab from './BookingsTab';
 import CalendarTab from './CalendarTab';
 import ServicesTab from './ServicesTab';
@@ -14,16 +14,21 @@ import GurpurabTab from './GurpurabTab';
 import ChatTab from './ChatTab';
 import LeaveTab from './LeaveTab';
 import CustomersTab from './CustomersTab';
+import PostsTab from './PostsTab';
+import OverviewTab from './OverviewTab';
+import DashShell from '../components/DashShell';
 import { adminApi } from '../lib/api';
 import { useSite } from '../components/SiteContext';
 import { useToast } from '../components/Toast';
 import { ease } from '../lib/motion';
 
 const TABS = [
+  { id: 'overview', label: 'Overview', icon: Gauge },
   { id: 'bookings', label: 'Bookings', icon: CalendarDays },
   { id: 'calendar', label: 'Calendar', icon: CalendarRange },
   { id: 'chat', label: 'Chat', icon: MessagesSquare },
   { id: 'leave', label: 'Team bookings', icon: CalendarOff },
+  { id: 'posts', label: 'Posts', icon: Images },
   { id: 'customers', label: 'Sangat accounts', icon: HeartHandshake },
   { id: 'categories', label: 'Categories', icon: LayoutGrid },
   { id: 'services', label: 'Sewa services', icon: Layers },
@@ -37,7 +42,7 @@ const TABS = [
 const linked = new URLSearchParams(window.location.search);
 
 export default function AdminDashboard({ token, onLogout }) {
-  const [tab, setTab] = useState(() => (linked.get('chat') ? 'chat' : TABS.some((t) => t.id === linked.get('tab')) ? linked.get('tab') : 'bookings'));
+  const [tab, setTab] = useState(() => (linked.get('chat') ? 'chat' : TABS.some((t) => t.id === linked.get('tab')) ? linked.get('tab') : linked.get('q') ? 'bookings' : 'overview'));
   const [chatThread, setChatThread] = useState(linked.get('chat') || '');
   const [data, setData] = useState(null);
   const { refresh: refreshSite } = useSite();
@@ -94,10 +99,11 @@ export default function AdminDashboard({ token, onLogout }) {
     chat: (data.chats || []).reduce((s, c) => s + c.unread, 0),
     leave: (data.leaves || []).filter((l) => l.status === 'pending' || l.status === 'accepted' || l.cancelRequest?.status === 'pending' || (l.paymentMethod === 'upi' && !l.commissionPaid && l.payment?.status === 'submitted')).length,
     team: (data.people || []).filter((p) => p.pending).length,
+    bookings: (data.bookings || []).filter((b) => b.status === 'pending' && b.date >= data.today).length,
   };
 
   return (
-    <main className="page admin">
+    <main className="page admin dash-page">
       <div className="container">
         <header className="admin-head">
           <div>
@@ -115,38 +121,31 @@ export default function AdminDashboard({ token, onLogout }) {
           </div>
         </header>
 
-        <nav className="admin-tabs" role="tablist">
-          {TABS.map((t) => (
-            <button key={t.id} role="tab" aria-selected={tab === t.id} className={tab === t.id ? 'active' : ''} onClick={() => setTab(t.id)}>
-              {tab === t.id && <motion.span layoutId="admin-tab" className="admin-tab-bg" transition={{ type: 'spring', stiffness: 400, damping: 34 }} />}
-              <t.icon size={16} />
-              <span>{t.label}</span>
-              {badges?.[t.id] > 0 && <em className="tab-badge">{badges[t.id]}</em>}
-            </button>
-          ))}
-        </nav>
-
-        {!data ? (
-          <div className="admin-loading">
-            <Loader2 className="spin" />
-          </div>
-        ) : (
-          <AnimatePresence mode="wait">
-            <motion.div key={tab} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.4, ease }}>
-              {tab === 'bookings' && <BookingsTab {...ctx} />}
-              {tab === 'calendar' && <CalendarTab {...ctx} openBooking={openBooking} openTab={setTab} />}
-              {tab === 'chat' && <ChatTab {...ctx} initialThread={chatThread} openBooking={openBooking} />}
-              {tab === 'leave' && <LeaveTab {...ctx} />}
-              {tab === 'customers' && <CustomersTab {...ctx} />}
-              {tab === 'categories' && <CategoriesTab {...ctx} />}
-              {tab === 'services' && <ServicesTab {...ctx} />}
-              {tab === 'team' && <TeamTab {...ctx} />}
-              {tab === 'schedule' && <ScheduleTab {...ctx} />}
-              {tab === 'gurpurab' && <GurpurabTab {...ctx} />}
-              {tab === 'settings' && <SettingsTab {...ctx} />}
-            </motion.div>
-          </AnimatePresence>
-        )}
+        <DashShell name="admin" tabs={TABS.map((t) => ({ ...t, badge: badges?.[t.id] || null }))} tab={tab} onTab={setTab}>
+          {!data ? (
+            <div className="admin-loading">
+              <Loader2 className="spin" />
+            </div>
+          ) : (
+            <AnimatePresence mode="wait">
+              <motion.div key={tab} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.4, ease }}>
+                {tab === 'overview' && <OverviewTab {...ctx} openTab={setTab} openBooking={openBooking} />}
+                {tab === 'bookings' && <BookingsTab {...ctx} />}
+                {tab === 'calendar' && <CalendarTab {...ctx} openBooking={openBooking} openTab={setTab} />}
+                {tab === 'chat' && <ChatTab {...ctx} initialThread={chatThread} openBooking={openBooking} />}
+                {tab === 'leave' && <LeaveTab {...ctx} />}
+                {tab === 'posts' && <PostsTab {...ctx} />}
+                {tab === 'customers' && <CustomersTab {...ctx} />}
+                {tab === 'categories' && <CategoriesTab {...ctx} />}
+                {tab === 'services' && <ServicesTab {...ctx} />}
+                {tab === 'team' && <TeamTab {...ctx} />}
+                {tab === 'schedule' && <ScheduleTab {...ctx} />}
+                {tab === 'gurpurab' && <GurpurabTab {...ctx} />}
+                {tab === 'settings' && <SettingsTab {...ctx} />}
+              </motion.div>
+            </AnimatePresence>
+          )}
+        </DashShell>
       </div>
     </main>
   );

@@ -1,6 +1,8 @@
 # Kirtan Sewa: change plan (for approval)
 
-Status: **draft, waiting for approval**. Nothing below has been built yet.
+Status: **approved and built (4 Nov 2026).** Decisions: Q1 Cloudflare R2 (connected later; built-in storage until
+then), Q4 **cash kept** for team bookings (UPI bookings need the payment step, cash ones are booked when the admin
+confirms), all other questions as recommended. Setup steps for R2 and the AI key are in README → Posts.
 
 The plan has 11 changes in 4 phases. Each change lists what the user sees, what changes in the code, and how it is
 checked. The questions marked ❓ need your answer before that part is built. Where there is a ❓, the plan shows the

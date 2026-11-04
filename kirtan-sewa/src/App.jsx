@@ -19,6 +19,8 @@ import { useLowEnd } from './lib/perf';
 const Admin = lazy(() => import('./pages/Admin'));
 const Account = lazy(() => import('./pages/Account'));
 const TeamDashboard = lazy(() => import('./pages/TeamDashboard'));
+const MemberProfile = lazy(() => import('./pages/MemberProfile'));
+const PostPage = lazy(() => import('./pages/PostPage'));
 
 const curtain = {
   initial: { scaleY: 1, transformOrigin: '50% 0%' },
@@ -97,6 +99,8 @@ function Shell() {
               <Route path="/login" element={<Login />} />
               <Route path="/account" element={<Suspense fallback={<main className="page" />}><Account /></Suspense>} />
               <Route path="/team" element={<Suspense fallback={<main className="page" />}><TeamDashboard /></Suspense>} />
+              <Route path="/m/:id" element={<Suspense fallback={<main className="page" />}><MemberProfile /></Suspense>} />
+              <Route path="/p/:id" element={<Suspense fallback={<main className="page" />}><PostPage /></Suspense>} />
               <Route path="/manage" element={<Navigate to="/account" replace />} />
               <Route path="/admin" element={<Suspense fallback={<main className="page" />}><Admin /></Suspense>} />
               <Route path="*" element={<Home ready={ready} />} />

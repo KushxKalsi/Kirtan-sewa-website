@@ -5,6 +5,9 @@ import { addDays, format } from 'date-fns';
 import {
   Ban,
   Banknote,
+  Gauge,
+  Images,
+  Sparkles,
   CalendarDays,
   CalendarPlus,
   CalendarRange,
@@ -34,6 +37,10 @@ import {
 } from 'lucide-react';
 import Modal from '../components/Modal';
 import TeamBookingSteps from '../components/TeamBookingSteps';
+import TeamPosts from '../components/TeamPosts';
+import TeamOverview from '../components/TeamOverview';
+import DashShell from '../components/DashShell';
+import PosterMaker from '../components/PosterMaker';
 import NotifyButton from '../components/NotifyButton';
 import ChatBox from '../components/ChatBox';
 import BookingCalendar from '../components/BookingCalendar';
@@ -50,10 +57,12 @@ import { rupees } from '../lib/money';
 import { ease } from '../lib/motion';
 
 const TABS = [
-  { id: 'calendar', label: 'Calendar', icon: CalendarRange },
+  { id: 'overview', label: 'Overview', icon: Gauge },
   { id: 'duties', label: 'My sewas', icon: ListChecks },
   { id: 'leave', label: 'Team booking', icon: UsersRound },
   { id: 'chat', label: 'Chat with admin', icon: MessagesSquare },
+  { id: 'calendar', label: 'Calendar', icon: CalendarRange },
+  { id: 'posts', label: 'Posts', icon: Images },
   { id: 'profile', label: 'Profile & documents', icon: UserRound },
 ];
 const LEAVE_TEXT = { pending: 'Waiting for admin', assigned: 'Waiting for teammates', accepted: 'Waiting for admin to confirm', 'awaiting-payment': 'Confirmed — pay to book', approved: 'Booked', rejected: 'Not approved', cancelled: 'Cancelled' };
@@ -62,7 +71,7 @@ const replyOf = (x) => x.reply || (x.personId ? 'accepted' : ''); // approved be
 const live = (d) => d.status === 'pending' || d.status === 'confirmed';
 const dayKey = (d) => format(d, 'yyyy-MM-dd');
 
-function DutyCard({ duty, today, person, index, busy, onConfirm, onDone, onCancel, onWithdraw, onPay }) {
+function DutyCard({ duty, today, person, index, busy, onConfirm, onDone, onCancel, onWithdraw, onPay, onPoster }) {
   const { site } = useSite();
   const past = duty.date < today;
   const status = past && duty.status !== 'cancelled' ? 'completed' : duty.status;
@@ -206,6 +215,9 @@ function DutyCard({ duty, today, person, index, busy, onConfirm, onDone, onCance
 
       {upcoming && (
         <div className="ab-actions duty-actions">
+          <button className="btn btn-ghost btn-sm poster-btn" onClick={() => onPoster(duty)}>
+            <Sparkles size={15} /> Generate poster
+          </button>
           {duty.state !== 'confirmed' && (
             <button className="btn btn-primary btn-sm" onClick={() => onConfirm(duty)} disabled={!!busy}>
               {busy === duty.id + 'confirm' ? <Loader2 size={15} className="spin" /> : <Check size={15} />} Confirm I will do this sewa
@@ -239,6 +251,7 @@ function Duties({ data, team, apply, toast }) {
   const [reason, setReason] = useState('');
   const [payFor, setPayFor] = useState(null);
   const [pay, setPay] = useState({ amount: '', note: '' });
+  const [posterFor, setPosterFor] = useState(null);
   const { duties, today, person } = data;
 
   const run = async (key, fn, msg) => {
@@ -317,9 +330,11 @@ function Duties({ data, team, apply, toast }) {
               setPay({ amount: x.pay ? String(x.pay) : '', note: '' });
               setPayFor(x);
             }}
+            onPoster={setPosterFor}
           />
         ))}
       </AnimatePresence>
+      <PosterMaker duty={posterFor} person={person} team={team} toast={toast} onClose={() => setPosterFor(null)} />
 
       <Modal open={!!cancelFor} onClose={() => setCancelFor(null)} title="Can’t do this sewa?" subtitle={cancelFor && `${cancelFor.serviceName} on ${prettyDate(cancelFor.date, 'd MMM yyyy')}. The admin will approve it and find someone else.`}>
         <form
@@ -1340,7 +1355,7 @@ export default function TeamDashboard() {
   const { site } = useSite();
   const toast = useToast();
   const [params] = useSearchParams();
-  const [tab, setTab] = useState(params.get('chat') ? 'chat' : TABS.some((t) => t.id === params.get('tab')) ? params.get('tab') : 'calendar');
+  const [tab, setTab] = useState(params.get('chat') ? 'chat' : TABS.some((t) => t.id === params.get('tab')) ? params.get('tab') : 'overview');
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
 
@@ -1373,7 +1388,7 @@ export default function TeamDashboard() {
   const p = data?.person;
 
   return (
-    <main className="page manage account team-page">
+    <main className="page manage account team-page dash-page">
       <div className="container manage-inner account-inner">
         <header className="account-head">
           <div>
@@ -1404,41 +1419,48 @@ export default function TeamDashboard() {
           </button>
         )}
 
-        <nav className="admin-tabs account-tabs" role="tablist">
-          {TABS.map((t) => (
-            <button key={t.id} role="tab" aria-selected={tab === t.id} className={tab === t.id ? 'active' : ''} onClick={() => setTab(t.id)}>
-              {tab === t.id && <motion.span layoutId="team-tab" className="admin-tab-bg" transition={{ type: 'spring', stiffness: 400, damping: 34 }} />}
-              <t.icon size={16} />
-              <span>{t.label}</span>
-              {t.id === 'chat' && data?.unread > 0 && <em className="tab-badge">{data.unread}</em>}
-              {t.id === 'duties' && data && data.duties.some((d) => (live(d) && d.date >= data.today && d.state !== 'confirmed') || (d.paymentMethod === 'cash' && d.commission > 0 && d.over && !d.settledAt)) && <em className="tab-badge">!</em>}
-              {t.id === 'leave' && (data?.bookedMe?.some((l) => l.sewas.some((x) => x.reply === 'waiting')) || data?.commissionDue?.length > 0) && <em className="tab-badge">!</em>}
-            </button>
-          ))}
-        </nav>
+        <DashShell
+          name="team"
+          tabs={TABS.map((t) => ({
+            ...t,
+            badge:
+              t.id === 'chat'
+                ? data?.unread || null
+                : t.id === 'duties' && data && data.duties.some((d) => (live(d) && d.date >= data.today && d.state !== 'confirmed') || (d.paymentMethod === 'cash' && d.commission > 0 && d.over && !d.settledAt))
+                  ? '!'
+                  : t.id === 'leave' && (data?.bookedMe?.some((l) => l.sewas.some((x) => x.reply === 'waiting')) || data?.commissionDue?.length > 0 || data?.leaves?.some((l) => l.status === 'awaiting-payment' && !l.commissionPaid && l.payment?.status !== 'submitted'))
+                    ? '!'
+                    : null,
+          }))}
+          tab={tab}
+          onTab={setTab}
+        >
 
-        {error && (
-          <div className="form-error manage-error">
-            <CircleAlert size={18} /> {error}
-          </div>
-        )}
-        {!data && !error && (
-          <div className="admin-loading">
-            <Loader2 className="spin" />
-          </div>
-        )}
-        {data && tab === 'duties' && <Duties {...ctx} />}
-        {data && tab === 'calendar' && <TeamCalendar {...ctx} openTab={setTab} />}
-        {data && tab === 'leave' && <TeamBooking {...ctx} />}
-        {data && tab === 'chat' && (
-          <ChatBox side="member" title="Chat with the admin" subtitle="Bhet, timings, team bookings — anything" callPhone={site?.settings.phone} callLabel="Call admin" load={chatLoad} send={chatSend} onMessages={chatSeen} />
-        )}
-        {data && tab === 'profile' && <Profile {...ctx} />}
-        {data && tab === 'duties' && data.duties.length > 0 && (
-          <p className="fine-print team-foot">
-            <CircleCheck size={13} /> Sewas you confirm show as confirmed to the admin. Sewas can be cancelled here until 2 days before the program.
-          </p>
-        )}
+          {error && (
+            <div className="form-error manage-error">
+              <CircleAlert size={18} /> {error}
+            </div>
+          )}
+          {!data && !error && (
+            <div className="admin-loading">
+              <Loader2 className="spin" />
+            </div>
+          )}
+          {data && tab === 'overview' && <TeamOverview {...ctx} openTab={setTab} />}
+          {data && tab === 'duties' && <Duties {...ctx} />}
+          {data && tab === 'calendar' && <TeamCalendar {...ctx} openTab={setTab} />}
+          {data && tab === 'leave' && <TeamBooking {...ctx} />}
+          {data && tab === 'posts' && <TeamPosts {...ctx} />}
+          {data && tab === 'chat' && (
+            <ChatBox side="member" title="Chat with the admin" subtitle="Bhet, timings, team bookings — anything" callPhone={site?.settings.phone} callLabel="Call admin" load={chatLoad} send={chatSend} onMessages={chatSeen} />
+          )}
+          {data && tab === 'profile' && <Profile {...ctx} />}
+          {data && tab === 'duties' && data.duties.length > 0 && (
+            <p className="fine-print team-foot">
+              <CircleCheck size={13} /> Sewas you confirm show as confirmed to the admin. Sewas can be cancelled here until 2 days before the program.
+            </p>
+          )}
+        </DashShell>
       </div>
     </main>
   );
