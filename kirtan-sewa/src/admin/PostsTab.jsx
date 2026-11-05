@@ -1,17 +1,19 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Eye, EyeOff, Flag, Heart, Loader2, Music, Pause, Play, Plus, Share2, Trash2 } from 'lucide-react';
+import { Eye, EyeOff, Flag, Heart, Loader2, Music, Pause, Pencil, Play, Plus, Share2, Trash2 } from 'lucide-react';
+import Modal from '../components/Modal';
 import PostComposer from '../components/PostComposer';
 import PostViewer, { PostTile } from '../components/PostViewer';
 import { uploadMedia } from '../lib/media';
 
-/** Posts on the site: post as the jatha or for a team member, hide or delete any post, and the Gurbani music library. */
+/** Posts on the site: post as the jatha or for a team member, edit, hide or delete any post, and the Gurbani music library. */
 export default function PostsTab({ data, api, toast }) {
   const [state, setState] = useState(null); // { posts, library, storage }
   const [busy, setBusy] = useState('');
   const [as, setAs] = useState('');
   const [filter, setFilter] = useState('all');
   const [open, setOpen] = useState(null);
+  const [editing, setEditing] = useState(null);
   const [track, setTrack] = useState({ title: '', file: null });
   const [playing, setPlaying] = useState('');
   const [player] = useState(() => (typeof Audio !== 'undefined' ? new Audio() : null));
@@ -68,7 +70,7 @@ export default function PostsTab({ data, api, toast }) {
         <div>
           <h2>Posts</h2>
           <p>
-            Photos and videos of kirtans, shown on the website under “Sewa in action” and on each team member’s profile. Members post from their dashboard; you can post as the jatha or for a member, and hide or delete any post. Files are stored in: <strong>{state.storage}</strong>.
+            Photos and videos of kirtans, shown on the website under “Sewa in action” and on each team member’s profile. Members post from their dashboard; you can post as the jatha or for a member, and edit, hide or delete any post. Files are stored in: <strong>{state.storage}</strong>.
           </p>
         </div>
       </div>
@@ -134,6 +136,9 @@ export default function PostsTab({ data, api, toast }) {
                         <Eye size={15} />
                       </Link>
                     )}
+                    <button type="button" className="icon-btn" onClick={() => setEditing(p)} disabled={!!busy} title="Edit" aria-label="Edit">
+                      <Pencil size={15} />
+                    </button>
                     <button type="button" className="icon-btn" onClick={() => run(p.id + 'h', () => api.updatePost(p.id, { hidden: !p.hidden }), p.hidden ? 'Shown on the site again.' : 'Hidden from the site.')} disabled={!!busy} title={p.hidden ? 'Show' : 'Hide'} aria-label={p.hidden ? 'Show' : 'Hide'}>
                       {busy === p.id + 'h' ? <Loader2 size={15} className="spin" /> : p.hidden ? <Eye size={15} /> : <EyeOff size={15} />}
                     </button>
@@ -183,6 +188,21 @@ export default function PostsTab({ data, api, toast }) {
         </aside>
       </div>
       <PostViewer open={open} onClose={() => setOpen(null)} />
+      <Modal open={!!editing} onClose={() => setEditing(null)} title="Edit post" wide>
+        {editing && (
+          <PostComposer
+            key={editing.id}
+            post={editing}
+            client={api}
+            library={state.library}
+            toast={toast}
+            onPosted={(next) => {
+              setState(next);
+              setEditing(null);
+            }}
+          />
+        )}
+      </Modal>
     </div>
   );
 }

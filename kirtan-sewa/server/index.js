@@ -2514,13 +2514,9 @@ const publicPost = (post, viewer = '') => ({
 const ownPost = (post) => ({ ...publicPost(post), hidden: !!post.hidden, authorOff: !post.hidden && !postVisible(post), reports: (post.reports || []).length, bookingId: post.bookingId || '' });
 const libraryView = () => db.audioLibrary.map((a) => ({ id: a.id, title: a.title, url: mediaUrl(a.mediaId, a.local) }));
 
-// A new post from the body: { caption, media: [upload ids], audio: { id | libraryId, title, start }, bookingId, poster }.
-function readPost(body, owner, personId) {
-  const media = claimUploads((body?.media || []).slice(0, MAX_POST_MEDIA + 1), owner, ['image', 'video']);
-  if (!media.length) fail(400, 'Add at least one photo or video.');
-  if (media.length > MAX_POST_MEDIA) fail(400, `Add up to ${MAX_POST_MEDIA} photos and videos.`);
+// Music for a post: { libraryId, start } from the library or { id, title, start } for an uploaded file; null for none.
+function readAudio(a, owner) {
   let audio = null;
-  const a = body?.audio;
   if (a?.libraryId) {
     const track = db.audioLibrary.find((t) => t.id === str(a.libraryId, 20));
     if (!track) fail(400, 'That music is no longer in the library.');
@@ -2529,10 +2525,48 @@ function readPost(body, owner, personId) {
     const file = claimUploads([a.id], owner, ['audio'])[0];
     audio = { id: file.id, title: str(a.title, 80) || 'Music', ...(file.local && { local: true }) };
   }
-  if (audio) audio.start = Math.max(0, Math.min(3600, Math.round(Number(a.start) || 0)));
+  if (audio) audio.start = musicStart(a);
+  return audio;
+}
+const musicStart = (a) => Math.max(0, Math.min(3600, Math.round(Number(a?.start) || 0)));
+// The kirtan a post is linked to: one the member was assigned to (any booking for the jatha's own posts).
+function readBookingId(body, personId) {
   const bookingId = str(body?.bookingId, 20);
   if (bookingId && !db.bookings.some((b) => b.id === bookingId && (!personId || (b.assignees || []).some((x) => x.id === personId)))) fail(400, 'That kirtan was not found.');
-  return { id: uid(), personId, caption: str(body?.caption, 1000), media: media.map(({ type: _, ...m }) => m), audio, bookingId, poster: body?.poster === true, likedBy: [], shares: 0, reports: [], hidden: false, createdAt: new Date().toISOString() };
+  return bookingId;
+}
+const claimPostMedia = (ids, owner) => claimUploads((ids || []).slice(0, MAX_POST_MEDIA + 1), owner, ['image', 'video']).map(({ type: _, ...m }) => m);
+
+// A new post from the body: { caption, media: [upload ids], audio: { id | libraryId, title, start }, bookingId, poster }.
+function readPost(body, owner, personId) {
+  const media = claimPostMedia(body?.media, owner);
+  if (!media.length) fail(400, 'Add at least one photo or video.');
+  if (media.length > MAX_POST_MEDIA) fail(400, `Add up to ${MAX_POST_MEDIA} photos and videos.`);
+  const audio = readAudio(body?.audio, owner);
+  const bookingId = readBookingId(body, personId);
+  return { id: uid(), personId, caption: str(body?.caption, 1000), media, audio, bookingId, poster: body?.poster === true, likedBy: [], shares: 0, reports: [], hidden: false, createdAt: new Date().toISOString() };
+}
+/* Edits a post from the body: { caption, keep: [its media ids to keep, in order], media: [new upload ids], audio, bookingId? }.
+ * audio: { keep: true, title, start } keeps its music (new name / start), null removes it, anything else is new music
+ * as in readPost. Likes, shares and the date stay. Returns the files it no longer uses, to remove once saved. */
+function editPost(post, body, owner) {
+  const keep = [...new Set((Array.isArray(body?.keep) ? body.keep : []).map((x) => str(x, 20)))].map((id) => post.media.find((m) => m.id === id)).filter(Boolean);
+  const count = keep.length + (Array.isArray(body?.media) ? body.media.length : 0);
+  if (!count) fail(400, 'Keep or add at least one photo or video.');
+  if (count > MAX_POST_MEDIA) fail(400, `Add up to ${MAX_POST_MEDIA} photos and videos.`);
+  const bookingId = 'bookingId' in (body || {}) ? readBookingId(body, post.personId) : post.bookingId;
+  const a = body?.audio;
+  const audio = a?.keep && post.audio ? { ...post.audio, title: post.audio.libraryId ? post.audio.title : str(a.title, 80) || post.audio.title, start: musicStart(a) } : readAudio(a, owner);
+  const media = [...keep, ...claimPostMedia(body?.media, owner)];
+  const unused = post.media.filter((m) => !media.includes(m)).map((m) => ({ id: m.id, local: m.local }));
+  if (post.audio && audio?.id !== post.audio.id && !post.audio.libraryId) unused.push({ id: post.audio.id, local: post.audio.local });
+  Object.assign(post, { caption: str(body?.caption, 1000), media, audio, bookingId, editedAt: new Date().toISOString() });
+  return unused;
+}
+async function savePostEdit(post, body, owner) {
+  const unused = editPost(post, body, owner);
+  await save();
+  for (const f of unused) await removeMedia(f.id, f.local);
 }
 // Removes a post and its files (library music stays).
 async function dropPost(post) {
@@ -2621,6 +2655,12 @@ app.post('/api/team/posts', requireMember, async (req, res) => {
   await save();
   res.status(201).json(teamPosts(p));
 });
+app.put('/api/team/posts/:id', requireMember, async (req, res) => {
+  const post = db.posts.find((x) => x.id === req.params.id && x.personId === req.person.id);
+  if (!post) fail(404, 'Post not found.');
+  await savePostEdit(post, req.body, `m:${req.person.id}`);
+  res.json(teamPosts(req.person));
+});
 app.delete('/api/team/posts/:id', requireMember, async (req, res) => {
   const post = db.posts.find((x) => x.id === req.params.id && x.personId === req.person.id);
   if (!post) fail(404, 'Post not found.');
@@ -2676,6 +2716,12 @@ app.post('/api/admin/posts', async (req, res) => {
   db.posts.push(readPost(req.body, 'admin', personId));
   await save();
   res.status(201).json(adminPosts());
+});
+app.put('/api/admin/posts/:id', async (req, res) => {
+  const post = db.posts.find((x) => x.id === req.params.id);
+  if (!post) fail(404, 'Post not found.');
+  await savePostEdit(post, req.body, 'admin');
+  res.json(adminPosts());
 });
 app.patch('/api/admin/posts/:id', async (req, res) => {
   const post = db.posts.find((x) => x.id === req.params.id);

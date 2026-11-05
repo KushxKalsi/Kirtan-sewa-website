@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { ImagePlus, Loader2, Music, Play, Send, X } from 'lucide-react';
+import { Check, ImagePlus, Loader2, Music, Play, Send, X } from 'lucide-react';
 import MusicPicker from './MusicPicker';
 import { mediaDuration, shrinkPhoto, uploadMedia, withType } from '../lib/media';
 import { ease } from '../lib/motion';
@@ -8,19 +8,31 @@ import { ease } from '../lib/motion';
 const MAX_ITEMS = 10;
 const MAX_VIDEO_SECONDS = 60;
 
+// A post's own photos / videos and music, as the composer holds them while editing it.
+const itemsOf = (post) => (post?.media || []).map((m) => ({ key: m.id, id: m.id, url: m.url, kind: m.kind, progress: 1 }));
+const musicOf = (post) => post?.audio && { source: 'existing', title: post.audio.title, url: post.audio.url, start: post.audio.start, duration: 0 };
+
 /**
  * New post: photos and videos (up to 10), a caption and optional music. `client` is the team or admin API; `extra`
  * goes above the post button (e.g. "post as" for the admin) and `extraBody` is sent with the post.
+ * With `post` it edits that post instead: remove or add photos and videos, change the caption and the music.
  */
-export default function PostComposer({ client, library, limits = {}, toast, onPosted, initialFiles, extra, extraBody, submitLabel = 'Post' }) {
-  const [items, setItems] = useState([]); // { key, file, url, kind, progress }
-  const [caption, setCaption] = useState('');
-  const [music, setMusic] = useState(null);
+export default function PostComposer({ client, library, limits = {}, toast, onPosted, initialFiles, extra, extraBody, submitLabel, post }) {
+  const [items, setItems] = useState(() => itemsOf(post)); // { key, file | id (already in the post), url, kind, progress }
+  const [caption, setCaption] = useState(post?.caption || '');
+  const [music, setMusic] = useState(() => musicOf(post));
   const [showMusic, setShowMusic] = useState(false);
   const [busy, setBusy] = useState(false);
   const inputRef = useRef(null);
   const urls = useRef([]);
   useEffect(() => () => urls.current.forEach((u) => URL.revokeObjectURL(u)), []);
+  // The start slider needs the length of the post's own music.
+  useEffect(() => {
+    if (!post?.audio) return;
+    const a = new Audio(post.audio.url);
+    a.preload = 'metadata';
+    a.onloadedmetadata = () => setMusic((m) => (m?.source === 'existing' ? { ...m, duration: a.duration || 0 } : m));
+  }, [post]);
 
   const add = async (files) => {
     const next = [];
@@ -67,13 +79,21 @@ export default function PostComposer({ client, library, limits = {}, toast, onPo
     try {
       const media = [];
       for (const it of items) {
+        if (it.id) continue; // already in the post
         const file = it.kind === 'image' ? await shrinkPhoto(it.file) : it.file;
         if (limits[it.kind] && file.size > limits[it.kind]) throw new Error(`${it.file.name} is too large (max ${Math.round(limits[it.kind] / 1024 / 1024)} MB).`);
         media.push((await uploadMedia(client, file, (p) => setProgress(it.key, p))).id);
       }
       let audio = null;
-      if (music?.source === 'library') audio = { libraryId: music.libraryId, start: music.start };
+      if (music?.source === 'existing') audio = { keep: true, title: music.title, start: music.start };
+      else if (music?.source === 'library') audio = { libraryId: music.libraryId, start: music.start };
       else if (music?.file) audio = { id: (await uploadMedia(client, music.file)).id, title: music.title, start: music.start };
+      if (post) {
+        const keep = items.filter((it) => it.id).map((it) => it.id);
+        const result = await client.editPost(post.id, { caption, keep, media, audio, ...extraBody });
+        toast('Post updated.');
+        return onPosted?.(result);
+      }
       const result = await client.createPost({ caption, media, audio, ...extraBody });
       setItems([]);
       setCaption('');
@@ -83,7 +103,7 @@ export default function PostComposer({ client, library, limits = {}, toast, onPo
       onPosted?.(result);
     } catch (err) {
       toast(err.message, 'error');
-      setItems((list) => list.map((x) => ({ ...x, progress: 0 })));
+      setItems((list) => list.map((x) => (x.id ? x : { ...x, progress: 0 })));
     } finally {
       setBusy(false);
     }
@@ -132,7 +152,7 @@ export default function PostComposer({ client, library, limits = {}, toast, onPo
       )}
       {extra}
       <button className="btn btn-primary" disabled={busy || !items.length}>
-        {busy ? <Loader2 size={17} className="spin" /> : <Send size={17} />} {busy ? 'Uploading…' : submitLabel}
+        {busy ? <Loader2 size={17} className="spin" /> : post ? <Check size={17} /> : <Send size={17} />} {busy ? (post ? 'Saving…' : 'Uploading…') : submitLabel || (post ? 'Save changes' : 'Post')}
       </button>
     </form>
   );

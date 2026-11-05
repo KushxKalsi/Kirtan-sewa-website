@@ -15,7 +15,7 @@ const baseType = (t) => (t || '').split(';')[0];
  * the second it starts from. value: { source, file?, libraryId?, title, url, start, duration }.
  */
 export default function MusicPicker({ value, onChange, library = [], maxBytes, toast }) {
-  const [source, setSource] = useState(value?.source || (library.length ? 'library' : 'upload'));
+  const [source, setSource] = useState(SOURCES.some((s) => s.id === value?.source) ? value.source : library.length ? 'library' : 'upload');
   const [recording, setRecording] = useState(false);
   const [seconds, setSeconds] = useState(0);
   const [previewing, setPreviewing] = useState('');

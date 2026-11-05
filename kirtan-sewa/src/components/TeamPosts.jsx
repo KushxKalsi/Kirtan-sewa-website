@@ -1,17 +1,19 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Camera, EyeOff, Flag, Heart, Loader2, Share2, Trash2, UserRound } from 'lucide-react';
+import { Camera, EyeOff, Flag, Heart, Loader2, Pencil, Share2, Trash2, UserRound } from 'lucide-react';
+import Modal from './Modal';
 import PostComposer from './PostComposer';
 import PostViewer, { PostTile } from './PostViewer';
 import { prettyDate } from '../lib/date';
 import { shrinkPhoto, uploadMedia } from '../lib/media';
 
-/** Team member: their public profile photo, a new post, and the posts they made (likes, shares, delete). */
+/** Team member: their public profile photo, a new post, and the posts they made (likes, shares, edit, delete). */
 export default function TeamPosts({ data, team, toast }) {
   const [state, setState] = useState(null); // { posts, library, photo, limits }
   const [busy, setBusy] = useState('');
   const [bookingId, setBookingId] = useState('');
   const [open, setOpen] = useState(null);
+  const [editing, setEditing] = useState(null);
   const me = data.person;
   // Kirtans they can link a post to: ones they were given that are confirmed or done.
   const kirtans = data.duties.filter((d) => d.status === 'confirmed' || d.status === 'completed').slice(0, 30);
@@ -116,20 +118,41 @@ export default function TeamPosts({ data, team, toast }) {
                   </em>
                 )}
               </span>
-              <button
-                type="button"
-                className="icon-btn danger-text"
-                onClick={() => window.confirm('Delete this post for good?') && run(p.id, () => team.deletePost(p.id), 'Post deleted.')}
-                disabled={!!busy}
-                aria-label="Delete post"
-              >
-                {busy === p.id ? <Loader2 size={15} className="spin" /> : <Trash2 size={15} />}
-              </button>
+              <span>
+                <button type="button" className="icon-btn" onClick={() => setEditing(p)} disabled={!!busy} aria-label="Edit post">
+                  <Pencil size={15} />
+                </button>
+                <button
+                  type="button"
+                  className="icon-btn danger-text"
+                  onClick={() => window.confirm('Delete this post for good?') && run(p.id, () => team.deletePost(p.id), 'Post deleted.')}
+                  disabled={!!busy}
+                  aria-label="Delete post"
+                >
+                  {busy === p.id ? <Loader2 size={15} className="spin" /> : <Trash2 size={15} />}
+                </button>
+              </span>
             </div>
           </div>
         ))}
       </div>
       <PostViewer open={open} onClose={() => setOpen(null)} />
+      <Modal open={!!editing} onClose={() => setEditing(null)} title="Edit post" wide>
+        {editing && (
+          <PostComposer
+            key={editing.id}
+            post={editing}
+            client={team}
+            library={state.library}
+            limits={state.limits}
+            toast={toast}
+            onPosted={(next) => {
+              setState(next);
+              setEditing(null);
+            }}
+          />
+        )}
+      </Modal>
     </div>
   );
 }
