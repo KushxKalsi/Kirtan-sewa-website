@@ -91,6 +91,7 @@ export default function TeamPosts({ data, team, toast }) {
       />
 
       <h3>Your posts ({state.posts.length})</h3>
+      {state.posts.some((p) => p.authorOff) && <p className="muted">Your account is set as inactive, so your posts are not shown on the website. Please ask the admin to make it active again.</p>}
       {state.posts.length === 0 && <p className="muted">Nothing posted yet. Photos and videos of your kirtans show on the website and on your profile.</p>}
       <div className="post-grid dense">
         {state.posts.map((p) => (
@@ -102,6 +103,11 @@ export default function TeamPosts({ data, team, toast }) {
                 {p.hidden && (
                   <em className="req-tag">
                     <EyeOff size={12} /> hidden by admin
+                  </em>
+                )}
+                {p.authorOff && (
+                  <em className="req-tag">
+                    <EyeOff size={12} /> not on the site
                   </em>
                 )}
                 {p.reports > 0 && (

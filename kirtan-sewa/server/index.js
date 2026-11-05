@@ -2510,7 +2510,8 @@ const publicPost = (post, viewer = '') => ({
   createdAt: post.createdAt,
 });
 // What the author and the admin see as well.
-const ownPost = (post) => ({ ...publicPost(post), hidden: !!post.hidden, reports: (post.reports || []).length, bookingId: post.bookingId || '' });
+// authorOff: by a member who is inactive (or not yet approved), so it isn't on the site even though it isn't hidden.
+const ownPost = (post) => ({ ...publicPost(post), hidden: !!post.hidden, authorOff: !post.hidden && !postVisible(post), reports: (post.reports || []).length, bookingId: post.bookingId || '' });
 const libraryView = () => db.audioLibrary.map((a) => ({ id: a.id, title: a.title, url: mediaUrl(a.mediaId, a.local) }));
 
 // A new post from the body: { caption, media: [upload ids], audio: { id | libraryId, title, start }, bookingId, poster }.

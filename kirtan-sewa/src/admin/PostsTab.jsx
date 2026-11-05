@@ -112,11 +112,16 @@ export default function PostsTab({ data, api, toast }) {
           {shown.length === 0 && <div className="admin-empty glass">No posts here.</div>}
           <div className="post-grid dense">
             {shown.map((p) => (
-              <div key={p.id} className={`own-post ${p.hidden ? 'is-hidden' : ''}`}>
+              <div key={p.id} className={`own-post ${p.hidden || p.authorOff ? 'is-hidden' : ''}`}>
                 <PostTile post={p} onClick={() => setOpen({ post: p })} />
                 <div className="own-post-meta">
                   <span>
                     <Heart size={13} /> {p.likes} · <Share2 size={13} /> {p.shares}
+                    {p.authorOff && (
+                      <em className="req-tag" title="This team member is inactive in the Team tab, so their posts are not on the site.">
+                        <EyeOff size={12} /> member inactive
+                      </em>
+                    )}
                     {p.reports > 0 && (
                       <button type="button" className="req-tag" title="Clear reports" onClick={() => run(p.id + 'r', () => api.updatePost(p.id, { clearReports: true }), 'Reports cleared.')}>
                         <Flag size={12} /> {p.reports}
