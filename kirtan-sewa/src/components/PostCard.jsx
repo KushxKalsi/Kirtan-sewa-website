@@ -5,6 +5,7 @@ import { Check, ChevronLeft, ChevronRight, Flag, Heart, Link2, MessageCircle, Mu
 import { formatDistanceToNowStrict } from 'date-fns';
 import { api } from '../lib/api';
 import { useToast } from './Toast';
+import Comments from './Comments';
 
 export const postLink = (id) => `${window.location.origin}/p/${id}`;
 
@@ -106,15 +107,17 @@ export function ShareMenu({ actions: { post, copy, report, shareOpen, copied }, 
 }
 
 /**
- * One post: swipe through its photos and videos, like it, share it, play its music, and open the member's profile from
- * the chip under the picture.
+ * One post: swipe through its photos and videos, like it, comment, share it, play its music, and open the member's
+ * profile from the chip under the picture. `moderate` lets the admin delete any comment.
  */
-export default function PostCard({ post: initial, startIndex = 0 }) {
+export default function PostCard({ post: initial, startIndex = 0, moderate }) {
   const toast = useToast();
   const actions = usePostActions(initial);
   const { post, like, share } = actions;
   const [index, setIndex] = useState(startIndex);
   const [playing, setPlaying] = useState(false);
+  const [showComments, setShowComments] = useState(false);
+  const [comments, setComments] = useState(null); // count, once they are loaded
   const trackRef = useRef(null);
   const audioRef = useRef(null);
   const many = post.media.length > 1;
@@ -192,6 +195,10 @@ export default function PostCard({ post: initial, startIndex = 0 }) {
             <Heart size={20} fill={post.liked ? 'currentColor' : 'none'} />
             <span>{post.likes}</span>
           </motion.button>
+          <button type="button" className={`post-like ${showComments ? 'on-comments' : ''}`} onClick={() => setShowComments((o) => !o)} aria-expanded={showComments} aria-label="Comments">
+            <MessageCircle size={20} />
+            <span>{comments ?? post.comments ?? 0}</span>
+          </button>
           <button type="button" className="post-share" onClick={share} aria-label="Share">
             <Share2 size={19} />
           </button>
@@ -201,6 +208,7 @@ export default function PostCard({ post: initial, startIndex = 0 }) {
         <time className="post-time" dateTime={post.createdAt}>
           {formatDistanceToNowStrict(new Date(post.createdAt), { addSuffix: true })}
         </time>
+        {showComments && <Comments postId={post.id} onCount={setComments} moderate={moderate} />}
       </div>
     </article>
   );

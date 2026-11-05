@@ -43,8 +43,14 @@ export const api = {
   registerTeam: (body) => request('/auth/register-team', { method: 'POST', body }),
   login: (body) => request('/auth/login', { method: 'POST', body }),
   posts: ({ member = '', before = '', limit = 12 } = {}) => request(`/posts?member=${member}&before=${encodeURIComponent(before)}&limit=${limit}`, { device: true, token: sessionToken() }),
+  // The home page feed: followed members first; a seed shuffles it (the same order on every page of one refresh).
+  feed: ({ seed = 0, offset = 0, limit = 12 } = {}) => request(`/posts?feed=1&seed=${seed}&offset=${offset}&limit=${limit}`, { device: true, token: sessionToken() }),
   post: (id) => request(`/posts/${id}`, { device: true, token: sessionToken() }),
-  member: (id) => request(`/members/${id}`),
+  member: (id) => request(`/members/${id}`, { device: true, token: sessionToken() }),
+  follow: (id) => request(`/members/${id}/follow`, { method: 'POST', body: {}, device: true, token: sessionToken() }),
+  comments: (id) => request(`/posts/${id}/comments`, { device: true, token: sessionToken() }),
+  addComment: (id, text) => request(`/posts/${id}/comments`, { method: 'POST', body: { text }, device: true, token: sessionToken() }),
+  deleteComment: (id, commentId) => request(`/posts/${id}/comments/${commentId}`, { method: 'DELETE', device: true, token: sessionToken() }),
   likePost: (id) => request(`/posts/${id}/like`, { method: 'POST', body: {}, device: true, token: sessionToken() }),
   sharePost: (id) => request(`/posts/${id}/share`, { method: 'POST', body: {} }),
   reportPost: (id, reason) => request(`/posts/${id}/report`, { method: 'POST', body: { reason }, device: true, token: sessionToken() }),
@@ -96,6 +102,7 @@ export const teamApi = (token) => ({
   editPost: (id, post) => request(`/team/posts/${id}`, { method: 'PUT', body: post, token }),
   deletePost: (id) => request(`/team/posts/${id}`, { method: 'DELETE', token }),
   setPhoto: (id) => request('/team/photo', { method: 'PUT', body: { id }, token }),
+  setBio: (bio) => request('/team/bio', { method: 'PUT', body: { bio }, token }),
   posterText: (dutyId, body) => request(`/team/duties/${dutyId}/poster-text`, { method: 'POST', body, token }),
 });
 
@@ -152,6 +159,7 @@ export const adminApi = (token) => ({
   editPost: (id, post) => request(`/admin/posts/${id}`, { method: 'PUT', body: post, token }),
   updatePost: (id, body) => request(`/admin/posts/${id}`, { method: 'PATCH', body, token }),
   deletePost: (id) => request(`/admin/posts/${id}`, { method: 'DELETE', token }),
+  deleteComment: (id, commentId) => request(`/admin/posts/${id}/comments/${commentId}`, { method: 'DELETE', token }),
   addTrack: (id, title) => request('/admin/audio-library', { method: 'POST', body: { id, title }, token }),
   deleteTrack: (id) => request(`/admin/audio-library/${id}`, { method: 'DELETE', token }),
 });

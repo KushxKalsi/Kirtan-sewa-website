@@ -1,19 +1,20 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Camera, EyeOff, Flag, Heart, Loader2, Pencil, Share2, Trash2, UserRound } from 'lucide-react';
+import { Camera, Check, EyeOff, Flag, Heart, Loader2, Pencil, Share2, Trash2, UserRound, UsersRound } from 'lucide-react';
 import Modal from './Modal';
 import PostComposer from './PostComposer';
 import PostViewer, { PostTile } from './PostViewer';
 import { prettyDate } from '../lib/date';
 import { shrinkPhoto, uploadMedia } from '../lib/media';
 
-/** Team member: their public profile photo, a new post, and the posts they made (likes, shares, edit, delete). */
+/** Team member: their public profile (photo, bio, followers), a new post, and the posts they made (likes, shares, edit, delete). */
 export default function TeamPosts({ data, team, toast }) {
   const [state, setState] = useState(null); // { posts, library, photo, limits }
   const [busy, setBusy] = useState('');
   const [bookingId, setBookingId] = useState('');
   const [open, setOpen] = useState(null);
   const [editing, setEditing] = useState(null);
+  const [bio, setBio] = useState(null); // being edited; null shows the saved one
   const me = data.person;
   // Kirtans they can link a post to: ones they were given that are confirmed or done.
   const kirtans = data.duties.filter((d) => d.status === 'confirmed' || d.status === 'completed').slice(0, 30);
@@ -39,6 +40,11 @@ export default function TeamPosts({ data, team, toast }) {
       const { id } = await uploadMedia(team, await shrinkPhoto(file, 800));
       return team.setPhoto(id);
     }, 'Profile photo updated.');
+  const saveBio = async (e) => {
+    e.preventDefault();
+    await run('bio', () => team.setBio(bio), 'Bio saved — it shows on your profile.');
+    setBio(null);
+  };
 
   if (!state) {
     return (
@@ -54,7 +60,9 @@ export default function TeamPosts({ data, team, toast }) {
         <span className="member-avatar small">{state.photo ? <img src={state.photo} alt="" /> : me.name.slice(0, 1)}</span>
         <div>
           <strong>Your public profile</strong>
-          <p className="muted">Visitors open it from the name under your photos. Add a clear photo of yourself.</p>
+          <p className="muted">
+            Visitors open it from the name under your photos. Add a clear photo of yourself. <UsersRound size={13} /> {state.followers} {state.followers === 1 ? 'follower' : 'followers'}
+          </p>
           <div className="ab-actions">
             <label className="btn btn-ghost btn-sm">
               {busy === 'photo' ? <Loader2 size={15} className="spin" /> : <Camera size={15} />} {state.photo ? 'Change photo' : 'Add photo'}
@@ -64,6 +72,17 @@ export default function TeamPosts({ data, team, toast }) {
               <UserRound size={15} /> See my profile
             </Link>
           </div>
+          <form className="bio-form" onSubmit={saveBio}>
+            <label className="field">
+              <textarea value={bio ?? state.bio} onChange={(e) => setBio(e.target.value)} placeholder=" " rows={3} maxLength={600} />
+              <span>Bio — about you, your experience in kirtan (shown on your profile)</span>
+            </label>
+            {bio !== null && bio !== state.bio && (
+              <button className="btn btn-primary btn-sm" disabled={busy === 'bio'}>
+                {busy === 'bio' ? <Loader2 size={15} className="spin" /> : <Check size={15} />} Save bio
+              </button>
+            )}
+          </form>
         </div>
       </div>
 

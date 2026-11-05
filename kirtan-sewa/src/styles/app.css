@@ -7233,3 +7233,175 @@ button.stat-card:hover {
   font-size: 13px;
   color: var(--muted);
 }
+
+/* ---------- comments, follow, bio ---------- */
+.comments {
+  display: grid;
+  gap: 10px;
+  min-height: 0;
+}
+.comments-loading {
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  color: var(--muted);
+}
+.comment-list {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  max-height: 320px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  list-style: none;
+}
+.comment {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: start;
+  gap: 10px;
+}
+.comment .author-avatar {
+  width: 32px;
+  height: 32px;
+  font-size: 13px;
+}
+.comment-body p {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.45;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+.comment-name {
+  font-weight: 700;
+  color: var(--text);
+}
+a.comment-name:hover {
+  color: var(--gold);
+}
+.comment-body time {
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.comment-delete {
+  width: 30px;
+  height: 30px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+}
+.comment-empty {
+  font-size: 13.5px;
+  color: var(--muted);
+}
+.comment-form {
+  display: flex;
+  gap: 8px;
+}
+.comment-form .input {
+  flex: 1;
+  min-width: 0;
+}
+.comment-login {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--gold);
+}
+.post-like.on-comments {
+  color: var(--gold);
+}
+
+/* Comments over a reel: a dark sheet from the bottom. */
+.reel-sheet {
+  position: absolute;
+  inset: auto 0 0;
+  z-index: 4;
+  display: grid;
+  grid-template-rows: auto 1fr;
+  height: 65%;
+  padding: 0 16px max(14px, env(safe-area-inset-bottom));
+  border-radius: 18px 18px 0 0;
+  background: rgba(18, 18, 22, 0.97);
+  backdrop-filter: blur(14px);
+  color: #fff;
+}
+.reel-sheet-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 0 10px;
+}
+.reel-sheet-head .icon-btn {
+  border: 0;
+  border-radius: 50%;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.12);
+}
+.reel-sheet .comments {
+  grid-template-rows: 1fr auto;
+}
+.reel-sheet .comment-list {
+  max-height: none;
+}
+.comments.on-dark .comment-name,
+.comments.on-dark .comment-body p {
+  color: #fff;
+}
+.comments.on-dark .comment-body time,
+.comments.on-dark .comment-empty,
+.comments.on-dark .comment-delete {
+  color: rgba(255, 255, 255, 0.6);
+}
+.comments.on-dark .input {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.18);
+}
+.comments.on-dark .comment-form .icon-btn {
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.1);
+}
+@media (min-width: 641px) {
+  .reel-sheet {
+    border-radius: 16px;
+  }
+}
+
+.feed-refresh {
+  margin-top: 16px;
+}
+.member-info {
+  flex: 1;
+  min-width: 0;
+}
+.member-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px 16px;
+}
+.member-bio {
+  max-width: 62ch;
+  margin: 12px 0 0;
+  font-size: 14.5px;
+  line-height: 1.55;
+  white-space: pre-line;
+}
+.profile-photo-card > div {
+  flex: 1;
+  min-width: 0;
+}
+.bio-form {
+  display: grid;
+  justify-items: start;
+  gap: 8px;
+  margin-top: 12px;
+}
+.bio-form .field {
+  width: 100%;
+}

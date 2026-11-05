@@ -1,17 +1,18 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { ArrowLeft, Clapperboard, Heart, Image as ImageIcon, Loader2, Music2 } from 'lucide-react';
+import { ArrowLeft, Clapperboard, Heart, Image as ImageIcon, Loader2, Music2, UserCheck, UserPlus } from 'lucide-react';
 import PostViewer, { MediaTile } from '../components/PostViewer';
 import { api } from '../lib/api';
 import { ease } from '../lib/motion';
+import { useToast } from '../components/Toast';
 
 const TABS = [
   { id: 'image', label: 'Photos', icon: ImageIcon },
   { id: 'video', label: 'Videos', icon: Clapperboard },
 ];
 
-/** A team member's public page: who they are, and every photo and video they posted. */
+/** A team member's public page: who they are, their bio, followers (follow them here), and every photo and video they posted. */
 export default function MemberProfile() {
   const { id } = useParams();
   const [member, setMember] = useState(null);
@@ -21,6 +22,8 @@ export default function MemberProfile() {
   const [tab, setTab] = useState('image');
   const [open, setOpen] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [following, setFollowing] = useState(false);
+  const toast = useToast();
 
   useEffect(() => {
     setMember(null);
@@ -33,6 +36,21 @@ export default function MemberProfile() {
       })
       .catch((e) => setError(e.message));
   }, [id]);
+
+  const follow = async () => {
+    const before = member;
+    setMember((m) => ({ ...m, following: !m.following, followers: m.followers + (m.following ? -1 : 1) }));
+    setFollowing(true);
+    try {
+      const r = await api.follow(id);
+      setMember((m) => ({ ...m, ...r }));
+    } catch (e) {
+      setMember(before);
+      toast(e.message, 'error');
+    } finally {
+      setFollowing(false);
+    }
+  };
 
   const loadMore = async () => {
     setLoading(true);
@@ -64,10 +82,22 @@ export default function MemberProfile() {
           <>
             <motion.header className="member-head glass" initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, ease }}>
               <span className="member-avatar">{member.photo ? <img src={member.photo} alt="" /> : member.name.slice(0, 1)}</span>
-              <div>
-                <h1>{member.name}</h1>
-                {member.role && <p className="eyebrow">{member.role}</p>}
+              <div className="member-info">
+                <div className="member-title">
+                  <div>
+                    <h1>{member.name}</h1>
+                    {member.role && <p className="eyebrow">{member.role}</p>}
+                  </div>
+                  {!member.self && (
+                    <motion.button type="button" className={`btn btn-sm ${member.following ? 'btn-ghost' : 'btn-primary'}`} onClick={follow} disabled={following} whileTap={{ scale: 0.94 }} aria-pressed={member.following}>
+                      {member.following ? <UserCheck size={15} /> : <UserPlus size={15} />} {member.following ? 'Following' : 'Follow'}
+                    </motion.button>
+                  )}
+                </div>
                 <ul className="member-stats">
+                  <li>
+                    <strong>{member.followers}</strong> {member.followers === 1 ? 'follower' : 'followers'}
+                  </li>
                   <li>
                     <strong>{member.kirtans}</strong> kirtans
                   </li>
@@ -81,6 +111,7 @@ export default function MemberProfile() {
                     <Heart size={14} /> <strong>{member.likes}</strong>
                   </li>
                 </ul>
+                {member.bio && <p className="member-bio">{member.bio}</p>}
               </div>
             </motion.header>
 

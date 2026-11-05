@@ -1,9 +1,10 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { AnimatePresence, motion } from 'framer-motion';
-import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Heart, Loader2, Music, Share2, Volume2, VolumeX, X } from 'lucide-react';
+import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Heart, Loader2, MessageCircle, Music, Share2, Volume2, VolumeX, X } from 'lucide-react';
 import { formatDistanceToNowStrict } from 'date-fns';
 import { AuthorChip, ShareMenu, usePostActions } from './PostCard';
+import Comments from './Comments';
 import { lockScroll, unlockScroll } from '../lib/scroll';
 
 const OPEN_EVENT = 'reels:open';
@@ -16,13 +17,15 @@ export const onOpenReels = (fn) => {
   return () => window.removeEventListener(OPEN_EVENT, fn);
 };
 
-/** One post filling the screen: swipe sideways through its photos and videos, double-tap to like, tap for sound. */
+/** One post filling the screen: swipe sideways through its photos and videos, double-tap to like, tap for sound, comment. */
 function Reel({ post: initial, active, muted, onMute, onChange }) {
   const actions = usePostActions(initial, onChange);
   const { post, like, share } = actions;
   const [index, setIndex] = useState(0);
   const [burst, setBurst] = useState(0);
   const [captionOpen, setCaptionOpen] = useState(false);
+  const [showComments, setShowComments] = useState(false);
+  const [comments, setComments] = useState(null); // count, once they are loaded
   const trackRef = useRef(null);
   const audioRef = useRef(null);
   const many = post.media.length > 1;
@@ -132,6 +135,10 @@ function Reel({ post: initial, active, muted, onMute, onChange }) {
             <Heart size={28} fill={post.liked ? 'currentColor' : 'none'} />
             <span>{post.likes}</span>
           </motion.button>
+          <button type="button" className="reel-act" onClick={() => setShowComments(true)} aria-label="Comments">
+            <MessageCircle size={26} />
+            <span>{comments ?? post.comments ?? 0}</span>
+          </button>
           <button type="button" className="reel-act" onClick={share} aria-label="Share">
             <Share2 size={26} />
             <span>Share</span>
@@ -143,6 +150,19 @@ function Reel({ post: initial, active, muted, onMute, onChange }) {
           )}
         </div>
         <ShareMenu actions={actions} className="reel-share-menu" />
+        <AnimatePresence>
+          {showComments && (
+            <motion.div className="reel-sheet" initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={{ type: 'spring', stiffness: 320, damping: 34 }}>
+              <div className="reel-sheet-head">
+                <strong>Comments</strong>
+                <button type="button" className="icon-btn" onClick={() => setShowComments(false)} aria-label="Close comments">
+                  <X size={18} />
+                </button>
+              </div>
+              <Comments postId={post.id} onCount={setComments} className="on-dark" />
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
     </section>
   );
@@ -165,7 +185,7 @@ function ReelsView({ posts, startId, more, loading, onLoadMore, onChange, onClos
     document.body.style.overflow = 'hidden';
     const onKey = (e) => {
       if (e.key === 'Escape') onClose();
-      else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      else if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && !e.target.closest?.('input, textarea')) {
         e.preventDefault();
         step(e.key === 'ArrowDown' ? 1 : -1);
       }

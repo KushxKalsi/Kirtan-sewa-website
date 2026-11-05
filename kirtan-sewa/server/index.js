@@ -2506,6 +2506,7 @@ const publicPost = (post, viewer = '') => ({
   poster: !!post.poster,
   likes: (post.likedBy || []).length,
   liked: !!viewer && (post.likedBy || []).includes(viewer),
+  comments: (post.comments || []).length,
   shares: post.shares || 0,
   createdAt: post.createdAt,
 });
@@ -2576,11 +2577,34 @@ async function dropPost(post) {
   if (post.audio && !post.audio.libraryId) await removeMedia(post.audio.id, post.audio.local);
 }
 
+// The same shuffle for every page of one refresh (seed), so paging never repeats or skips a post.
+function shuffled(list, seed) {
+  let n = seed >>> 0 || 1;
+  const rand = () => (n = (Math.imul(n, 1664525) + 1013904223) >>> 0) / 4294967296;
+  const out = [...list];
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(rand() * (i + 1));
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
+}
+const follows = (person, viewer) => !!viewer && (person.followers || []).includes(viewer);
+
 app.get('/api/posts', (req, res) => {
   const member = str(req.query.member, 20);
   const before = str(req.query.before, 40);
   const limit = Math.min(30, Math.max(1, Number(req.query.limit) || 12));
   const viewer = viewerKey(req);
+  // The home page feed: posts by the members this viewer follows first, newest first, or shuffled after a refresh (seed).
+  if (req.query.feed) {
+    const seed = Number(req.query.seed) || 0;
+    const offset = Math.max(0, Number(req.query.offset) || 0);
+    const followed = new Set(db.people.filter((p) => follows(p, viewer)).map((p) => p.id));
+    const newest = db.posts.filter(postVisible).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    const order = (list) => (seed ? shuffled(list, seed) : list);
+    const list = [...order(newest.filter((p) => followed.has(p.personId))), ...order(newest.filter((p) => !followed.has(p.personId)))];
+    return res.json({ posts: list.slice(offset, offset + limit).map((p) => publicPost(p, viewer)), more: list.length > offset + limit });
+  }
   const list = db.posts
     .filter((p) => postVisible(p) && (!member || p.personId === member) && (!before || p.createdAt < before))
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
@@ -2603,8 +2627,77 @@ app.get('/api/members/:id', (req, res) => {
       photos: posts.reduce((t, x) => t + x.media.filter((m) => m.kind === 'image').length, 0),
       videos: posts.reduce((t, x) => t + x.media.filter((m) => m.kind === 'video').length, 0),
       likes: posts.reduce((t, x) => t + (x.likedBy || []).length, 0),
+      bio: p.bio || '',
+      followers: (p.followers || []).length,
+      following: follows(p, viewerKey(req)),
+      self: viewerKey(req) === `m:${p.id}`,
     },
   });
+});
+// Follow (or unfollow) a member, as a logged-in account or as this browser, like likes. Their posts come first in the feed.
+app.post('/api/members/:id/follow', async (req, res) => {
+  const p = personOf(req.params.id);
+  if (!p?.active || p.pending) fail(404, 'This team member was not found.');
+  const viewer = viewerKey(req);
+  if (!viewer) fail(400, 'Please reload the page and try again.');
+  if (viewer === `m:${p.id}`) fail(400, 'You cannot follow yourself.');
+  throttle(`follow:${viewer}`, 60);
+  const following = !follows(p, viewer);
+  p.followers = following ? [...(p.followers || []), viewer] : (p.followers || []).filter((k) => k !== viewer);
+  await save();
+  res.json({ followers: p.followers.length, following });
+});
+
+/* Comments: anyone can read them; writing one needs a login (a customer or team account), so each has a real name.
+ * The writer and the post's member can delete a comment; the admin can delete any. */
+const MAX_COMMENT = 500;
+function commentsView(post, req) {
+  const viewer = viewerKey(req);
+  const s = sessionOf(req);
+  const isAuthor = s?.role === 'member' && post.personId === s.person.id;
+  return {
+    comments: (post.comments || []).map((c) => {
+      const person = c.personId ? personOf(c.personId) : null;
+      const shown = person?.active && !person.pending;
+      return {
+        id: c.id,
+        name: person?.name || c.name,
+        photo: shown && person.photo ? mediaUrl(person.photo, person.photoLocal) : '',
+        memberId: shown ? person.id : '',
+        text: c.text,
+        at: c.at,
+        canDelete: !!viewer && (c.by === viewer || isAuthor),
+      };
+    }),
+    canComment: s?.role === 'user' || s?.role === 'member',
+  };
+}
+const visiblePost = (id) => {
+  const post = db.posts.find((p) => p.id === id);
+  if (!post || !postVisible(post)) fail(404, 'This post is no longer available.');
+  return post;
+};
+app.get('/api/posts/:id/comments', (req, res) => res.json(commentsView(visiblePost(req.params.id), req)));
+app.post('/api/posts/:id/comments', async (req, res) => {
+  const post = visiblePost(req.params.id);
+  const s = sessionOf(req);
+  if (s?.role !== 'user' && s?.role !== 'member') fail(401, 'Please log in to comment.');
+  const text = str(req.body?.text, MAX_COMMENT);
+  if (!text) fail(400, 'Write a comment first.');
+  const viewer = viewerKey(req);
+  throttle(`comment:${viewer}`, 20);
+  const person = s.role === 'member' ? s.person : null;
+  post.comments = [...(post.comments || []), { id: uid(), by: viewer, ...(person && { personId: person.id }), name: (person || s.user).name, text, at: new Date().toISOString() }];
+  await save();
+  res.status(201).json(commentsView(post, req));
+});
+app.delete('/api/posts/:id/comments/:cid', async (req, res) => {
+  const post = visiblePost(req.params.id);
+  const view = commentsView(post, req);
+  if (!view.comments.some((c) => c.id === req.params.cid && c.canDelete)) fail(403, 'You cannot delete this comment.');
+  post.comments = post.comments.filter((c) => c.id !== req.params.cid);
+  await save();
+  res.json(commentsView(post, req));
 });
 app.post('/api/posts/:id/like', async (req, res) => {
   const post = db.posts.find((p) => p.id === req.params.id);
@@ -2644,6 +2737,8 @@ const teamPosts = (p) => ({
   posts: db.posts.filter((x) => x.personId === p.id).sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map(ownPost),
   library: libraryView(),
   photo: p.photo ? mediaUrl(p.photo, p.photoLocal) : '',
+  bio: p.bio || '',
+  followers: (p.followers || []).length,
   limits: Object.fromEntries(Object.entries(MEDIA_KINDS).map(([k, v]) => [k, v.max])),
   posterAi: posterAiOn,
 });
@@ -2665,6 +2760,12 @@ app.delete('/api/team/posts/:id', requireMember, async (req, res) => {
   const post = db.posts.find((x) => x.id === req.params.id && x.personId === req.person.id);
   if (!post) fail(404, 'Post not found.');
   await dropPost(post);
+  res.json(teamPosts(req.person));
+});
+// About them, on their public profile: who they are, their experience.
+app.put('/api/team/bio', requireMember, async (req, res) => {
+  req.person.bio = str(req.body?.bio, 600);
+  await save();
   res.json(teamPosts(req.person));
 });
 app.put('/api/team/photo', requireMember, async (req, res) => {
@@ -2716,6 +2817,13 @@ app.post('/api/admin/posts', async (req, res) => {
   db.posts.push(readPost(req.body, 'admin', personId));
   await save();
   res.status(201).json(adminPosts());
+});
+app.delete('/api/admin/posts/:id/comments/:cid', async (req, res) => {
+  const post = db.posts.find((x) => x.id === req.params.id);
+  if (!post) fail(404, 'Post not found.');
+  post.comments = (post.comments || []).filter((c) => c.id !== req.params.cid);
+  await save();
+  res.json(commentsView(post, req));
 });
 app.put('/api/admin/posts/:id', async (req, res) => {
   const post = db.posts.find((x) => x.id === req.params.id);

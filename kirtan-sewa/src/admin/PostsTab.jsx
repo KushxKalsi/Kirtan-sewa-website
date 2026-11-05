@@ -6,7 +6,7 @@ import PostComposer from '../components/PostComposer';
 import PostViewer, { PostTile } from '../components/PostViewer';
 import { uploadMedia } from '../lib/media';
 
-/** Posts on the site: post as the jatha or for a team member, edit, hide or delete any post, and the Gurbani music library. */
+/** Posts on the site: post as the jatha or for a team member, edit, hide or delete any post or comment, and the Gurbani music library. */
 export default function PostsTab({ data, api, toast }) {
   const [state, setState] = useState(null); // { posts, library, storage }
   const [busy, setBusy] = useState('');
@@ -187,7 +187,7 @@ export default function PostsTab({ data, api, toast }) {
           </div>
         </aside>
       </div>
-      <PostViewer open={open} onClose={() => setOpen(null)} />
+      <PostViewer open={open} onClose={() => setOpen(null)} moderate={api.deleteComment} />
       <Modal open={!!editing} onClose={() => setEditing(null)} title="Edit post" wide>
         {editing && (
           <PostComposer

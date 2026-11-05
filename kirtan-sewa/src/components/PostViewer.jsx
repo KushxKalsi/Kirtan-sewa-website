@@ -1,4 +1,4 @@
-import { Heart, Images, Music, Play } from 'lucide-react';
+import { Heart, Images, MessageCircle, Music, Play } from 'lucide-react';
 import Modal from './Modal';
 import PostCard from './PostCard';
 
@@ -27,17 +27,22 @@ export function PostTile({ post, onClick }) {
           {post.media.length > 1 && <Images size={14} />}
           {post.audio && <Music size={14} />}
           <Heart size={14} fill={post.liked ? 'currentColor' : 'none'} /> {post.likes}
+          {post.comments > 0 && (
+            <>
+              <MessageCircle size={14} /> {post.comments}
+            </>
+          )}
         </span>
       </span>
     </MediaTile>
   );
 }
 
-/** A post opened over the page, at the photo that was tapped. */
-export default function PostViewer({ open, onClose }) {
+/** A post opened over the page, at the photo that was tapped. `moderate` lets the admin delete any comment. */
+export default function PostViewer({ open, onClose, moderate }) {
   return (
     <Modal open={!!open} onClose={onClose} size="post-modal">
-      {open && <PostCard post={open.post} startIndex={open.index || 0} />}
+      {open && <PostCard post={open.post} startIndex={open.index || 0} moderate={moderate} />}
     </Modal>
   );
 }

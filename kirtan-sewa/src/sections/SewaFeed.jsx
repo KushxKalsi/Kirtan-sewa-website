@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Images, Loader2 } from 'lucide-react';
+import { Images, Loader2, RefreshCw } from 'lucide-react';
 import SplitText from '../components/SplitText';
 import Reveal from '../components/Reveal';
 import { PostTile } from '../components/PostViewer';
@@ -15,14 +15,17 @@ import Gallery from './Gallery';
 const PAGE = 9;
 
 /**
- * "Sewa in action": the latest kirtan photos and videos the team posted. Shows the old gallery until there are posts,
- * and a short note when there is neither, so the header's Posts link always has somewhere to go.
+ * "Sewa in action": kirtan photos and videos the team posted, by the members this visitor follows first. Refresh
+ * shuffles them. Shows the old gallery until there are posts, and a short note when there is neither, so the header's
+ * Posts link always has somewhere to go.
  */
 export default function SewaFeed() {
   const { site } = useSite();
   const [posts, setPosts] = useState(null);
   const [more, setMore] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [seed, setSeed] = useState(0); // 0: newest first; a refresh picks a new shuffle
   const [open, setOpen] = useState(null);
   // The header's Posts link (from this page, or from another page via the route state) opens the reels.
   const [wantReels, setWantReels] = useState(!!useLocation().state?.reels);
@@ -37,7 +40,7 @@ export default function SewaFeed() {
 
   useEffect(() => {
     api
-      .posts({ limit: PAGE })
+      .feed({ limit: PAGE })
       .then((r) => {
         setPosts(r.posts);
         setMore(r.more);
@@ -45,10 +48,25 @@ export default function SewaFeed() {
       .catch(() => setPosts([]));
   }, []);
 
+  const refresh = async () => {
+    const next = 1 + Math.floor(Math.random() * 2 ** 30);
+    setRefreshing(true);
+    try {
+      const r = await api.feed({ seed: next, limit: PAGE });
+      setSeed(next);
+      setPosts(r.posts);
+      setMore(r.more);
+    } catch {
+      // keep what is on screen
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
   const loadMore = useCallback(async () => {
     setLoading(true);
     try {
-      const r = await api.posts({ limit: PAGE, before: posts[posts.length - 1].createdAt });
+      const r = await api.feed({ seed, offset: posts.length, limit: PAGE });
       setPosts((list) => [...list, ...r.posts]);
       setMore(r.more);
     } catch {
@@ -56,7 +74,7 @@ export default function SewaFeed() {
     } finally {
       setLoading(false);
     }
-  }, [posts]);
+  }, [posts, seed]);
   const updatePost = useCallback((post) => setPosts((list) => list.map((p) => (p.id === post.id ? post : p))), []);
   const closeReels = useCallback(() => setOpen(null), []);
 
@@ -71,8 +89,15 @@ export default function SewaFeed() {
           </Reveal>
           <SplitText className="section-title" text="From our kirtans" highlight={[2]} />
           <Reveal delay={0.1}>
-            <p className="section-lead">Photos and videos the jatha posts from their kirtans. Tap one to scroll through them like reels, and tap a name to see all of their sewa.</p>
+            <p className="section-lead">Photos and videos the jatha posts from their kirtans. Tap one to scroll through them like reels, and tap a name to see all of their sewa and follow them.</p>
           </Reveal>
+          {posts?.length > 0 && (
+            <Reveal delay={0.15}>
+              <button type="button" className="btn btn-ghost btn-sm feed-refresh" onClick={refresh} disabled={refreshing}>
+                <RefreshCw size={15} className={refreshing ? 'spin' : ''} /> Refresh
+              </button>
+            </Reveal>
+          )}
         </div>
         {posts?.length === 0 && (
           <div className="admin-empty glass feed-empty">
