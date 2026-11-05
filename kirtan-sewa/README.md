@@ -196,7 +196,7 @@ The uploaded QR image is saved in `data/uploads/`.
   from"), while booking or later from their account. It appears on the booking and in the chat. **Accept** makes it
   the bill (and confirms a pending booking); **Set another amount** opens the usual bill form; **Decline** sends
   your message to their chat.
-- **Commission:** 10% of each bill above ₹3,500 (both editable in Site settings → Payments). Amounts show only in
+- **Commission:** 5% of each bill above ₹3,500 (both editable in Site settings → Payments). Amounts show only in
   the admin Bookings tab (per booking and in total). The site footer carries one line about it in small print.
 
 ## Team: roles, profile, sewas, bhet and leave
@@ -228,11 +228,11 @@ The uploaded QR image is saved in `data/uploads/`.
   ID, and it is **Booked** when the admin verifies the payment; with **cash** it is booked as soon as the admin
   confirms. Both sides see these steps as a progress line. A sewa is handed over (at the bhet offered) only once it
   is booked.
-- The member pays the bhet they offer (cash or UPI; they never see the commission); the admin keeps a **10% commission** out of it and marks it
-  received. The people assigned see — and get, on any sewa handed to them — their bhet after the 10%.
+- The member pays the bhet they offer (cash or UPI; they never see the commission); the admin keeps a **5% commission** out of it and marks it
+  received. The people assigned see — and get, on any sewa handed to them — their bhet after the 5%.
 - **UPI:** the QR and **Pay now** appear once the admin has confirmed. They enter the UPI transaction ID (UTR);
   Admin → Team bookings shows it with **Verify payment** or **Not received** (they're told, and can send it again).
-- **Cash:** the member pays the whole bhet to the people who go, so each one owes the admin the 10% on what they
+- **Cash:** the member pays the whole bhet to the people who go, so each one owes the admin the 5% on what they
   accepted. They see it as a **negative balance** (e.g. −₹150) on their Team booking page; Admin → Team bookings lists
   it under **Commission to collect (cash)**, and **Received** clears it. Both sides can open and print a **Bill** for each team booking.
 - Once people are assigned (or within 1 day of the start) the member can't withdraw it, but can **Ask to cancel**;

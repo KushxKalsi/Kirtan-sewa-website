@@ -1286,7 +1286,7 @@ app.post('/api/team/duties/:id/pay-request', requireMember, async (req, res) => 
  * go see and get the rest. */
 const LEAVE_NOTICE_MS = 24 * 60 * 60 * 1000;
 const LEAVE_MIN_PAY = 200; // least bhet they can offer a teammate
-const TEAM_COMMISSION_RATE = 10;
+const TEAM_COMMISSION_RATE = 5;
 // Commission on one request, and what the person who goes gets after it (bookings from before commission: all of it).
 const pickCommission = (l, x) => Math.round((x.pay * (l.commissionRate ?? 0)) / 100);
 const netPay = (l, x) => x.pay - pickCommission(l, x);

@@ -34,7 +34,7 @@ const defaults = () => ({
     upiQr: '',
     paymentNote: 'Bhet is as per your shardha. You can pay by UPI now or in cash on the day.',
     offerMin: 1500, // customers may offer their own amount, from this much
-    commissionRate: 10, // admin commission (%) of each member's bhet on bills above commissionAbove
+    commissionRate: 5, // admin commission (%) of each member's bhet on bills above commissionAbove
     commissionAbove: 3500,
     gallery: [],
     testimonials: [
@@ -484,6 +484,11 @@ export async function initDb() {
     if (!db.gurpurabs.some((x) => x.id === g.id)) db.gurpurabs.push(g);
   }
   db.gurpurabs.sort((a, b) => a.date.localeCompare(b.date));
+  // The commission went from 10% to 5% (Nov 2026): set it once; later changes in Site settings are kept.
+  if (!db.meta.commission5) {
+    db.settings.commissionRate = 5;
+    db.meta.commission5 = true;
+  }
   await save();
   console.log(`[sewa] Storage: ${store.name}`);
 }
