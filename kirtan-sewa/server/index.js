@@ -2645,8 +2645,25 @@ app.post('/api/members/:id/follow', async (req, res) => {
   const following = !follows(p, viewer);
   p.followers = following ? [...(p.followers || []), viewer] : (p.followers || []).filter((k) => k !== viewer);
   await save();
+  if (following) tellNewFollower(p, viewer, sessionOf(req));
   res.json({ followers: p.followers.length, following });
 });
+// "You have a new follower" on the member's phone: once per follower (so follow / unfollow taps don't repeat it), and
+// with one tag, so a few new followers update the same notification instead of piling up.
+const followNotified = new Set(); // `${member id}:${follower}`
+function tellNewFollower(person, viewer, s) {
+  const key = `${person.id}:${viewer}`;
+  if (followNotified.has(key)) return;
+  followNotified.add(key);
+  const who = s?.role === 'user' ? s.user.name : s?.role === 'member' ? s.person.name : 'Someone from the sangat';
+  const count = person.followers.length;
+  notifyPhone(person.phone, {
+    title: 'New follower 🙏',
+    body: `${who} started following you. You now have ${count} ${count === 1 ? 'follower' : 'followers'}.`,
+    url: `/m/${person.id}`,
+    tag: `follow-${person.id}`,
+  }).catch(() => {});
+}
 
 /* Comments: anyone can read them; writing one needs a login (a customer or team account), so each has a real name.
  * The writer and the post's member can delete a comment; the admin can delete any. */
