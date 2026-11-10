@@ -1,4 +1,5 @@
 import { format } from 'date-fns';
+import { SITE_ORIGIN } from '../lib/native';
 import { Download } from 'lucide-react';
 import Modal from './Modal';
 import { prettyDate, rangeTo12 } from '../lib/date';
@@ -243,10 +244,10 @@ export function TeamBill({ leave: l, settings: s, member, roles = {}, nameOf = (
 
 /** Opens the bill in a clean window and triggers print (Save as PDF works from there). */
 export function printBill(booking, settings) {
-  return printWindow(`Bill ${booking.billNo} — ${settings.siteName}`, () => <Bill booking={booking} settings={settings} origin={window.location.origin} />);
+  return printWindow(`Bill ${booking.billNo} — ${settings.siteName}`, () => <Bill booking={booking} settings={settings} origin={SITE_ORIGIN} />);
 }
 export function printTeamBill(props) {
-  return printWindow(`Bill ${props.leave.billNo || ''} — ${props.settings.siteName}`, () => <TeamBill {...props} origin={window.location.origin} />);
+  return printWindow(`Bill ${props.leave.billNo || ''} — ${props.settings.siteName}`, () => <TeamBill {...props} origin={SITE_ORIGIN} />);
 }
 
 async function printWindow(title, render) {

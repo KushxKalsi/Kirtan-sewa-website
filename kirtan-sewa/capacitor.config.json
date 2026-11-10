@@ -1,0 +1,12 @@
+{
+  "appId": "com.kirtansewa.app",
+  "appName": "Kirtan Sewa",
+  "webDir": "dist",
+  "backgroundColor": "#070A14",
+  "server": { "androidScheme": "https" },
+  "ios": { "contentInset": "never", "backgroundColor": "#070A14" },
+  "plugins": {
+    "SplashScreen": { "launchShowDuration": 2500, "backgroundColor": "#070A14", "showSpinner": false, "launchAutoHide": false },
+    "Keyboard": { "resize": "native" }
+  }
+}

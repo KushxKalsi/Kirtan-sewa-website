@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { withBase } from '../lib/native';
 import { AnimatePresence, motion } from 'framer-motion';
 import { differenceInCalendarDays, format, subMonths } from 'date-fns';
 import { BellRing, Eye, EyeOff, ImagePlus, Loader2, Pencil, Plus, Save, Send, Sparkles, Trash2, X } from 'lucide-react';
@@ -15,7 +16,7 @@ const KINDS = [
 ];
 const kindOf = (id) => KINDS.find((k) => k.id === id) || KINDS[0];
 const blank = { kind: 'prakash', name: '', gurmukhi: '', date: '', images: [], active: true };
-const imageUrl = (id) => `/api/gurpurab-images/${id}`;
+const imageUrl = (id) => withBase(`/api/gurpurab-images/${id}`);
 const MAX_IMAGES = 8;
 
 /** Prakash Purab / Gurgaddi / Jyoti Jot / Shaheedi days: dates, pictures for the home page carousel, and the one-month notice. */

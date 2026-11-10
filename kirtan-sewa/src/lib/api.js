@@ -1,4 +1,5 @@
 import { readStore, writeStore } from './storage';
+import { API_BASE, withBase } from './native';
 
 // This browser's random id, so a visitor who isn't logged in can like a post once.
 function deviceId() {
@@ -19,7 +20,7 @@ async function request(path, { method = 'GET', body, token, device } = {}) {
   if (token) headers.Authorization = `Bearer ${token}`;
   let res;
   try {
-    res = await fetch(`/api${path}`, { method, headers, body: body !== undefined ? JSON.stringify(body) : undefined });
+    res = await fetch(`${API_BASE}/api${path}`, { method, headers, body: body !== undefined ? JSON.stringify(body) : undefined });
   } catch {
     throw new Error('Cannot reach the server. Check your connection.');
   }
@@ -29,7 +30,7 @@ async function request(path, { method = 'GET', body, token, device } = {}) {
     err.status = res.status;
     throw err;
   }
-  return data;
+  return withBase(data);
 }
 
 export const api = {

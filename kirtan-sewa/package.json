@@ -10,10 +10,21 @@
     "dev": "concurrently -k -n api,web -c yellow,cyan \"node --watch server/index.js\" \"vite\"",
     "build": "vite build",
     "start": "NODE_ENV=production node server/index.js",
-    "preview": "npm run build && npm start"
+    "preview": "npm run build && npm start",
+    "build:app": "vite build && cap sync",
+    "app:android": "npm run build:app && cap open android",
+    "app:ios": "npm run build:app && cap open ios"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.4.0",
+    "@capacitor/android": "^8.6.0",
+    "@capacitor/app": "^8.1.2",
+    "@capacitor/cli": "^8.6.0",
+    "@capacitor/core": "^8.6.0",
+    "@capacitor/ios": "^8.6.0",
+    "@capacitor/keyboard": "^8.0.6",
+    "@capacitor/splash-screen": "^8.0.2",
+    "@capacitor/status-bar": "^8.0.4",
     "date-fns": "^4.4.0",
     "express": "^5.3.0",
     "framer-motion": "^14.6.0",
@@ -26,6 +37,7 @@
     "web-push": "^3.6.7"
   },
   "devDependencies": {
+    "@capacitor/assets": "^4.0.0",
     "@vitejs/plugin-react": "^6.1.2",
     "concurrently": "^10.0.6",
     "vite": "^8.3.5"

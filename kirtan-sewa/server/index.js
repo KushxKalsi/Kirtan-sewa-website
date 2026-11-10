@@ -42,6 +42,22 @@ const QR_PATH = '/api/admin/upi-qr';
 const GP_IMAGE_PATH = '/api/admin/gurpurab-images';
 const DOC_PATH = '/api/team/documents/';
 const TEAM_SIGNUP_PATH = '/api/auth/register-team';
+// The Android / iOS app runs from its own origin and calls this API across origins; the website itself never needs this.
+const APP_ORIGINS = new Set(['capacitor://localhost', 'https://localhost', 'http://localhost', 'ionic://localhost']);
+app.use('/api', (req, res, next) => {
+  const origin = req.headers.origin;
+  if (origin && APP_ORIGINS.has(origin)) {
+    res.set({
+      'Access-Control-Allow-Origin': origin,
+      'Access-Control-Allow-Methods': 'GET,POST,PUT,PATCH,DELETE,OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Device',
+      'Access-Control-Max-Age': '86400',
+      Vary: 'Origin',
+    });
+    if (req.method === 'OPTIONS') return res.sendStatus(204);
+  }
+  next();
+});
 const smallJson = express.json({ limit: '300kb' });
 // Image uploads (UPI QR, Gurpurab pictures, team documents and sign-ups with them) get their own larger body limit.
 const bigBody = (path) => path === QR_PATH || path === GP_IMAGE_PATH || path === TEAM_SIGNUP_PATH || path.startsWith(DOC_PATH);

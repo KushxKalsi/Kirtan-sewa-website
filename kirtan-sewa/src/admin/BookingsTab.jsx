@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { SITE_ORIGIN } from '../lib/native';
 import { AnimatePresence, motion } from 'framer-motion';
 import { format } from 'date-fns';
 import { Ban, Banknote, BellRing, Check, ExternalLink, Lock, LockOpen, Navigation, Repeat, Save, Tag, UserRound, Users, ChevronDown, CircleCheck, FileText, Loader2, Mail, MapPin, MessageCircle, Pencil, Phone, RotateCcw, Search, Smartphone, Trash2, Undo2, Wallet } from 'lucide-react';
@@ -486,7 +487,7 @@ export default function BookingsTab({ data, api, patch, toast }) {
       settings.upiEnabled && settings.upiId ? `Pay by UPI to: ${settings.upiId}` : '',
       settings.cashEnabled ? 'Cash on the day is also fine.' : '',
       '',
-      `View your bill and pay (log in with this mobile number): ${window.location.origin}/account`,
+      `View your bill and pay (log in with this mobile number): ${SITE_ORIGIN}/account`,
     ];
     return encodeURIComponent(lines.filter((l, i) => l || lines[i - 1]).join('\n'));
   };

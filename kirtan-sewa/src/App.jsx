@@ -9,6 +9,7 @@ import { AuthProvider } from './components/AuthContext';
 import Navbar from './components/Navbar';
 import Footer from './components/Footer';
 import Preloader from './components/Preloader';
+import InstallApp from './components/InstallApp';
 import CursorGlow from './components/CursorGlow';
 import ScrollProgress from './components/ScrollProgress';
 import Home from './pages/Home';
@@ -81,6 +82,7 @@ function Shell() {
       <CursorGlow />
       <AnimatePresence>{intro && <Preloader key="pre" onDone={finishIntro} />}</AnimatePresence>
       <Navbar />
+      <InstallApp />
 
       {site404 ? (
         <main className="page offline">

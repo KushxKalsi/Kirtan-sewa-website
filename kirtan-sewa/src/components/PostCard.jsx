@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { SITE_ORIGIN } from '../lib/native';
 import { Link } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Check, ChevronLeft, ChevronRight, Flag, Heart, Link2, MessageCircle, Music, Pause, Share2 } from 'lucide-react';
@@ -7,7 +8,7 @@ import { api } from '../lib/api';
 import { useToast } from './Toast';
 import Comments from './Comments';
 
-export const postLink = (id) => `${window.location.origin}/p/${id}`;
+export const postLink = (id) => `${SITE_ORIGIN}/p/${id}`;
 
 /** Avatar + name + role, linking to the member's profile (the jatha's own posts have no profile page). */
 export function AuthorChip({ author, small }) {

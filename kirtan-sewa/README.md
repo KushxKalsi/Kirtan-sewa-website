@@ -302,3 +302,26 @@ One table per kind of record, each with `id`, a few typed columns for searching 
 `files` (UPI QR, Gurpurab pictures, team documents, as bytea). Password hashes are kept only in their own column.
 Only rows that changed are written. On the first start after upgrading, the data in the old single `sewa_store`
 table is copied into the new tables automatically; `sewa_store` is left untouched as a backup.
+
+## Android & iOS app
+
+The app is this same React site wrapped with [Capacitor](https://capacitorjs.com) — same screens, animations and
+features, bundled inside the app and talking to the live server. The app looks and behaves exactly like the website on a phone.
+
+1. Copy `.env.example` to `.env.production` and set `VITE_API_URL` to the live site (e.g. `https://<name>.onrender.com`).
+2. `npm run build:app` — builds the web code and copies it into `android/` and `ios/`.
+3. **Android** (Android Studio + JDK 21): `npm run app:android`, then Run ▶ or Build → Generate Signed Bundle/APK.
+4. **iOS** (needs a Mac with Xcode + CocoaPods): `npm run app:ios`, set your Team under Signing & Capabilities, Run / Archive.
+5. Change the app id (`com.kirtansewa.app`) in `capacitor.config.json` before the first store build, if you want another one.
+6. If posts are stored in Cloudflare R2, add `https://localhost` and `capacitor://localhost` to the bucket's `AllowedOrigins`.
+7. Icons / splash come from `resources/`; re-generate with `npx capacitor-assets generate`.
+
+Not in the app yet: push notifications (the website uses web-push, which phone WebViews don't support — the app needs
+FCM / APNs) and printing/downloading bills (`window.open` is blocked in the app).
+
+### "Get the app" prompt on the website
+
+Phone visitors in a normal browser see a "Kirtan Sewa app" banner (Chrome's own "install web app" prompt is suppressed).
+- **Android:** appears once `public/downloads/kirtan-sewa.apk` exists (build a signed release APK with the live `VITE_API_URL`).
+- **iPhone:** appears when the website is built with `VITE_IOS_URL=<App Store link>`.
+- Hidden inside the app and in an already-installed home-screen app. Override the Android link with `VITE_ANDROID_URL`.
