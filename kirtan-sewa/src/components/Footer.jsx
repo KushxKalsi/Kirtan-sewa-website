@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom';
 import { useSite } from './SiteContext';
 import { useGoTo } from './useGoTo';
 import { rupees } from '../lib/money';
+import { canInstall, showInstall } from './InstallApp';
 
 export default function Footer() {
   const { site } = useSite();
@@ -28,6 +29,7 @@ export default function Footer() {
         <div className="footer-links">
           <button onClick={() => goTo('sewa')}>Sewa</button>
           <button onClick={() => goTo('book')}>Book a date</button>
+          {canInstall() && <button onClick={showInstall}>Install app</button>}
           <Link to="/account">My account</Link>
           <Link to="/login?as=team">Team login</Link>
           <Link to="/admin">Admin</Link>

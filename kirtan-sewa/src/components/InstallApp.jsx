@@ -23,6 +23,11 @@ if (typeof window !== 'undefined') {
   });
 }
 
+/** Brings the install banner back after it was dismissed (used by the footer / menu "Install app" links). */
+export const showInstall = () => window.dispatchEvent(new Event('sewa:install'));
+/** False inside the app and in an installed home-screen app, where there is nothing to install. */
+export const canInstall = () => !isNative && !isStandalone();
+
 /** Shown as soon as the site opens in a browser (never inside the app or an installed home-screen app). */
 export default function InstallApp() {
   const [target, setTarget] = useState(null);
@@ -33,6 +38,19 @@ export default function InstallApp() {
       return false;
     }
   });
+
+  useEffect(() => {
+    const again = () => {
+      try {
+        sessionStorage.removeItem(SEEN);
+      } catch {
+        /* ignore */
+      }
+      setGone(false);
+    };
+    window.addEventListener('sewa:install', again);
+    return () => window.removeEventListener('sewa:install', again);
+  }, []);
 
   useEffect(() => {
     if (isNative || isStandalone() || gone) return;

@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { AnimatePresence, motion, useMotionValueEvent, useScroll } from 'framer-motion';
-import { CalendarDays, CircleUserRound, ClipboardList, LogIn, Menu, X } from 'lucide-react';
+import { CalendarDays, CircleUserRound, ClipboardList, Download, LogIn, Menu, X } from 'lucide-react';
 import { useSite } from './SiteContext';
 import { useAuth } from './AuthContext';
 import { useGoTo } from './useGoTo';
+import { canInstall, showInstall } from './InstallApp';
 import ThemeToggle from './ThemeToggle';
 import { ease } from '../lib/motion';
 import { lockScroll, unlockScroll } from '../lib/scroll';
@@ -126,6 +127,17 @@ export default function Navbar() {
               <Link to={me.to} className="btn btn-ghost btn-block">
                 <me.icon size={18} /> {session ? me.full : 'Log in / create account'}
               </Link>
+              {canInstall() && (
+                <button
+                  className="btn btn-ghost btn-block"
+                  onClick={() => {
+                    setOpen(false);
+                    setTimeout(showInstall, 400);
+                  }}
+                >
+                  <Download size={18} /> Install app
+                </button>
+              )}
               <ThemeToggle className="menu-theme" showLabel />
             </motion.div>
           </motion.div>
