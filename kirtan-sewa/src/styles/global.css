@@ -147,6 +147,14 @@
   box-sizing: border-box;
 }
 
+/* No rubber-band bounce at the page's top/bottom. On iPhones the bounce drags fixed layers with it
+   (header, dashboard bottom bar, the black reels screen), so the page showed through under the
+   status bar and below them. The page's own bounce is set on html; body covers older browsers. */
+html,
+body {
+  overscroll-behavior-y: none;
+}
+
 html {
   -webkit-text-size-adjust: 100%;
   scroll-padding-top: var(--nav-h);

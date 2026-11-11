@@ -7415,7 +7415,6 @@ a.comment-name:hover {
   padding-top: calc(var(--nav-h) + env(safe-area-inset-top) + 30px);
 }
 .native body {
-  overscroll-behavior-y: none;
   -webkit-user-select: none;
   user-select: none;
 }
