@@ -1,0 +1,10 @@
+version: 1
+bundleID: com.kirtansewa.app
+infoPath: Info.plist
+iconPath: ../resources/icon-only.png
+# Copied to the root of the .app, where Capacitor looks for them.
+# Run `npm run build:app` first so they hold the latest web build.
+resources:
+  - ../ios/App/App/public
+  - ../ios/App/App/capacitor.config.json
+  - ../ios/App/App/config.xml

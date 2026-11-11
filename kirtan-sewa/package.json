@@ -13,7 +13,8 @@
     "preview": "npm run build && npm start",
     "build:app": "vite build && cap sync",
     "app:android": "npm run build:app && cap open android",
-    "app:ios": "npm run build:app && cap open ios"
+    "app:ios": "npm run build:app && cap open ios",
+    "app:iphone": "VITE_API_URL=https://kirtan-sewa-website.onrender.com npm run build:app && cd ios-xtool && PATH=$HOME/.local/share/swift-6.4.2/usr/bin:$PATH xtool dev"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.4.0",

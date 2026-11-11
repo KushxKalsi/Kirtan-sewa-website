@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- xtool fills in bundle id, executable, versions and UILaunchScreen; these are merged on top. -->
+	<key>CFBundleDisplayName</key>
+	<string>Kirtan Sewa</string>
+	<key>UIApplicationSceneManifest</key>
+	<dict>
+		<key>UIApplicationSupportsMultipleScenes</key>
+		<false/>
+		<key>UISceneConfigurations</key>
+		<dict>
+			<key>UIWindowSceneSessionRoleApplication</key>
+			<array>
+				<dict>
+					<key>UISceneConfigurationName</key>
+					<string>Default Configuration</string>
+					<key>UISceneDelegateClassName</key>
+					<string>KirtanSewa.SceneDelegate</string>
+				</dict>
+			</array>
+		</dict>
+	</dict>
+	<key>UISupportedInterfaceOrientations</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+		<string>UIInterfaceOrientationLandscapeLeft</string>
+		<string>UIInterfaceOrientationLandscapeRight</string>
+	</array>
+	<key>UIViewControllerBasedStatusBarAppearance</key>
+	<true/>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Used to pick the place of your Kirtan sewa on the map.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Used to choose photos and videos for your posts and documents.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Used to take photos and videos for your posts and documents.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Used to record sound with videos for your posts.</string>
+</dict>
+</plist>
