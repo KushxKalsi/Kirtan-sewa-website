@@ -1,5 +1,7 @@
 // Service worker: shows booking notifications and opens the right page when one is tapped.
 self.addEventListener('install', () => self.skipWaiting());
+// Chrome wants a fetch handler before it offers "install app"; the network is used as normal.
+self.addEventListener('fetch', () => {});
 self.addEventListener('activate', (event) => event.waitUntil(self.clients.claim()));
 
 self.addEventListener('push', (event) => {

@@ -319,9 +319,12 @@ features, bundled inside the app and talking to the live server. The app looks a
 Not in the app yet: push notifications (the website uses web-push, which phone WebViews don't support — the app needs
 FCM / APNs) and printing/downloading bills (`window.open` is blocked in the app).
 
-### "Get the app" prompt on the website
+### "Install app" prompt on the website
 
-Phone visitors in a normal browser see a "Kirtan Sewa app" banner (Chrome's own "install web app" prompt is suppressed).
-- **Android:** appears once `public/downloads/kirtan-sewa.apk` exists (build a signed release APK with the live `VITE_API_URL`).
-- **iPhone:** appears when the website is built with `VITE_IOS_URL=<App Store link>`.
-- Hidden inside the app and in an already-installed home-screen app. Override the Android link with `VITE_ANDROID_URL`.
+As soon as the site opens in a phone/desktop browser, an "Install app" banner slides up.
+- **Chrome / Android:** Chrome decides when the site is installable (HTTPS, manifest, service worker — all in place) and
+  hands the site its install dialog; one tap on the banner opens it. It cannot show on plain `http://` addresses other
+  than `localhost`. If Chrome has no install dialog to offer, the banner offers `public/downloads/kirtan-sewa.apk` when that file exists.
+- **iPhone / Safari:** Safari has no install dialog to trigger, so the banner explains Share → Add to Home Screen
+  (or links to the App Store when built with `VITE_IOS_URL`).
+- Hidden inside the native app and in an already-installed home-screen app.
