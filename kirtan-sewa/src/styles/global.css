@@ -448,6 +448,11 @@ button {
   pointer-events: none;
   transform-origin: left top;
   transition: transform 0.25s var(--ease), color 0.25s;
+  /* one line only: a wrapped label ran into the typed text on phones */
+  max-width: calc(100% - 34px);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .field input:focus + span,
 .field input:not(:placeholder-shown) + span,
@@ -455,6 +460,7 @@ button {
 .field textarea:not(:placeholder-shown) + span,
 .field select + span {
   transform: translateY(-9px) scale(0.78);
+  max-width: calc((100% - 34px) / 0.78); /* shrunk label: use the full width again */
   color: var(--gold);
 }
 .field.plain input,

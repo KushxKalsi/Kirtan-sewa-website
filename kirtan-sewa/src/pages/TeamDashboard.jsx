@@ -177,6 +177,12 @@ function DutyCard({ duty, today, person, index, busy, onConfirm, onDone, onCance
           </div>
         </div>
       )}
+      {duty.status !== 'cancelled' && duty.pay != null && duty.paymentMethod === 'cash' && duty.commission > 0 && !duty.settledAt && site?.settings.upiId && (
+        <div className="duty-commission-upi">
+          <UpiScan settings={site.settings} amount={duty.commission} note={`Commission ${duty.ref}`} />
+          <p className="fine-print">Paid by UPI? The admin marks it received once it arrives.</p>
+        </div>
+      )}
       {canFinish && (
         <div className="ab-actions duty-actions">
           <button className="btn btn-primary btn-sm" onClick={() => onDone(duty)} disabled={!!busy}>
@@ -1111,7 +1117,7 @@ function TeamCalendar({ data, team, apply, toast, openTab }) {
             </div>
             <label className="field">
               <input value={kirtan.place} onChange={(e) => setKirtan((k) => ({ ...k, place: e.target.value }))} placeholder=" " required minLength={2} maxLength={120} autoFocus />
-              <span>Where? (e.g. Sukhmani Sahib at Gurdwara Singh Sabha) *</span>
+              <span>Where? (e.g. Gurdwara Singh Sabha) *</span>
             </label>
             <label className="field">
               <textarea value={kirtan.note} onChange={(e) => setKirtan((k) => ({ ...k, note: e.target.value }))} placeholder=" " rows={2} maxLength={300} />
@@ -1272,11 +1278,11 @@ function Profile({ data, team, apply, toast }) {
         </div>
         <label className="field">
           <textarea value={form.experience} onChange={set('experience')} placeholder=" " rows={2} maxLength={300} />
-          <span>Experience (e.g. 12 years, Darbar Sahib hazoori ragi)</span>
+          <span>Experience (e.g. 12 years, hazoori ragi)</span>
         </label>
         <label className="field">
           <textarea value={form.address} onChange={set('address')} placeholder=" " rows={2} />
-          <span>Address (shown to customers with your name)</span>
+          <span>Address (shown to customers)</span>
         </label>
         <div>
           <span className="label">Where are you based? Pick it on the map so the admin can give you nearby sewas.</span>

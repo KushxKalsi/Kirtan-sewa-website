@@ -127,7 +127,7 @@ export default function PosterMaker({ duty, person, team, toast, onClose }) {
         <form className="poster-form" onSubmit={generate}>
           <label className="field">
             <input value={details.occasion} onChange={set('occasion')} placeholder=" " required />
-            <span>Occasion (e.g. Prakash Purab Sri Guru Nanak Dev Ji, Sukhmani Sahib path)</span>
+            <span>Occasion (e.g. Prakash Purab, Sukhmani Sahib)</span>
           </label>
           <label className="field">
             <input value={details.venue} onChange={set('venue')} placeholder=" " required />
@@ -136,7 +136,7 @@ export default function PosterMaker({ duty, person, team, toast, onClose }) {
           <div className="form-row">
             <label className="field">
               <input value={details.name} onChange={set('name')} placeholder=" " required />
-              <span>Your name as on the poster (e.g. Baba Pritpal Singh)</span>
+              <span>Your name (e.g. Baba Pritpal Singh)</span>
             </label>
             <label className="field">
               <input value={details.from} onChange={set('from')} placeholder=" " />

@@ -5355,6 +5355,81 @@ input:focus-visible + .tick {
 .leave-card-head .pay-tag {
   margin-left: 0;
 }
+/* Phones: name, status and chat share the top row; the details below use the card's full width
+   (squeezed between the icon and the badge they ran a few words per line). */
+@media (max-width: 640px) {
+  .leave-card {
+    padding: 14px;
+    gap: 12px;
+  }
+  .leave-card-head {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto auto;
+    align-items: center;
+    gap: 2px 10px;
+  }
+  .leave-card-head > div {
+    display: contents;
+  }
+  .leave-card-head > svg,
+  .leave-card-head > div > strong,
+  .leave-card-head > .pay-tag,
+  .leave-card-head > .icon-btn {
+    grid-row: 1;
+  }
+  .leave-card-head > svg {
+    margin-top: 0;
+  }
+  .leave-card-head > div > strong {
+    min-width: 0;
+    font-size: 14.5px;
+  }
+  .leave-card-head > div > :not(strong) {
+    grid-column: 1 / -1;
+    font-size: 13.5px;
+  }
+  .leave-card-head > div > :nth-child(2) {
+    margin-top: 6px;
+  }
+}
+.duty-commission-upi {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  border: 1px dashed var(--stroke-gold);
+}
+/* compact here (one per sewa card): small QR beside the UPI ID, the pay button full width below — even on phones */
+.duty-commission-upi .pay-upi {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 4px 14px;
+}
+.duty-commission-upi .pay-upi-info {
+  display: contents;
+}
+.duty-commission-upi .pay-qr {
+  grid-row: 1 / span 3;
+  grid-column: 1;
+  width: 100px;
+  height: 100px;
+  padding: 6px;
+  align-self: center;
+  box-shadow: none;
+}
+.duty-commission-upi .pay-upi-info > :not(.btn) {
+  grid-column: 2;
+  justify-self: start;
+  max-width: 100%;
+  font-size: 13px;
+}
+.duty-commission-upi .pay-upi-info > .btn {
+  grid-column: 1 / -1;
+  justify-content: center;
+  margin-top: 8px;
+}
 .leave-duties {
   display: grid;
   gap: 8px;

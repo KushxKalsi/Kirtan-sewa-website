@@ -75,7 +75,7 @@ export default function TeamPosts({ data, team, toast }) {
           <form className="bio-form" onSubmit={saveBio}>
             <label className="field">
               <textarea value={bio ?? state.bio} onChange={(e) => setBio(e.target.value)} placeholder=" " rows={3} maxLength={600} />
-              <span>Bio — about you, your experience in kirtan (shown on your profile)</span>
+              <span>Bio — about you and your kirtan</span>
             </label>
             {bio !== null && bio !== state.bio && (
               <button className="btn btn-primary btn-sm" disabled={busy === 'bio'}>
