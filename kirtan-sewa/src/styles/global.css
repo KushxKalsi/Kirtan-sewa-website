@@ -486,6 +486,19 @@ textarea.input {
   resize: vertical;
   min-height: 90px;
 }
+/* Date/time inputs: iPhones give them a fixed native width that won't shrink, so in a row they spilled out of
+   their box. Without the native look they stretch to fill their space like every other field. */
+input.input[type='date'],
+input.input[type='time'],
+input.input[type='datetime-local'] {
+  -webkit-appearance: none;
+  appearance: none;
+  min-width: 0;
+  min-height: 44px; /* an empty one would otherwise collapse on iOS */
+}
+input.input::-webkit-date-and-time-value {
+  text-align: left;
+}
 input[type='date']::-webkit-calendar-picker-indicator,
 input[type='time']::-webkit-calendar-picker-indicator {
   filter: var(--picker-filter);
