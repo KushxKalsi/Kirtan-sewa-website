@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Eye, EyeOff, Flag, Heart, Loader2, Music, Pause, Pencil, Play, Plus, Share2, Trash2 } from 'lucide-react';
+import { Eye, EyeOff, Flag, Heart, ImagePlus, Loader2, Music, Pause, Pencil, Play, Plus, Share2, Trash2 } from 'lucide-react';
 import Modal from '../components/Modal';
 import PostComposer from '../components/PostComposer';
 import PostViewer, { PostTile } from '../components/PostViewer';
@@ -184,6 +184,29 @@ export default function PostsTab({ data, api, toast }) {
                 {busy === 'track' ? <Loader2 size={14} className="spin" /> : <Plus size={14} />} Add
               </button>
             </form>
+          </div>
+          <div className="glass side-card">
+            <h3>
+              <ImagePlus size={16} /> Poster backgrounds
+            </h3>
+            <p className="muted">Added by team members for everyone’s posters. Remove any that are not suitable.</p>
+            {!state.backgrounds?.length && <p className="muted">None added yet.</p>}
+            <div className="poster-swatches">
+              {(state.backgrounds || []).map((b) => (
+                <div key={b.id} className="poster-swatch" title={`${b.title} · added by ${b.by}`}>
+                  <img src={b.url} alt={b.title} loading="lazy" />
+                  <button
+                    type="button"
+                    className="poster-swatch-remove"
+                    onClick={() => window.confirm(`Remove “${b.title}” (added by ${b.by})?`) && run(b.id, () => api.deletePosterBackground(b.id), 'Background removed.')}
+                    disabled={!!busy}
+                    aria-label="Remove background"
+                  >
+                    {busy === b.id ? <Loader2 size={11} className="spin" /> : <Trash2 size={11} />}
+                  </button>
+                </div>
+              ))}
+            </div>
           </div>
         </aside>
       </div>

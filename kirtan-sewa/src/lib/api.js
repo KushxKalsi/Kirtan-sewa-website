@@ -104,7 +104,9 @@ export const teamApi = (token) => ({
   deletePost: (id) => request(`/team/posts/${id}`, { method: 'DELETE', token }),
   setPhoto: (id) => request('/team/photo', { method: 'PUT', body: { id }, token }),
   setBio: (bio) => request('/team/bio', { method: 'PUT', body: { bio }, token }),
-  posterText: (dutyId, body) => request(`/team/duties/${dutyId}/poster-text`, { method: 'POST', body, token }),
+  posterText: (dutyId, body) => request(dutyId ? `/team/duties/${dutyId}/poster-text` : '/team/poster-text', { method: 'POST', body, token }),
+  addPosterBackground: (id, title) => request('/team/poster-backgrounds', { method: 'POST', body: { id, title }, token }),
+  deletePosterBackground: (id) => request(`/team/poster-backgrounds/${id}`, { method: 'DELETE', token }),
 });
 
 export const adminApi = (token) => ({
@@ -163,6 +165,7 @@ export const adminApi = (token) => ({
   deleteComment: (id, commentId) => request(`/admin/posts/${id}/comments/${commentId}`, { method: 'DELETE', token }),
   addTrack: (id, title) => request('/admin/audio-library', { method: 'POST', body: { id, title }, token }),
   deleteTrack: (id) => request(`/admin/audio-library/${id}`, { method: 'DELETE', token }),
+  deletePosterBackground: (id) => request(`/admin/poster-backgrounds/${id}`, { method: 'DELETE', token }),
 });
 
 export const adminLogin = (password) => request('/admin/login', { method: 'POST', body: { password } });

@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Camera, Check, EyeOff, Flag, Heart, Loader2, Pencil, Share2, Trash2, UserRound, UsersRound } from 'lucide-react';
+import { Camera, Check, EyeOff, Flag, Heart, Loader2, Pencil, Share2, Sparkles, Trash2, UserRound, UsersRound } from 'lucide-react';
 import Modal from './Modal';
 import PostComposer from './PostComposer';
 import PostViewer, { PostTile } from './PostViewer';
+import PosterMaker from './PosterMaker';
 import { prettyDate } from '../lib/date';
 import { shrinkPhoto, uploadMedia } from '../lib/media';
 
@@ -15,6 +16,7 @@ export default function TeamPosts({ data, team, toast }) {
   const [open, setOpen] = useState(null);
   const [editing, setEditing] = useState(null);
   const [bio, setBio] = useState(null); // being edited; null shows the saved one
+  const [posterOpen, setPosterOpen] = useState(false);
   const me = data.person;
   // Kirtans they can link a post to: ones they were given that are confirmed or done.
   const kirtans = data.duties.filter((d) => d.status === 'confirmed' || d.status === 'completed').slice(0, 30);
@@ -84,6 +86,17 @@ export default function TeamPosts({ data, team, toast }) {
             )}
           </form>
         </div>
+      </div>
+
+      <div className="glass poster-cta">
+        <Sparkles size={22} />
+        <div>
+          <strong>Make a poster</strong>
+          <p className="muted">Kirtan or Samagam templates — change the wording, photos, background and colours, then post it here or download it.</p>
+        </div>
+        <button type="button" className="btn btn-primary btn-sm" onClick={() => setPosterOpen(true)}>
+          <Sparkles size={15} /> Generate poster
+        </button>
       </div>
 
       <h3>New post</h3>
@@ -156,6 +169,7 @@ export default function TeamPosts({ data, team, toast }) {
         ))}
       </div>
       <PostViewer open={open} onClose={() => setOpen(null)} />
+      <PosterMaker open={posterOpen} duties={data.duties.filter((d) => d.status !== 'cancelled').slice(0, 30)} person={me} team={team} toast={toast} onClose={() => setPosterOpen(false)} onPosted={setState} />
       <Modal open={!!editing} onClose={() => setEditing(null)} title="Edit post" wide>
         {editing && (
           <PostComposer

@@ -340,7 +340,7 @@ function Duties({ data, team, apply, toast }) {
           />
         ))}
       </AnimatePresence>
-      <PosterMaker duty={posterFor} person={person} team={team} toast={toast} onClose={() => setPosterFor(null)} />
+      <PosterMaker open={!!posterFor} duty={posterFor} person={person} team={team} toast={toast} onClose={() => setPosterFor(null)} />
 
       <Modal open={!!cancelFor} onClose={() => setCancelFor(null)} title="Can’t do this sewa?" subtitle={cancelFor && `${cancelFor.serviceName} on ${prettyDate(cancelFor.date, 'd MMM yyyy')}. The admin will approve it and find someone else.`}>
         <form

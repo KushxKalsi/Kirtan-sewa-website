@@ -135,6 +135,7 @@ const defaults = () => ({
   gurpurabs: seedGurpurabs(), // Prakash / Gurgaddi / Jyoti Jot / Shaheedi days (admin → Gurpurab)
   posts: [], // photos / videos of kirtans posted by team members and the admin, shown on the site
   audioLibrary: [], // Gurbani tracks the admin uploads for members to put on their posts
+  posterBackgrounds: [], // backgrounds team members add for everyone's posters
 });
 
 /* ---------------- storage ----------------
@@ -291,6 +292,10 @@ const TABLES = {
     cols: { position: 'integer', title: 'text' },
     rows: (d) => d.audioLibrary.map((a, i) => ({ id: a.id, position: i, title: a.title, data: a })),
   },
+  poster_backgrounds: {
+    cols: { person_id: 'text', created_at: 'timestamptz' },
+    rows: (d) => d.posterBackgrounds.map((b) => ({ id: b.id, person_id: b.personId || null, created_at: timeOrNull(b.createdAt), data: b })),
+  },
   push_subscriptions: {
     cols: { scope: 'text', owner: 'text', endpoint: 'text' },
     rows: (d) => [
@@ -326,6 +331,7 @@ function assemble(t) {
     threads: t.chat_threads.map((r) => r.data),
     posts: t.posts.map((r) => r.data).sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
     audioLibrary: byPos(t.audio_library).map((r) => r.data),
+    posterBackgrounds: t.poster_backgrounds.map((r) => r.data).sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || '')),
     pushSubs,
     adminPushSubs: subs.filter((s) => s.scope === 'admin').map((s) => s.data),
     publicPushSubs: subs.filter((s) => s.scope === 'public').map((s) => s.data),
@@ -473,7 +479,7 @@ export async function initDb() {
   db = stored
     ? { ...base, ...stored, meta: { ...base.meta, ...stored.meta }, settings: { ...base.settings, ...stored.settings } }
     : base;
-  for (const key of ['users', 'messages', 'threads', 'leaves', 'people', 'categories', 'blockedTimes', 'gurpurabs', 'adminPushSubs', 'publicPushSubs', 'posts', 'audioLibrary']) db[key] ||= [];
+  for (const key of ['users', 'messages', 'threads', 'leaves', 'people', 'categories', 'blockedTimes', 'gurpurabs', 'adminPushSubs', 'publicPushSubs', 'posts', 'audioLibrary', 'posterBackgrounds']) db[key] ||= [];
   db.pushSubs ||= {};
   // Seed days added in newer versions (e.g. Gurgaddi Diwas). Days already there, edited or not, are left alone;
   // ones the admin deleted are remembered so they don't come back.

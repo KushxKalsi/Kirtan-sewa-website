@@ -260,11 +260,16 @@ The uploaded QR image is saved in `data/uploads/`.
   (the phone's share sheet, WhatsApp or copy link — shared links show a picture in WhatsApp) and tap the name under
   the picture to open the member's **profile** with all their photos and videos. Anyone can **report** a post; the
   admin sees reported posts and can hide or delete any post.
-- **Generate poster:** on a kirtan in **My sewas**, a member taps **Generate poster**, checks the details (occasion,
-  village, name) and chooses either the featured-person poster or the group-program poster, which supports up to
-  seven named photos. With
-  `ANTHROPIC_API_KEY` set, Claude writes the Punjabi (Gurmukhi) wording; every line can be changed. They then choose
-  **Post to my profile**, **Download** or **Don't post**. Each member can generate up to 10 a day.
+- **Generate poster:** in **Posts** (any program, or filled in from one of their sewas) or on a kirtan in
+  **My sewas**, a member taps **Generate poster** and picks a template from two columns: **Kirtan** (one featured
+  person) or **Samagam** (up to 12 people, each with their own photo, name and time). They check the details
+  (occasion, village, name, date, time); with `ANTHROPIC_API_KEY` set, Claude writes the Punjabi (Gurmukhi) wording
+  (up to 10 a day per member). The editor's side column changes everything: every line of text, the title photo
+  (Guru Sahib / Gurdwara, round frame at the top), the people's photos, names and times, the background, the colours
+  and which parts show. Backgrounds: light Gurbani-themed presets (Ik Onkar, Khanda, golden light, lotus, Waheguru…),
+  **Generate new** for a fresh one, and **team backgrounds**. Any member can add their own picture, or share a
+  generated one, and every member can then use it. Members can remove the ones they added, and the admin can remove
+  any of them (Admin → Posts). Then **Post to my profile** or **Download**.
 - **Where files go:** without R2 they are stored like the other files (Postgres or `DATA_DIR`), with lower limits
   (photos 6 MB, videos 30 MB). That is fine to start, but the free Neon database is only 0.5 GB, so set up R2
   before members post many videos.

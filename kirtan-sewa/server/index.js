@@ -2774,6 +2774,7 @@ const teamPosts = (p) => ({
   followers: (p.followers || []).length,
   limits: Object.fromEntries(Object.entries(MEDIA_KINDS).map(([k, v]) => [k, v.max])),
   posterAi: posterAiOn,
+  backgrounds: backgroundsView(p.id),
 });
 app.get('/api/team/posts', requireMember, (req, res) => res.json(teamPosts(req.person)));
 app.post('/api/team/posts', requireMember, async (req, res) => {
@@ -2811,17 +2812,49 @@ app.put('/api/team/photo', requireMember, async (req, res) => {
   res.json(teamPosts(p));
 });
 
-// Poster wording for a kirtan they were given (a few per day, to keep the AI cost small).
+// Backgrounds team members add for everyone's posters (shared with the whole team).
+const backgroundsView = (viewerId = '') =>
+  db.posterBackgrounds.map((b) => ({ id: b.id, title: b.title, url: mediaUrl(b.mediaId, b.local), by: personOf(b.personId)?.name || b.authorName || 'Team member', mine: !!viewerId && b.personId === viewerId }));
+app.post('/api/team/poster-backgrounds', requireMember, async (req, res) => {
+  const p = req.person;
+  throttle(`poster-bg:${p.id}`, 20);
+  if (db.posterBackgrounds.length >= 300) fail(400, 'The background library is full. Ask the admin to remove some old ones.');
+  const [file] = claimUploads([req.body?.id], `m:${p.id}`, ['image']);
+  db.posterBackgrounds.push({ id: uid(), title: str(req.body?.title, 60) || 'Background', mediaId: file.id, ...(file.local && { local: true }), personId: p.id, authorName: p.name, createdAt: new Date().toISOString() });
+  await save();
+  res.status(201).json(teamPosts(p));
+});
+app.delete('/api/team/poster-backgrounds/:id', requireMember, async (req, res) => {
+  const bg = db.posterBackgrounds.find((b) => b.id === req.params.id && b.personId === req.person.id);
+  if (!bg) fail(404, 'You can only remove backgrounds you added.');
+  db.posterBackgrounds = db.posterBackgrounds.filter((b) => b !== bg);
+  await save();
+  await removeMedia(bg.mediaId, bg.local);
+  res.json(teamPosts(req.person));
+});
+
+// Poster wording, written by the AI (a few per day, to keep the AI cost small).
 const posterUses = new Map(); // `${personId}:${date}` -> count
-app.post('/api/team/duties/:id/poster-text', requireMember, async (req, res) => {
-  const { booking } = findDuty(req);
+async function posterText(req, res, details) {
   const key = `${req.person.id}:${todayKey()}`;
   if ((posterUses.get(key) || 0) >= 10) fail(429, 'You have made 10 posters today. Please try again tomorrow.');
   posterUses.set(key, (posterUses.get(key) || 0) + 1);
+  try {
+    res.json({ text: await writePosterText(details) });
+  } catch (e) {
+    if (e.status === 400) throw e;
+    console.error('[sewa] Poster text failed:', e.message);
+    fail(400, 'The AI could not write the poster just now. Please try again, or type the wording yourself.');
+  }
+}
+const gurpurabOn = (date) => (db.gurpurabs || []).find((g) => g.active && g.date === date);
+// For a kirtan they were given.
+app.post('/api/team/duties/:id/poster-text', requireMember, async (req, res) => {
+  const { booking } = findDuty(req);
   const b = req.body || {};
-  const gurpurab = (db.gurpurabs || []).find((g) => g.active && g.date === booking.date);
+  const gurpurab = gurpurabOn(booking.date);
   const [start, end] = rangeOf(booking);
-  const details = {
+  await posterText(req, res, {
     occasion: str(b.occasion, 120) || (gurpurab ? `${gpKind(gurpurab).label} ${gurpurab.name}` : ''),
     sewa: booking.serviceName,
     category: booking.categoryName || '',
@@ -2831,18 +2864,28 @@ app.post('/api/team/duties/:id/poster-text', requireMember, async (req, res) => 
     date: booking.date,
     start,
     end,
-  };
-  try {
-    res.json({ text: await writePosterText(details) });
-  } catch (e) {
-    if (e.status === 400) throw e;
-    console.error('[sewa] Poster text failed:', e.message);
-    fail(400, 'The AI could not write the poster just now. Please try again, or type the wording yourself.');
-  }
+  });
+});
+// For any program they make a poster of (a samagam, or a kirtan not booked through the site).
+app.post('/api/team/poster-text', requireMember, async (req, res) => {
+  const b = req.body || {};
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(b.date) ? b.date : '';
+  const time = (t) => (/^\d{2}:\d{2}$/.test(t) ? t : '');
+  const gurpurab = date && gurpurabOn(date);
+  await posterText(req, res, {
+    occasion: str(b.occasion, 120) || (gurpurab ? `${gpKind(gurpurab).label} ${gurpurab.name}` : ''),
+    sewa: str(b.program, 80) || 'Kirtan',
+    venue: str(b.venue, 200),
+    memberName: str(b.name, 80) || req.person.name,
+    memberFrom: str(b.from, 80),
+    date,
+    start: time(b.start),
+    end: time(b.end),
+  });
 });
 
 // Admin: every post (hide, delete, post as the jatha or for a member) and the music library.
-const adminPosts = () => ({ posts: [...db.posts].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map(ownPost), library: libraryView(), storage: storageName });
+const adminPosts = () => ({ posts: [...db.posts].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map(ownPost), library: libraryView(), backgrounds: backgroundsView(), storage: storageName });
 app.get('/api/admin/posts', (_req, res) => res.json(adminPosts()));
 app.post('/api/admin/posts', async (req, res) => {
   const personId = str(req.body?.personId, 20);
@@ -2893,6 +2936,15 @@ app.delete('/api/admin/audio-library/:id', async (req, res) => {
   db.audioLibrary = db.audioLibrary.filter((t) => t !== track);
   await save();
   await removeMedia(track.mediaId, track.local);
+  res.json(adminPosts());
+});
+
+app.delete('/api/admin/poster-backgrounds/:id', async (req, res) => {
+  const bg = db.posterBackgrounds.find((b) => b.id === req.params.id);
+  if (!bg) fail(404, 'Background not found.');
+  db.posterBackgrounds = db.posterBackgrounds.filter((b) => b !== bg);
+  await save();
+  await removeMedia(bg.mediaId, bg.local);
   res.json(adminPosts());
 });
 
