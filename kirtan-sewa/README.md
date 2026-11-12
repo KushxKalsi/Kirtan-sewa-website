@@ -261,7 +261,8 @@ The uploaded QR image is saved in `data/uploads/`.
   the picture to open the member's **profile** with all their photos and videos. Anyone can **report** a post; the
   admin sees reported posts and can hide or delete any post.
 - **Generate poster:** on a kirtan in **My sewas**, a member taps **Generate poster**, checks the details (occasion,
-  village, name) and the poster is drawn in the style of a Punjab Gurdwara poster with their photo. With
+  village, name) and chooses either the featured-person poster or the group-program poster, which supports up to
+  seven named photos. With
   `ANTHROPIC_API_KEY` set, Claude writes the Punjabi (Gurmukhi) wording; every line can be changed. They then choose
   **Post to my profile**, **Download** or **Don't post**. Each member can generate up to 10 a day.
 - **Where files go:** without R2 they are stored like the other files (Postgres or `DATA_DIR`), with lower limits

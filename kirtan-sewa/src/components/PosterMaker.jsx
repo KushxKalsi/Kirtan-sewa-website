@@ -5,7 +5,7 @@ import Modal from './Modal';
 import { useSite } from './SiteContext';
 import { fromKey } from '../lib/date';
 import { uploadMedia } from '../lib/media';
-import { drawPoster, loadImage, loadPosterFonts } from '../lib/poster';
+import { drawGroupPoster, drawPoster, loadImage, loadPosterFonts } from '../lib/poster';
 
 const to12 = (t) => {
   const [h, m] = t.split(':').map(Number);
@@ -20,6 +20,7 @@ const FIELDS = [
   ['nameLine', 'Under your name (e.g. … ਵਾਲੇ — optional)'],
   ['timeLabel', 'Time of day (e.g. ਸ਼ਾਮ)'],
 ];
+const MAX_GROUP_PHOTOS = 7;
 
 /**
  * "Generate poster" for a kirtan the admin gave them: AI writes the Punjabi wording, the poster is drawn here, and they
@@ -32,6 +33,8 @@ export default function PosterMaker({ duty, person, team, toast, onClose }) {
   const [busy, setBusy] = useState('');
   const [info, setInfo] = useState(null); // { posterAi, photo }
   const [photo, setPhoto] = useState(null); // { url, img }
+  const [photos, setPhotos] = useState([]);
+  const [template, setTemplate] = useState('single');
   const gurpurab = (site?.gurpurabs || []).find((g) => g.date === duty?.date);
   const [details, setDetails] = useState({ occasion: '', venue: '', name: '', from: '' });
   const [text, setText] = useState(null);
@@ -41,6 +44,7 @@ export default function PosterMaker({ duty, person, team, toast, onClose }) {
     if (!duty) return;
     setStep('details');
     setText(null);
+    setTemplate('single');
     setDetails({ occasion: gurpurab ? `${gurpurab.kindLabel} ${gurpurab.name}` : duty.serviceName, venue: duty.address || '', name: person.name, from: '' });
     setCaption(`${duty.serviceName} · ${format(fromKey(duty.date), 'd MMM yyyy')}`);
     loadPosterFonts();
@@ -49,7 +53,14 @@ export default function PosterMaker({ duty, person, team, toast, onClose }) {
         setInfo(r);
         // Their profile photo, or the Jatha head photo from their documents.
         const url = r.photo || person.docs?.headPhoto?.url;
-        if (url) setPhoto({ url, img: await loadImage(url) });
+        if (url) {
+          const memberPhoto = { url, img: await loadImage(url), label: person.name };
+          setPhoto(memberPhoto);
+          setPhotos([memberPhoto]);
+        } else {
+          setPhoto(null);
+          setPhotos([]);
+        }
       },
       () => setInfo({ posterAi: false }),
     );
@@ -66,9 +77,13 @@ export default function PosterMaker({ duty, person, team, toast, onClose }) {
   // Redraw whenever the wording or photo changes.
   useEffect(() => {
     if (step !== 'preview' || !text || !canvasRef.current) return;
-    loadPosterFonts().then(() => drawPoster(canvasRef.current, { ...base, ...text }, photo?.img));
+    loadPosterFonts().then(() =>
+      template === 'group'
+        ? drawGroupPoster(canvasRef.current, { ...base, ...text }, photos)
+        : drawPoster(canvasRef.current, { ...base, ...text }, photo?.img),
+    );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step, text, photo]);
+  }, [step, text, photo, photos, template]);
 
   const generate = async (e) => {
     e?.preventDefault();
@@ -90,8 +105,23 @@ export default function PosterMaker({ duty, person, team, toast, onClose }) {
   };
   const choosePhoto = async (file) => {
     const url = URL.createObjectURL(file);
-    setPhoto({ url, img: await loadImage(url) });
+    const next = { url, img: await loadImage(url), label: person.name };
+    setPhoto(next);
+    setPhotos([next]);
   };
+  const choosePhotos = async (files) => {
+    const remaining = MAX_GROUP_PHOTOS - photos.length;
+    const selected = [...files].slice(0, remaining);
+    const added = await Promise.all(
+      selected.map(async (file) => {
+        const url = URL.createObjectURL(file);
+        return { url, img: await loadImage(url), label: '' };
+      }),
+    );
+    setPhotos((current) => [...current, ...added]);
+  };
+  const updatePhotoLabel = (index, label) => setPhotos((current) => current.map((item, i) => (i === index ? { ...item, label } : item)));
+  const removePhoto = (index) => setPhotos((current) => current.filter((_, i) => i !== index));
   const blob = () => new Promise((resolve, reject) => canvasRef.current.toBlob((b) => (b ? resolve(b) : reject(new Error('Could not make the image — try another photo.'))), 'image/jpeg', 0.92));
   const download = async () => {
     try {
@@ -125,6 +155,16 @@ export default function PosterMaker({ duty, person, team, toast, onClose }) {
     <Modal open={!!duty} onClose={onClose} title="Generate poster" subtitle={duty && `${duty.serviceName} · ${format(fromKey(duty.date), 'EEE d MMM yyyy')}`} wide>
       {duty && step === 'details' && (
         <form className="poster-form" onSubmit={generate}>
+          <div className="poster-template-choice" role="group" aria-label="Poster template">
+            <button type="button" className={`poster-template-option ${template === 'single' ? 'active' : ''}`} onClick={() => setTemplate('single')}>
+              <strong>Featured person</strong>
+              <span>One large photo</span>
+            </button>
+            <button type="button" className={`poster-template-option ${template === 'group' ? 'active' : ''}`} onClick={() => setTemplate('group')}>
+              <strong>Group programme</strong>
+              <span>Up to {MAX_GROUP_PHOTOS} photos</span>
+            </button>
+          </div>
           <label className="field">
             <input value={details.occasion} onChange={set('occasion')} placeholder=" " required />
             <span>Occasion (e.g. Prakash Purab, Sukhmani Sahib)</span>
@@ -143,13 +183,36 @@ export default function PosterMaker({ duty, person, team, toast, onClose }) {
               <span>Known as / from (e.g. Sohane wale)</span>
             </label>
           </div>
-          <div className="poster-photo-row">
-            {photo?.url ? <img src={photo.url} alt="" className="poster-photo-thumb" /> : <span className="poster-photo-thumb empty">No photo</span>}
-            <label className="btn btn-ghost btn-sm">
-              <Camera size={15} /> {photo ? 'Use another photo' : 'Add your photo'}
-              <input type="file" accept="image/*" hidden onChange={(e) => e.target.files[0] && choosePhoto(e.target.files[0])} />
-            </label>
-          </div>
+          {template === 'group' ? (
+            <div className="poster-group-photos">
+              <div className="poster-group-photo-list">
+                {photos.map((item, index) => (
+                  <div className="poster-group-photo" key={item.url}>
+                    <img src={item.url} alt="" className="poster-photo-thumb" />
+                    <input value={item.label} onChange={(e) => updatePhotoLabel(index, e.target.value)} placeholder={`Person ${index + 1} name`} aria-label={`Person ${index + 1} name`} />
+                    <button type="button" className="icon-btn danger-text" onClick={() => removePhoto(index)} aria-label={`Remove person ${index + 1}`}>
+                      <X size={15} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+              {photos.length < MAX_GROUP_PHOTOS && (
+                <label className="btn btn-ghost btn-sm poster-add-photos">
+                  <Camera size={15} /> Add person photos
+                  <input type="file" accept="image/*" multiple hidden onChange={(e) => e.target.files?.length && choosePhotos(e.target.files)} />
+                </label>
+              )}
+              <p className="fine-print">Add up to {MAX_GROUP_PHOTOS} photos. Names are optional and appear below each photo.</p>
+            </div>
+          ) : (
+            <div className="poster-photo-row">
+              {photo?.url ? <img src={photo.url} alt="" className="poster-photo-thumb" /> : <span className="poster-photo-thumb empty">No photo</span>}
+              <label className="btn btn-ghost btn-sm">
+                <Camera size={15} /> {photo ? 'Use another photo' : 'Add your photo'}
+                <input type="file" accept="image/*" hidden onChange={(e) => e.target.files[0] && choosePhoto(e.target.files[0])} />
+              </label>
+            </div>
+          )}
           <p className="fine-print">{info?.posterAi ? 'The AI writes the poster in Punjabi (Gurmukhi). You can change every line before posting.' : 'Write the lines in Punjabi on the next step.'}</p>
           <button className="btn btn-primary" disabled={!!busy || !info}>
             {busy === 'generate' ? <Loader2 size={17} className="spin" /> : <Sparkles size={17} />} Generate poster

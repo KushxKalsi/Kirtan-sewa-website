@@ -14,6 +14,7 @@ const GOLD_LIGHT = '#f6d27a';
 const CREAM = '#fbf5e6';
 const GURMUKHI = '"Noto Sans Gurmukhi", "Mukta Mahee", sans-serif';
 const SERIF = '"Noto Serif", Georgia, serif';
+const MAX_GROUP_PHOTOS = 7;
 
 let fontsReady;
 export function loadPosterFonts() {
@@ -314,5 +315,103 @@ export function drawPoster(canvas, text, photo) {
     ctx.font = `600 26px ${GURMUKHI}`;
     ctx.fillText(text.footer, W / 2, H - 58);
   }
+  return canvas;
+}
+
+export function drawGroupPoster(canvas, text, photos = []) {
+  canvas.width = W;
+  canvas.height = H;
+  const ctx = canvas.getContext('2d');
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+
+  ctx.fillStyle = '#5b2021';
+  ctx.fillRect(0, 0, W, H);
+  ctx.strokeStyle = GOLD;
+  ctx.lineWidth = 10;
+  ctx.strokeRect(12, 12, W - 24, H - 24);
+  ctx.fillStyle = '#fff8d8';
+  ctx.fillRect(26, 26, W - 52, H - 52);
+
+  khanda(ctx, 82, 88, 0.56, '#f4d322');
+  khanda(ctx, W - 82, 88, 0.56, '#f4d322');
+  ctx.fillStyle = '#fff';
+  ctx.font = `800 ${fit(ctx, 'ਸ੍ਰੀ ਗੁਰੂ ਨਾਨਕ ਦੇਵ ਜੀ', 780, 800, 48)}px ${GURMUKHI}`;
+  ctx.fillText('ਸ੍ਰੀ ਗੁਰੂ ਨਾਨਕ ਦੇਵ ਜੀ', W / 2, 70);
+  ctx.font = `800 ${fit(ctx, 'ਪ੍ਰਕਾਸ਼ ਪੁਰਬ ਸਮਾਗਮ', 780, 800, 48)}px ${GURMUKHI}`;
+  ctx.fillText('ਪ੍ਰਕਾਸ਼ ਪੁਰਬ ਸਮਾਗਮ', W / 2, 120);
+
+  ctx.fillStyle = '#fff200';
+  ctx.fillRect(26, 160, W - 52, 112);
+  ctx.fillStyle = NAVY_DEEP;
+  ctx.font = `800 ${fit(ctx, text.occasion, W - 90, 800, 76)}px ${GURMUKHI}`;
+  ctx.fillText(text.occasion, W / 2, 216);
+  if (text.occasionFor) {
+    ctx.fillStyle = '#fff200';
+    ctx.fillRect(26, 282, W - 52, 190);
+    ctx.fillStyle = NAVY_DEEP;
+    ctx.font = `800 ${fit(ctx, text.occasionFor, W - 90, 800, 90)}px ${GURMUKHI}`;
+    ctx.fillText(text.occasionFor, W / 2, 365);
+  }
+
+  ctx.fillStyle = '#fff';
+  ctx.strokeStyle = '#efc422';
+  ctx.lineWidth = 6;
+  roundRect(ctx, 26, 490, W - 52, 150, 16);
+  ctx.fill();
+  ctx.stroke();
+  ctx.fillStyle = '#d52e20';
+  ctx.font = `800 ${fit(ctx, text.program, W - 110, 800, 76)}px ${GURMUKHI}`;
+  ctx.fillText(text.program, W / 2, 548);
+  ctx.fillStyle = NAVY_DEEP;
+  ctx.font = `700 ${fit(ctx, `${text.place || ''} · ${text.date || ''}`, W - 100, 700, 42, GURMUKHI)}px ${GURMUKHI}`;
+  ctx.fillText(`${text.place || ''}${text.place && text.date ? ' · ' : ''}${text.date || ''}`, W / 2, 606);
+
+  const list = photos.slice(0, MAX_GROUP_PHOTOS);
+  const columns = list.length > 4 ? 4 : Math.max(1, list.length);
+  const rows = Math.max(1, Math.ceil(list.length / columns));
+  const gap = 12;
+  const cardW = (W - 52 - gap * (columns - 1)) / columns;
+  const cardH = Math.min(290, (730 - gap * (rows - 1)) / rows);
+  const startY = 670;
+  list.forEach((item, index) => {
+    const row = Math.floor(index / columns);
+    const col = index % columns;
+    const x = 26 + col * (cardW + gap);
+    const y = startY + row * (cardH + gap);
+    ctx.save();
+    roundRect(ctx, x, y, cardW, cardH, 22);
+    ctx.clip();
+    ctx.fillStyle = '#f6f6f6';
+    ctx.fillRect(x, y, cardW, cardH);
+    if (item.img) {
+      const photoH = cardH - 54;
+      const scale = Math.max(cardW / item.img.width, photoH / item.img.height);
+      const iw = item.img.width * scale;
+      const ih = item.img.height * scale;
+      ctx.drawImage(item.img, x + (cardW - iw) / 2, y + (photoH - ih) / 2, iw, ih);
+    } else {
+      khanda(ctx, x + cardW / 2, y + (cardH - 54) / 2, 0.7, 'rgba(20, 40, 90, 0.16)');
+    }
+    ctx.restore();
+    ctx.fillStyle = '#fff200';
+    ctx.fillRect(x, y + cardH - 54, cardW, 54);
+    ctx.fillStyle = NAVY_DEEP;
+    ctx.font = `800 ${fit(ctx, item.label || `ਸੇਵਾਦਾਰ ${index + 1}`, cardW - 14, 800, 27, GURMUKHI, 16)}px ${GURMUKHI}`;
+    ctx.fillText(item.label || `ਸੇਵਾਦਾਰ ${index + 1}`, x + cardW / 2, y + cardH - 27);
+    ctx.strokeStyle = '#7b2121';
+    ctx.lineWidth = 4;
+    roundRect(ctx, x, y, cardW, cardH, 22);
+    ctx.stroke();
+  });
+
+  const footerY = startY + rows * (cardH + gap) + 22;
+  ctx.fillStyle = '#fff200';
+  ctx.fillRect(26, footerY, W - 52, 120);
+  ctx.fillStyle = NAVY_DEEP;
+  ctx.font = `800 ${fit(ctx, text.time ? `${text.timeLabel ? `${text.timeLabel}: ` : ''}${text.time}` : text.footer, W - 90, 800, 48)}px ${GURMUKHI}`;
+  ctx.fillText(text.time ? `${text.timeLabel ? `${text.timeLabel}: ` : ''}${text.time}` : text.footer, W / 2, footerY + 45);
+  ctx.font = `600 ${fit(ctx, text.footer || text.place, W - 90, 600, 30, GURMUKHI, 18)}px ${GURMUKHI}`;
+  ctx.fillText(text.footer || text.place || '', W / 2, footerY + 88);
   return canvas;
 }
