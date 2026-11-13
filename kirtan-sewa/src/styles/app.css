@@ -7290,6 +7290,77 @@ a.author-chip:hover strong {
   accent-color: var(--gold);
 }
 
+/* Text only: move, resize and recolour each line / photo */
+.poster-canvas.movable {
+  touch-action: none;
+  cursor: grab;
+}
+.poster-canvas.movable:active {
+  cursor: grabbing;
+}
+.poster-stage-hint {
+  margin: 8px 0 0;
+  text-align: center;
+}
+.poster-line {
+  display: grid;
+  gap: 8px;
+}
+.poster-line-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.poster-line-row .field {
+  flex: 1;
+  min-width: 0;
+}
+.poster-line-row .icon-btn.active {
+  color: var(--gold);
+  border-color: var(--gold);
+}
+.poster-line.hidden-item .field input {
+  opacity: 0.5;
+}
+.poster-item-tools {
+  display: grid;
+  gap: 10px;
+  margin-top: 8px;
+  padding: 10px 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+.poster-item-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  align-items: center;
+}
+.poster-item-row .poster-chips {
+  margin-top: 0;
+}
+.poster-item-color,
+.poster-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.poster-item-color input {
+  width: 34px;
+  height: 28px;
+  padding: 1px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  cursor: pointer;
+}
+.poster-check input {
+  accent-color: var(--gold);
+}
+
 /* Posts tab call to action */
 .poster-cta {
   display: flex;

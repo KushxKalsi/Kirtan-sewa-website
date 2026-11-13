@@ -2,9 +2,11 @@
  * Kirtan program posters (1024 × 1536), drawn on a canvas in the style of Punjab Gurdwara / village posters. Text is
  * drawn with Noto Sans Gurmukhi so the letters are always right.
  *
- * Two layouts:
+ * Three layouts:
  *  - kirtan:  one featured person — title banner, program and place, their photo, name banner, date and time box.
  *  - samagam: many people — title banner, program, then a card per person (photo, name and their own time).
+ *  - text:    text only — nothing but the words (and photos, if added) on the background. Every line and photo is an
+ *             "item" with its own place, size and colour, so it can be moved around to suit any background.
  *
  * Everything is themeable: a palette (banner / highlight / text colours), a background (a light Gurbani-themed preset,
  * a generated one from a seed, or an uploaded picture), an optional title photo at the top, and show / hide switches.
@@ -64,12 +66,13 @@ function seeded(seed) {
 
 /* ---------------- templates ---------------- */
 export const TEMPLATES = [
-  { id: 'kirtan-classic', kind: 'kirtan', name: 'Classic', note: 'Navy and gold on cream', palette: { primary: '#14285a', accent: '#d4a227', ink: '#14285a' }, bg: { type: 'preset', id: 'paper' } },
+  { id: 'kirtan-classic', kind: 'kirtan', name: 'Classic', note: 'Navy and gold on cream', palette: { primary: '#14285a', accent: '#d4a227', ink: '#14285a' }, bg: { type: 'preset', id: 'paper' }, show: { ornaments: false } },
   { id: 'kirtan-kesri', kind: 'kirtan', name: 'Kesri', note: 'Saffron light', palette: { primary: '#8c2f0c', accent: '#f0a830', ink: '#5e1f08' }, bg: { type: 'preset', id: 'rays' } },
   { id: 'kirtan-neela', kind: 'kirtan', name: 'Neela', note: 'Soft blue with Khanda', palette: { primary: '#1f4f8a', accent: '#d0a53a', ink: '#163a66' }, bg: { type: 'preset', id: 'khanda' } },
   { id: 'samagam-board', kind: 'samagam', name: 'Samagam board', note: 'Maroon and yellow', palette: { primary: '#6b1f22', accent: '#f2c318', ink: '#3b1214' }, bg: { type: 'preset', id: 'ikonkar' } },
   { id: 'samagam-neela', kind: 'samagam', name: 'Samagam neela', note: 'Blue and gold, morning sky', palette: { primary: '#14285a', accent: '#d4a227', ink: '#14285a' }, bg: { type: 'preset', id: 'sky' } },
   { id: 'samagam-lotus', kind: 'samagam', name: 'Lotus', note: 'Soft pink and maroon', palette: { primary: '#7a2340', accent: '#e6a23c', ink: '#5a1a2f' }, bg: { type: 'preset', id: 'lotus' } },
+  { id: 'text-only', kind: 'text', name: 'Text only', note: 'Your background, just the words', palette: { primary: '#14285a', accent: '#d4a227', ink: '#14285a' }, bg: { type: 'preset', id: 'paper' }, wash: 0 },
 ];
 export const templateById = (id) => TEMPLATES.find((t) => t.id === id) || TEMPLATES[0];
 
@@ -672,9 +675,96 @@ function drawSamagam(ctx, text, t, show, d) {
   });
 }
 
+/* ---------------- text only ---------------- */
+// [id, type, y, size, colour role or photo shape]. Everything starts centred; they can move it anywhere.
+const TEXT_ONLY_ITEMS = [
+  ['headline', 'text', 80, 38, 'ink'],
+  ['titlePhoto', 'photo', 210, 200, 'round'],
+  ['occasion', 'text', 380, 88, 'primary'],
+  ['occasionFor', 'text', 475, 76, 'accent'],
+  ['program', 'text', 575, 66, 'ink'],
+  ['place', 'text', 660, 50, 'primary'],
+  ['photo', 'photo', 910, 360, 'rect'],
+  ['name', 'text', 1190, 72, 'primary'],
+  ['nameLine', 'text', 1265, 46, 'ink'],
+  ['date', 'text', 1345, 52, 'ink'],
+  ['time', 'text', 1415, 52, 'ink'],
+  ['footer', 'text', 1490, 28, 'ink'],
+];
+export const textOnlyItems = () =>
+  TEXT_ONLY_ITEMS.map(([id, type, y, size, look]) =>
+    type === 'photo' ? { id, type, x: W / 2, y, size, shape: look, border: true, hidden: false } : { id, type, x: W / 2, y, size, role: look, color: '', outline: true, hidden: false },
+  );
+// Numbers read better in the serif font; Gurmukhi letters fall back to the Gurmukhi font.
+const SERIF_ITEMS = new Set(['date', 'time']);
+const lightness = (hex) => {
+  const [r, g, b] = hexRgb(hex);
+  return (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+};
+// Text colour for an item: its own colour, or the template colour for its role.
+export const itemColor = (it, palette) => it.color || themeOf(palette)[it.role] || themeOf(palette).ink;
+
+// d.items: [{ id, type, x, y, size, … }]; d.selected: id to outline (editor only); d.hits: filled with each item's box.
+function drawTextOnly(ctx, text, t, show, d) {
+  for (const it of d.items || textOnlyItems()) {
+    if (it.hidden) continue;
+    let box;
+    if (it.type === 'photo') {
+      const img = it.id === 'titlePhoto' ? d.titlePhoto : d.photo;
+      if (!img) continue;
+      const w = it.size;
+      const h = it.shape === 'round' ? w : Math.round(w * 1.2);
+      box = { x: it.x - w / 2, y: it.y - h / 2, w, h };
+      const shape = () => {
+        ctx.beginPath();
+        if (it.shape === 'round') ctx.arc(it.x, it.y, w / 2, 0, Math.PI * 2);
+        else ctx.roundRect(box.x, box.y, w, h, Math.min(36, w / 10));
+      };
+      ctx.save();
+      shape();
+      ctx.clip();
+      cover(ctx, img, box.x, box.y, w, h, it.shape === 'round' ? 0.3 : 1 / 3);
+      ctx.restore();
+      if (it.border) {
+        shape();
+        ctx.lineWidth = Math.max(4, w / 45);
+        ctx.strokeStyle = t.accent;
+        ctx.stroke();
+      }
+    } else {
+      const words = it.id === 'time' ? timeLine(text) : text[it.id];
+      if (!words) continue;
+      const family = SERIF_ITEMS.has(it.id) ? `"Noto Serif", ${GURMUKHI}` : GURMUKHI;
+      const weight = SERIF_ITEMS.has(it.id) ? 700 : 800;
+      const size = fit(ctx, words, W - 60, weight, it.size, family, 14);
+      ctx.font = `${weight} ${size}px ${family}`;
+      const color = it.color || t[it.role] || t.ink;
+      if (it.outline) {
+        ctx.lineJoin = 'round';
+        ctx.lineWidth = Math.max(4, size * 0.16);
+        ctx.strokeStyle = lightness(color) > 0.55 ? 'rgba(20, 16, 10, 0.9)' : 'rgba(255, 255, 255, 0.92)';
+        ctx.strokeText(words, it.x, it.y);
+      }
+      ctx.fillStyle = color;
+      ctx.fillText(words, it.x, it.y);
+      const w = ctx.measureText(words).width;
+      box = { x: it.x - w / 2, y: it.y - size * 0.75, w, h: size * 1.5 };
+    }
+    d.hits?.push({ id: it.id, ...box });
+    if (d.selected === it.id) {
+      ctx.save();
+      ctx.setLineDash([14, 10]);
+      ctx.lineWidth = 4;
+      ctx.strokeStyle = '#e8343a';
+      ctx.strokeRect(box.x - 10, box.y - 10, box.w + 20, box.h + 20);
+      ctx.restore();
+    }
+  }
+}
+
 /**
  * Draws a poster. width < W gives a smaller copy (thumbnails); the layout is the same.
- * design: { layout: 'kirtan' | 'samagam', text, palette, bg, show, photo, titlePhoto, people }
+ * design: { layout: 'kirtan' | 'samagam' | 'text', text, palette, bg, show, photo, titlePhoto, people, items, selected, hits }
  */
 export function renderPoster(canvas, design, width = W) {
   const k = width / W;
@@ -686,7 +776,7 @@ export function renderPoster(canvas, design, width = W) {
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   const show = { khanda: true, ornaments: true, frame: true, footer: true, ...design.show };
-  (design.layout === 'samagam' ? drawSamagam : drawKirtan)(ctx, design.text || {}, themeOf(design.palette), show, design);
+  ({ samagam: drawSamagam, text: drawTextOnly }[design.layout] || drawKirtan)(ctx, design.text || {}, themeOf(design.palette), show, design);
   return canvas;
 }
 

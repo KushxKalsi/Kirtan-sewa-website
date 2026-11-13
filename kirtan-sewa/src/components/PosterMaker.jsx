@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { format } from 'date-fns';
-import { ArrowLeft, ArrowUp, Camera, Download, ImagePlus, Images, Loader2, Palette, Plus, RefreshCw, Send, Share2, Sparkles, Trash2, Type, UserRound, UsersRound, Wand2, X } from 'lucide-react';
+import { AlignCenter, ArrowLeft, ArrowUp, Camera, Download, Eye, EyeOff, ImagePlus, Images, Loader2, Palette, Plus, RefreshCw, RotateCcw, Send, Share2, SlidersHorizontal, Sparkles, Trash2, Type, UserRound, UsersRound, Wand2, X } from 'lucide-react';
 import Modal from './Modal';
 import { useSite } from './SiteContext';
 import { fromKey, prettyDate } from '../lib/date';
 import { shrinkPhoto, uploadMedia } from '../lib/media';
-import { BG_PRESETS, MAX_PEOPLE, TEMPLATES, W, genBackground, loadImage, loadPosterFonts, renderBackground, renderPoster, templateById } from '../lib/poster';
+import { BG_PRESETS, H, MAX_PEOPLE, TEMPLATES, W, genBackground, itemColor, loadImage, loadPosterFonts, renderBackground, renderPoster, templateById, textOnlyItems } from '../lib/poster';
 
 const to12 = (t) => {
   const [h, m] = t.split(':').map(Number);
@@ -35,6 +35,7 @@ const SAMAGAM_FIELDS = [
   ['time', 'Time of the whole samagam'],
   ['footer', 'Bottom line (jatha name)'],
 ];
+const TEXT_FIELDS = [['headline', 'Top line (e.g. ੴ ਸਤਿਗੁਰ ਪ੍ਰਸਾਦਿ)'], ...KIRTAN_FIELDS];
 const SHOW = [
   ['khanda', 'Khanda at the top'],
   ['ornaments', 'Corner leaves', 'kirtan'],
@@ -44,6 +45,19 @@ const SHOW = [
 const KINDS = {
   kirtan: { title: 'Kirtan', note: 'One kirtan — your photo, name, date and time.', icon: UserRound },
   samagam: { title: 'Samagam', note: 'Many raagis / jathas — a photo, name and time for each person.', icon: UsersRound },
+  text: { title: 'Text only', note: 'Add your own background — only the words (and photos, if you want) go on it. Move and resize anything.', icon: Type },
+};
+const COLOR_LABELS = {
+  text: [
+    ['primary', 'Titles'],
+    ['accent', 'Highlight'],
+    ['ink', 'Other lines'],
+  ],
+  other: [
+    ['primary', 'Banners'],
+    ['accent', 'Gold / highlight'],
+    ['ink', 'Text'],
+  ],
 };
 const PANELS = [
   { id: 'text', label: 'Text', icon: Type },
@@ -73,6 +87,60 @@ function snapshot(draw) {
   } catch {
     return '';
   }
+}
+// Size, colour, outline and so on for one line or photo of the text-only template.
+function ItemControls({ item, palette, onChange }) {
+  const photo = item.type === 'photo';
+  return (
+    <div className="poster-item-tools">
+      <label className="poster-range">
+        <span>Size</span>
+        <input type="range" min={photo ? 80 : 16} max={photo ? 900 : 160} step="2" value={item.size} onChange={(e) => onChange({ size: Number(e.target.value) })} />
+      </label>
+      <div className="poster-item-row">
+        {photo ? (
+          <>
+            <div className="poster-chips">
+              {[
+                ['round', 'Round'],
+                ['rect', 'Square'],
+              ].map(([v, label]) => (
+                <button key={v} type="button" className={item.shape === v ? 'active' : ''} onClick={() => onChange({ shape: v })}>
+                  {label}
+                </button>
+              ))}
+            </div>
+            <label className="poster-check">
+              <input type="checkbox" checked={item.border} onChange={(e) => onChange({ border: e.target.checked })} />
+              <span>Border</span>
+            </label>
+          </>
+        ) : (
+          <>
+            <label className="poster-item-color">
+              <input type="color" value={itemColor(item, palette)} onChange={(e) => onChange({ color: e.target.value })} />
+              <span>Colour</span>
+            </label>
+            {item.color && (
+              <button type="button" className="btn btn-ghost btn-sm" onClick={() => onChange({ color: '' })}>
+                <RotateCcw size={14} /> Template colour
+              </button>
+            )}
+            <label className="poster-check">
+              <input type="checkbox" checked={item.outline} onChange={(e) => onChange({ outline: e.target.checked })} />
+              <span>Outline</span>
+            </label>
+          </>
+        )}
+        <button type="button" className="btn btn-ghost btn-sm" onClick={() => onChange({ x: W / 2 })}>
+          <AlignCenter size={14} /> Centre
+        </button>
+        <button type="button" className="btn btn-ghost btn-sm" onClick={() => onChange({ hidden: !item.hidden })}>
+          {item.hidden ? <Eye size={14} /> : <EyeOff size={14} />} {item.hidden ? 'Show' : 'Hide'}
+        </button>
+      </div>
+    </div>
+  );
 }
 let nextKey = 0;
 const key = () => `p${++nextKey}`;
@@ -105,6 +173,10 @@ export default function PosterMaker({ open, duty: givenDuty, duties = [], person
   const [titlePhoto, setTitlePhoto] = useState(null);
   const [people, setPeople] = useState([]); // [{ key, url, img, name, time }]
   const [generated, setGenerated] = useState([]);
+  const [items, setItems] = useState(textOnlyItems); // text-only template: where each line / photo goes
+  const [sel, setSel] = useState(null); // the item being moved / changed
+  const hitsRef = useRef([]);
+  const drag = useRef(null);
   const [panel, setPanel] = useState('text');
   const [caption, setCaption] = useState('');
   const footer = site?.settings.siteName || '';
@@ -118,6 +190,10 @@ export default function PosterMaker({ open, duty: givenDuty, duties = [], person
     const t = templateById(id);
     setTemplateId(id);
     setPalette(t.palette);
+    setWash(t.wash ?? 0.35);
+    setShow((s) => ({ ...s, ornaments: t.show?.ornaments ?? true }));
+    // Text only is made for their own background, so keep a picture background they already chose.
+    if (t.kind === 'text' && bg.type === 'image') return;
     setBg(t.bg);
     setBgImg(null);
   };
@@ -130,6 +206,8 @@ export default function PosterMaker({ open, duty: givenDuty, duties = [], person
     setDetails(detailsFor(givenDuty));
     setText(null);
     setTitlePhoto(null);
+    setItems(textOnlyItems());
+    setSel(null);
     setShow({ khanda: true, ornaments: true, frame: true, footer: true });
     setGenerated([genBackground(), genBackground(), genBackground()]);
     chooseTemplate(TEMPLATES[0].id);
@@ -159,10 +237,14 @@ export default function PosterMaker({ open, duty: givenDuty, duties = [], person
     photo: photo?.img,
     titlePhoto: titlePhoto?.img,
     people,
+    items,
   };
-  // Redraw whenever anything on the poster changes.
+  // Redraw whenever anything on the poster changes (with the chosen item outlined, and where each item sits).
   useEffect(() => {
-    if (step === 'edit' && design && canvasRef.current) renderPoster(canvasRef.current, design);
+    if (step !== 'edit' || !design || !canvasRef.current) return;
+    const hits = [];
+    renderPoster(canvasRef.current, { ...design, selected: kind === 'text' ? sel : null, hits });
+    hitsRef.current = hits;
   });
 
   // Small previews of each template (sample wording) and of each background.
@@ -178,6 +260,7 @@ export default function PosterMaker({ open, duty: givenDuty, duties = [], person
               layout: t.kind,
               palette: t.palette,
               bg: t.bg,
+              show: t.show,
               people: SAMPLE_PEOPLE,
               text: { ...SAMPLE, program: t.kind === 'samagam' ? 'ਮਹਾਨ ਕੀਰਤਨ ਸਮਾਗਮ' : 'ਕੀਰਤਨ ਹਾਜ਼ਰੀ', time: t.kind === 'samagam' ? '7:00 - 11:00' : '7:00 - 9:00', footer },
             },
@@ -226,6 +309,7 @@ export default function PosterMaker({ open, duty: givenDuty, duties = [], person
       }));
       if (words.name) setPeople((list) => list.map((p) => (p.key === 'me' && p.name === person.name ? { ...p, name: words.name } : p)));
       if (!caption) setCaption([details.occasion, details.date && format(fromKey(details.date), 'd MMM yyyy')].filter(Boolean).join(' · '));
+      if (!text && kind === 'text') setPanel('background'); // first thing for text only: their background
       setStep('edit');
     });
   };
@@ -242,6 +326,42 @@ export default function PosterMaker({ open, duty: givenDuty, duties = [], person
     const added = await Promise.all([...files].slice(0, room).map(async (f) => ({ key: key(), ...(await fromFile(f)), name: '', time: '' })));
     setPeople((list) => [...list, ...added]);
   };
+  /* ---------- text only: move and change each item ---------- */
+  const setItem = (id, patch) => setItems((list) => list.map((it) => (it.id === id ? { ...it, ...patch } : it)));
+  const toPoster = (e) => {
+    const r = canvasRef.current.getBoundingClientRect();
+    return { x: ((e.clientX - r.left) * W) / r.width, y: ((e.clientY - r.top) * H) / r.height };
+  };
+  const onCanvasDown = (e) => {
+    if (kind !== 'text') return;
+    const p = toPoster(e);
+    const pad = 14;
+    const hit = [...hitsRef.current].reverse().find((b) => p.x >= b.x - pad && p.x <= b.x + b.w + pad && p.y >= b.y - pad && p.y <= b.y + b.h + pad);
+    if (!hit) return setSel(null);
+    const it = items.find((i) => i.id === hit.id);
+    setSel(hit.id);
+    setPanel(it.type === 'photo' ? 'photos' : 'text');
+    drag.current = { id: hit.id, dx: p.x - it.x, dy: p.y - it.y, moved: false };
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+  };
+  const onCanvasMove = (e) => {
+    const d = drag.current;
+    if (!d) return;
+    const p = toPoster(e);
+    let x = Math.round(Math.max(0, Math.min(W, p.x - d.dx)));
+    if (Math.abs(x - W / 2) < 12) x = W / 2; // snaps to the middle
+    const y = Math.round(Math.max(0, Math.min(H, p.y - d.dy)));
+    d.moved = true;
+    setItem(d.id, { x, y });
+  };
+  const onCanvasUp = () => {
+    const d = drag.current;
+    drag.current = null;
+    // A tap (no drag) on a wide screen: bring its controls into view in the side column.
+    if (d && !d.moved && window.matchMedia('(min-width: 861px)').matches)
+      setTimeout(() => document.querySelector(`[data-item="${d.id}"]`)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }), 0);
+  };
+
   const movePerson = (i) => setPeople((list) => (i < 1 ? list : [...list.slice(0, i - 1), list[i], list[i - 1], ...list.slice(i + 1)]));
 
   /* ---------- backgrounds ---------- */
@@ -285,7 +405,11 @@ export default function PosterMaker({ open, duty: givenDuty, duties = [], person
     });
 
   /* ---------- result ---------- */
-  const blob = () => new Promise((resolve, reject) => canvasRef.current.toBlob((b) => (b ? resolve(b) : reject(new Error('Could not make the image — try another photo or background.'))), 'image/jpeg', 0.92));
+  // Drawn again on its own canvas, so the editor's selection outline is not in the picture.
+  const blob = () =>
+    new Promise((resolve, reject) =>
+      renderPoster(document.createElement('canvas'), design).toBlob((b) => (b ? resolve(b) : reject(new Error('Could not make the image — try another photo or background.'))), 'image/jpeg', 0.92),
+    );
   const fileName = `poster-${details.date || format(new Date(), 'yyyy-MM-dd')}.jpg`;
   const download = () =>
     run('download', async () => {
@@ -307,7 +431,12 @@ export default function PosterMaker({ open, duty: givenDuty, duties = [], person
     });
 
   const set = (k) => (e) => setDetails((d) => ({ ...d, [k]: e.target.value }));
-  const fields = kind === 'samagam' ? SAMAGAM_FIELDS : KIRTAN_FIELDS;
+  const fields = kind === 'samagam' ? SAMAGAM_FIELDS : kind === 'text' ? TEXT_FIELDS : KIRTAN_FIELDS;
+  const itemFor = (id) => (kind === 'text' ? items.find((it) => it.id === id) : null);
+  const photoControls = (id) => {
+    const it = itemFor(id);
+    return it && <ItemControls item={it} palette={palette} onChange={(patch) => setItem(id, patch)} />;
+  };
   const subtitle = duty ? `${duty.serviceName} · ${format(fromKey(duty.date), 'EEE d MMM yyyy')}` : 'Choose a template, then change anything you like.';
 
   return (
@@ -331,6 +460,7 @@ export default function PosterMaker({ open, duty: givenDuty, duties = [], person
                     className={`poster-template-card ${templateId === t.id ? 'active' : ''}`}
                     onClick={() => {
                       chooseTemplate(t.id);
+                      if (text && t.kind === 'text') setPanel('background');
                       setStep(text ? 'edit' : 'details');
                     }}
                   >
@@ -379,7 +509,7 @@ export default function PosterMaker({ open, duty: givenDuty, duties = [], person
             <input value={details.venue || ''} onChange={set('venue')} placeholder=" " required />
             <span>Village / place</span>
           </label>
-          {kind === 'kirtan' && (
+          {kind !== 'samagam' && (
             <div className="form-row">
               <label className="field">
                 <input value={details.name || ''} onChange={set('name')} placeholder=" " required />
@@ -418,7 +548,15 @@ export default function PosterMaker({ open, duty: givenDuty, duties = [], person
       {open && step === 'edit' && text && (
         <div className="poster-editor">
           <div className="poster-stage">
-            <canvas ref={canvasRef} className="poster-canvas" />
+            <canvas
+              ref={canvasRef}
+              className={`poster-canvas ${kind === 'text' ? 'movable' : ''}`}
+              onPointerDown={onCanvasDown}
+              onPointerMove={onCanvasMove}
+              onPointerUp={onCanvasUp}
+              onPointerCancel={onCanvasUp}
+            />
+            {kind === 'text' && <p className="fine-print poster-stage-hint">Drag any line or photo to move it. Tap it to change its size and colour.</p>}
           </div>
 
           <div className="poster-side">
@@ -432,12 +570,27 @@ export default function PosterMaker({ open, duty: givenDuty, duties = [], person
 
             {panel === 'text' && (
               <div className="poster-panel">
-                {fields.map(([k, label]) => (
-                  <label key={k} className="field compact">
-                    <input value={text[k] || ''} onChange={(e) => setText((t) => ({ ...t, [k]: e.target.value }))} placeholder=" " lang="pa" />
-                    <span>{label}</span>
-                  </label>
-                ))}
+                {fields.map(([k, label]) => {
+                  const it = itemFor(k);
+                  const input = (
+                    <label className="field compact">
+                      <input value={text[k] || ''} onChange={(e) => setText((t) => ({ ...t, [k]: e.target.value }))} placeholder=" " lang="pa" />
+                      <span>{label}</span>
+                    </label>
+                  );
+                  if (!it) return <div key={k}>{input}</div>;
+                  return (
+                    <div key={k} className={`poster-line ${sel === k ? 'active' : ''} ${it.hidden ? 'hidden-item' : ''}`} data-item={k}>
+                      <div className="poster-line-row">
+                        {input}
+                        <button type="button" className={`icon-btn ${sel === k ? 'active' : ''}`} onClick={() => setSel(sel === k ? null : k)} aria-label={`Size and colour: ${label}`} title="Size, colour, hide">
+                          {it.hidden ? <EyeOff size={15} /> : <SlidersHorizontal size={15} />}
+                        </button>
+                      </div>
+                      {sel === k && <ItemControls item={it} palette={palette} onChange={(patch) => setItem(k, patch)} />}
+                    </div>
+                  );
+                })}
                 {info?.posterAi && (
                   <button type="button" className="btn btn-ghost btn-sm" onClick={() => setStep('details')} disabled={!!busy}>
                     <RefreshCw size={15} /> Change details and write again
@@ -448,11 +601,11 @@ export default function PosterMaker({ open, duty: givenDuty, duties = [], person
 
             {panel === 'photos' && (
               <div className="poster-panel">
-                <div className="poster-photo-row">
+                <div className="poster-photo-row" data-item="titlePhoto">
                   {titlePhoto ? <img src={titlePhoto.url} alt="" className="poster-photo-thumb round" /> : <span className="poster-photo-thumb round empty">Title</span>}
                   <div>
                     <strong>Title photo</strong>
-                    <p className="fine-print">Guru Sahib, the Gurdwara or Nishan Sahib — in a round frame at the top.</p>
+                    <p className="fine-print">Guru Sahib, the Gurdwara or Nishan Sahib — {kind === 'text' ? 'at the top; drag it anywhere.' : 'in a round frame at the top.'}</p>
                     <div className="ab-actions">
                       <label className="btn btn-ghost btn-sm">
                         <Camera size={15} /> {titlePhoto ? 'Change' : 'Add title photo'}
@@ -464,11 +617,12 @@ export default function PosterMaker({ open, duty: givenDuty, duties = [], person
                         </button>
                       )}
                     </div>
+                    {titlePhoto && photoControls('titlePhoto')}
                   </div>
                 </div>
 
-                {kind === 'kirtan' ? (
-                  <div className="poster-photo-row">
+                {kind !== 'samagam' ? (
+                  <div className="poster-photo-row" data-item="photo">
                     {photo ? <img src={photo.url} alt="" className="poster-photo-thumb" /> : <span className="poster-photo-thumb empty">No photo</span>}
                     <div>
                       <strong>Your photo</strong>
@@ -483,6 +637,7 @@ export default function PosterMaker({ open, duty: givenDuty, duties = [], person
                           </button>
                         )}
                       </div>
+                      {photo && photoControls('photo')}
                     </div>
                   </div>
                 ) : (
@@ -529,6 +684,7 @@ export default function PosterMaker({ open, duty: givenDuty, duties = [], person
 
             {panel === 'background' && (
               <div className="poster-panel">
+                {kind === 'text' && <p className="fine-print">Choose a background or add your own — only your words and photos go on top of it, nothing else.</p>}
                 <div className="poster-panel-head">
                   <strong>For Gurbani kirtan</strong>
                   <button type="button" className="btn btn-ghost btn-sm" onClick={generateBg}>
@@ -599,26 +755,37 @@ export default function PosterMaker({ open, duty: givenDuty, duties = [], person
                 <p className="fine-print">Changing the template keeps your wording and photos; colours and background go back to the template’s own.</p>
                 <strong>Colours</strong>
                 <div className="poster-colors">
-                  {[
-                    ['primary', 'Banners'],
-                    ['accent', 'Gold / highlight'],
-                    ['ink', 'Text'],
-                  ].map(([k, label]) => (
+                  {COLOR_LABELS[kind === 'text' ? 'text' : 'other'].map(([k, label]) => (
                     <label key={k}>
                       <input type="color" value={palette[k]} onChange={(e) => setPalette((p) => ({ ...p, [k]: e.target.value }))} />
                       <span>{label}</span>
                     </label>
                   ))}
                 </div>
-                <strong>Show on the poster</strong>
-                <div className="poster-toggles">
-                  {SHOW.filter(([, , only]) => !only || only === kind).map(([k, label]) => (
-                    <label key={k} className="check">
-                      <input type="checkbox" checked={show[k]} onChange={(e) => setShow((s) => ({ ...s, [k]: e.target.checked }))} />
-                      <span>{label}</span>
-                    </label>
-                  ))}
-                </div>
+                {kind === 'text' ? (
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm"
+                    onClick={() => {
+                      setItems(textOnlyItems());
+                      setSel(null);
+                    }}
+                  >
+                    <RotateCcw size={15} /> Put every line back in its place
+                  </button>
+                ) : (
+                  <>
+                    <strong>Show on the poster</strong>
+                    <div className="poster-toggles">
+                      {SHOW.filter(([, , only]) => !only || only === kind).map(([k, label]) => (
+                        <label key={k} className="check">
+                          <input type="checkbox" checked={show[k]} onChange={(e) => setShow((s) => ({ ...s, [k]: e.target.checked }))} />
+                          <span>{label}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </>
+                )}
               </div>
             )}
 
