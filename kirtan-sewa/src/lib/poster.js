@@ -748,24 +748,155 @@ const ARCH_SLOTS = {
   teal: { title: [483, 384, 632, 145], program: [267, 811, 308, 107], place: [269, 941, 304, 79, 'dark'], name: [548, 1147, 661, 127], when: [544, 1294, 571, 123], win: [452, 482, 511, 639], top: 60, bottom: 1478 },
 };
 const rnd = Math.round;
-function archItems({ title: [tx, ty, tw, th], program: [px, py, pw, ph, pDark], place: [lx, ly, lw, lh, lDark], name: [nx, ny, nw, nh], when: [wx, wy, ww, wh], win: [vx, vy, vw, vh], top, bottom }) {
+// Each box may end with `dark`: true for a dark banner (white words), false for a light one (dark words). Unset, the
+// title and name banners are dark and the rest light.
+function archItems({ title: [tx, ty, tw, th, tDark = true], program: [px, py, pw, ph, pDark], place: [lx, ly, lw, lh, lDark], name: [nx, ny, nw, nh, nDark = true], when: [wx, wy, ww, wh, wDark], win: [vx, vy, vw, vh], top, bottom }) {
   const text = (x, maxW, more) => ({ ...PLAIN, x, maxW: rnd(maxW * 0.8), ...more });
+  const main = (dark) => (dark ? 'onPrimary' : 'primary');
+  const second = (dark) => (dark ? 'accent' : 'ink');
   return [
     ['headline', 'text', top || 70, 38, 'primary', { ...PLAIN, hidden: !top }],
     ['titlePhoto', 'photo', 200, 180, 'round', { hidden: true }],
     // Two lines in the title banner; one line moves to the middle when the other is empty.
-    ['occasion', 'text', rnd(ty - th * 0.2), rnd(th * 0.36), 'onPrimary', text(tx, tw, { pair: { with: 'occasionFor', dy: rnd(th * 0.2) } })],
-    ['occasionFor', 'text', rnd(ty + th * 0.21), rnd(th * 0.32), 'accent', text(tx, tw, { pair: { with: 'occasion', dy: -rnd(th * 0.21) } })],
-    ['program', 'text', py, Math.min(56, rnd(ph * 0.42)), pDark ? 'onPrimary' : 'primary', text(px, pw)],
-    ['place', 'text', ly, Math.min(52, rnd(lh * 0.44)), lDark ? 'onPrimary' : 'primary', text(lx, lw)],
+    ['occasion', 'text', rnd(ty - th * 0.2), rnd(th * 0.36), main(tDark), text(tx, tw, { pair: { with: 'occasionFor', dy: rnd(th * 0.2) } })],
+    ['occasionFor', 'text', rnd(ty + th * 0.21), rnd(th * 0.32), second(tDark), text(tx, tw, { pair: { with: 'occasion', dy: -rnd(th * 0.21) } })],
+    ['program', 'text', py, Math.min(56, rnd(ph * 0.42)), main(pDark), text(px, pw)],
+    ['place', 'text', ly, Math.min(52, rnd(lh * 0.44)), main(lDark), text(lx, lw)],
     // Covers the whole window (a little more, under the frame's edge).
     ['photo', 'photo', rnd(vy + vh / 2), vw + 16, 'rect', { x: rnd(vx + vw / 2), ratio: (vh + 16) / (vw + 16), border: false, placeholder: true }],
-    ['name', 'text', rnd(ny - nh * 0.13), rnd(nh * 0.42), 'onPrimary', text(nx, nw, { pair: { with: 'nameLine', dy: rnd(nh * 0.13) } })],
-    ['nameLine', 'text', rnd(ny + nh * 0.27), rnd(nh * 0.24), 'accent', text(nx, nw)],
-    ['date', 'text', rnd(wy - wh * 0.21), rnd(wh * 0.34), 'primary', text(wx, ww, { pair: { with: 'time', dy: rnd(wh * 0.21) } })],
-    ['time', 'text', rnd(wy + wh * 0.23), rnd(wh * 0.32), 'primary', text(wx, ww, { pair: { with: 'date', dy: -rnd(wh * 0.23) } })],
+    ['name', 'text', rnd(ny - nh * 0.13), rnd(nh * 0.42), main(nDark), text(nx, nw, { pair: { with: 'nameLine', dy: rnd(nh * 0.13) } })],
+    ['nameLine', 'text', rnd(ny + nh * 0.27), rnd(nh * 0.24), second(nDark), text(nx, nw)],
+    ['date', 'text', rnd(wy - wh * 0.21), rnd(wh * 0.34), main(wDark), text(wx, ww, { pair: { with: 'time', dy: rnd(wh * 0.21) } })],
+    ['time', 'text', rnd(wy + wh * 0.23), rnd(wh * 0.32), main(wDark), text(wx, ww, { pair: { with: 'date', dy: -rnd(wh * 0.23) } })],
     ['footer', 'text', bottom || 1490, 28, 'primary', { ...PLAIN, hidden: !bottom }],
   ];
+}
+
+// Where a picture sits on the poster when shown whole (never cropped or stretched): [x, y, w, h].
+function containRect(img) {
+  const k = Math.min(W / img.width, H / img.height);
+  return [(W - img.width * k) / 2, (H - img.height * k) / 2, img.width * k, img.height * k];
+}
+
+/**
+ * A frame design someone uploaded (a PNG with a see-through window for the photo): finds the window and the banners,
+ * and puts each line in a banner — title above the window, program and place beside it, name and date / time below.
+ * Returns { items, palette }, or null when the picture has no see-through window.
+ */
+export function detectFrame(img) {
+  const S = 0.5; // looked at half size: quick, and plenty for finding banners
+  const w = W * S;
+  const h = H * S;
+  const c = document.createElement('canvas');
+  c.width = w;
+  c.height = h;
+  const cx = c.getContext('2d', { willReadFrequently: true });
+  const [rx, ry, rw, rh] = containRect(img);
+  cx.drawImage(img, rx * S, ry * S, rw * S, rh * S);
+  let data;
+  try {
+    data = cx.getImageData(0, 0, w, h).data;
+  } catch {
+    return null;
+  }
+  const n = w * h;
+  const seen = new Uint8Array(n);
+  const stack = new Int32Array(n);
+  // Joins neighbours while `same(from, to)` holds; returns the area's size, box and average colour.
+  const flood = (start, same) => {
+    let top = 0;
+    let count = 0;
+    let x0 = w;
+    let y0 = h;
+    let x1 = -1;
+    let y1 = -1;
+    let edge = false;
+    const sum = [0, 0, 0];
+    stack[top++] = start;
+    seen[start] = 1;
+    while (top) {
+      const i = stack[--top];
+      const x = i % w;
+      const y = (i - x) / w;
+      count++;
+      sum[0] += data[i * 4];
+      sum[1] += data[i * 4 + 1];
+      sum[2] += data[i * 4 + 2];
+      if (x < x0) x0 = x;
+      if (x > x1) x1 = x;
+      if (y < y0) y0 = y;
+      if (y > y1) y1 = y;
+      if (!x || !y || x === w - 1 || y === h - 1) edge = true;
+      for (const j of [x ? i - 1 : -1, x < w - 1 ? i + 1 : -1, i - w, i + w]) {
+        if (j >= 0 && j < n && !seen[j] && same(i, j)) {
+          seen[j] = 1;
+          stack[top++] = j;
+        }
+      }
+    }
+    return { count, x0, y0, x1, y1, edge, color: sum.map((v) => v / count) };
+  };
+  const alpha = (i) => data[i * 4 + 3];
+
+  // The photo window: the biggest see-through area that does not reach the edge of the poster.
+  let win = null;
+  for (let i = 0; i < n; i++) {
+    if (seen[i] || alpha(i) >= 60) continue;
+    const r = flood(i, (_, j) => alpha(j) < 60);
+    if (!r.edge && r.count > n * 0.03 && (!win || r.count > win.count)) win = r;
+  }
+  if (!win) return null;
+  const box = (r) => [(r.x0 + (r.x1 - r.x0 + 1) / 2) / S, (r.y0 + (r.y1 - r.y0 + 1) / 2) / S, (r.x1 - r.x0 + 1) / S, (r.y1 - r.y0 + 1) / S];
+  const [wcx, wcy, ww, wh] = box(win);
+  const wTop = wcy - wh / 2;
+  const wBottom = wcy + wh / 2;
+  const wLeft = wcx - ww / 2;
+  const wRight = wcx + ww / 2;
+
+  // Banners: wide, filled areas of one colour (shading allowed), outlined by something else (the gold edge).
+  seen.fill(0);
+  const diff = (i, j) => Math.abs(data[i * 4] - data[j * 4]) + Math.abs(data[i * 4 + 1] - data[j * 4 + 1]) + Math.abs(data[i * 4 + 2] - data[j * 4 + 2]);
+  const slots = [];
+  for (let i = 0; i < n; i++) {
+    if (seen[i] || alpha(i) < 200) continue;
+    const r = flood(i, (a, b) => alpha(b) >= 200 && diff(a, b) < 24);
+    const bw = r.x1 - r.x0 + 1;
+    const bh = r.y1 - r.y0 + 1;
+    if (r.count < n * 0.004 || r.count > n * 0.25 || bw < w * 0.18 || bw < 1.8 * bh || bh < h * 0.025 || r.count / (bw * bh) < 0.6) continue;
+    const [scx, scy, sw, sh] = box(r);
+    if (scx > wLeft && scx < wRight && scy > wTop && scy < wBottom) continue; // inside the window
+    const [cr, cg, cb] = r.color;
+    slots.push({ at: [scx, scy, sw, sh], dark: 0.299 * cr + 0.587 * cg + 0.114 * cb < 140, color: r.color });
+  }
+  slots.sort((a, b) => a.at[1] - b.at[1]);
+  const beside = slots.filter((s) => s.at[1] > wTop && s.at[1] < wBottom - s.at[3] / 2 && (s.at[0] + s.at[2] / 2 <= wLeft + 30 || s.at[0] - s.at[2] / 2 >= wRight - 30));
+  const above = slots.filter((s) => s.at[1] <= wTop);
+  const below = slots.filter((s) => s.at[1] >= wBottom - s.at[3] / 2 && !beside.includes(s));
+  const title = [...above].sort((a, b) => b.at[2] - a.at[2])[0];
+  const found = { title, program: beside[0], place: beside[1], name: below[0], when: below[1] };
+  // A banner it could not find falls back to where it is on the cream arch frame; they can drag the line.
+  // Dark or light is read from the picture at that place.
+  const darkAt = ([x, y]) => {
+    const i = Math.round(y * S) * w + Math.round(x * S);
+    const [r, g, b, a] = data.slice(i * 4, i * 4 + 4);
+    return a >= 200 && 0.299 * r + 0.587 * g + 0.114 * b < 140;
+  };
+  const slot = (k) => (found[k] ? [...found[k].at, found[k].dark] : [...ARCH_SLOTS.cream[k].slice(0, 4), darkAt(ARCH_SLOTS.cream[k])]);
+  const topGap = ry;
+  const bottomGap = H - (ry + rh);
+  const items = archItems({
+    title: slot('title'),
+    program: slot('program'),
+    place: slot('place'),
+    name: slot('name'),
+    when: slot('when'),
+    win: [wLeft, wTop, ww, wh],
+    top: topGap >= 100 ? rnd(topGap / 2) : 0,
+    bottom: bottomGap >= 100 ? rnd(H - bottomGap / 2) : 0,
+  });
+  const darkest = [found.title, found.name].filter((s) => s?.dark).sort((a, b) => a.color.reduce((x, y) => x + y) - b.color.reduce((x, y) => x + y))[0];
+  const primary = darkest ? toHex(darkest.color) : '#14285a';
+  return { items: rowsToItems(items), palette: { primary, accent: '#f0c22e', ink: primary } };
 }
 const ITEM_SETS = { plain: PLAIN_ITEMS, royal: ROYAL_ITEMS, royalPhoto: ROYAL_PHOTO_ITEMS, ...Object.fromEntries(Object.entries(ARCH_SLOTS).map(([k, v]) => [`arch-${k}`, archItems(v)])) };
 // Pieces of a template's frame picture: src [x, y, w, h] in the picture (1024 × 1536) → dst [x, y, w, h] on the poster.
@@ -782,8 +913,9 @@ const PIECE_SETS = {
   ],
 };
 /** Starting place, size and colour of every line and photo for a text template (by template id). */
-export const textOnlyItems = (templateId) =>
-  (ITEM_SETS[templateById(templateId).items] || PLAIN_ITEMS).map(([id, type, y, size, look, extra = {}]) => ({
+export const textOnlyItems = (templateId) => rowsToItems(ITEM_SETS[templateById(templateId).items] || PLAIN_ITEMS);
+function rowsToItems(rows) {
+  return rows.map(([id, type, y, size, look, extra = {}]) => ({
     id,
     type,
     x: W / 2,
@@ -793,6 +925,7 @@ export const textOnlyItems = (templateId) =>
     hidden: false,
     ...extra,
   }));
+}
 // Numbers read better in the serif font; Gurmukhi letters fall back to the Gurmukhi font.
 const SERIF_ITEMS = new Set(['date', 'time']);
 const lightness = (hex) => {
@@ -805,8 +938,8 @@ export const itemColor = (it, palette) => it.color || themeOf(palette)[it.role] 
 // d.items: [{ id, type, x, y, size, … }]; d.selected: id to outline (editor only); d.hits: filled with each item's box.
 function drawTextOnly(ctx, text, t, show, d) {
   // The template's frame picture over the background: whole (never cropped), or cut into pieces and rearranged.
-  const tpl = templateById(d.templateId);
-  const pieces = d.overlay && (PIECE_SETS[tpl.pieces] || [{ src: [0, 0, d.overlay.width, d.overlay.height], dst: [0, 0, W, H], over: !!tpl.overlayOver }]);
+  const tpl = d.template || templateById(d.templateId);
+  const pieces = d.overlay && (PIECE_SETS[tpl.pieces] || [{ src: [0, 0, d.overlay.width, d.overlay.height], dst: containRect(d.overlay), over: !!tpl.overlayOver }]);
   const drawPieces = (over) => {
     for (const p of pieces.filter((x) => !!x.over === over)) ctx.drawImage(d.overlay, ...p.src, ...p.dst);
   };

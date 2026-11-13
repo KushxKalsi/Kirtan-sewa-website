@@ -5,7 +5,7 @@ import Modal from './Modal';
 import { useSite } from './SiteContext';
 import { fromKey, prettyDate } from '../lib/date';
 import { shrinkPhoto, uploadMedia } from '../lib/media';
-import { BG_PRESETS, H, MAX_PEOPLE, TEMPLATES, W, genBackground, itemColor, loadImage, loadPosterFonts, renderBackground, renderPoster, templateById, textOnlyItems } from '../lib/poster';
+import { BG_PRESETS, H, MAX_PEOPLE, TEMPLATES, W, detectFrame, genBackground, itemColor, loadImage, loadPosterFonts, renderBackground, renderPoster, templateById, textOnlyItems } from '../lib/poster';
 
 const to12 = (t) => {
   const [h, m] = t.split(':').map(Number);
@@ -54,12 +54,25 @@ function GroupIcon({ group }) {
   const Icon = GROUPS[group].icon;
   return <Icon size={15} />;
 }
-// The template picker: one design for single photo, one for multi photo, and every other design under Others
-// (Text only first).
+// The template picker: single photo shows one of each of its two kinds of design (a banner design drawn by the app,
+// and a frame design — a picture with a window for the photo), multi photo shows one, and every other design is under
+// Others (Text only first). Team members can add designs of each single-photo kind.
 const PICK_SINGLE = 'kirtan-classic';
+const PICK_FRAME = 'text-arch-cream';
 const PICK_MULTI = 'samagam-board';
-const PICK_OTHERS = [templateById('text-only'), ...TEMPLATES.filter((t) => ![PICK_SINGLE, PICK_MULTI, 'text-only'].includes(t.id))];
-const inGroup = (g) => TEMPLATES.filter((t) => groupOf(t) === g);
+const PICK_SINGLE_KINDS = [
+  [PICK_SINGLE, 'drawn', 'Banner design', 'Any picture — the app’s banners go over it.'],
+  [PICK_FRAME, 'frame', 'Frame design', 'A PNG frame whose photo area is see-through.'],
+];
+const PICK_OTHERS = [templateById('text-only'), ...TEMPLATES.filter((t) => ![PICK_SINGLE, PICK_FRAME, PICK_MULTI, 'text-only'].includes(t.id))];
+// Designs team members added (kept with the team backgrounds) turned into templates.
+const ART_PREFIX = 'team-';
+function teamTemplate(b, art) {
+  const base = { id: ART_PREFIX + b.id, name: b.title, note: `Added by ${b.by}`, art: b };
+  if (b.kind === 'frame') return { ...base, kind: 'text', palette: art?.palette || templateById(PICK_FRAME).palette, bg: { type: 'preset', id: 'paper' }, wash: 0, overlayOver: true };
+  const classic = templateById(PICK_SINGLE);
+  return { ...base, kind: 'kirtan', palette: classic.palette, show: classic.show, bg: { type: 'image', id: b.id, url: b.url, name: b.title } };
+}
 const COLOR_LABELS = {
   text: [
     ['primary', 'Titles'],
@@ -192,7 +205,19 @@ export default function PosterMaker({ open, duty: givenDuty, duties = [], person
   const [fontsOk, setFontsOk] = useState(false);
   const [duty, setDuty] = useState(null);
   const [templateId, setTemplateId] = useState(TEMPLATES[0].id);
-  const kind = templateById(templateId).kind;
+  const [teamArt, setTeamArt] = useState({}); // team design id → { img, items, palette } (frames) or { img } (banner designs)
+  const teamDesigns = useMemo(() => (info?.backgrounds || []).filter((b) => b.kind === 'frame' || b.kind === 'drawn').map((b) => teamTemplate(b, teamArt[b.id])), [info, teamArt]);
+  const allTemplates = [...TEMPLATES, ...teamDesigns];
+  const tplById = (id) => allTemplates.find((t) => t.id === id) || TEMPLATES[0];
+  const inGroup = (g) => allTemplates.filter((t) => groupOf(t) === g);
+  const itemsFor = (id) => {
+    const t = tplById(id);
+    return t.art ? teamArt[t.art.id]?.items || textOnlyItems() : textOnlyItems(id);
+  };
+  const teamBackgrounds = (info?.backgrounds || []).filter((b) => (b.kind || 'background') === 'background');
+  const overlayFor = (t) => overlays[t.id] || (t.art?.kind === 'frame' ? teamArt[t.art.id]?.img : null);
+  const pendingDesign = useRef(''); // a design they just added: chosen as soon as it is loaded
+  const kind = tplById(templateId).kind;
   const [details, setDetails] = useState({});
   const [text, setText] = useState(null);
   const [palette, setPalette] = useState(TEMPLATES[0].palette);
@@ -220,18 +245,19 @@ export default function PosterMaker({ open, duty: givenDuty, duties = [], person
     return { occasion: gp ? `${gp.kindLabel} ${gp.name}` : d?.serviceName || '', venue: d?.address || '', name: person.name, from: '', date: d?.date || '', start, end };
   };
   const chooseTemplate = (id) => {
-    const t = templateById(id);
+    const t = tplById(id);
     setTemplateId(id);
     setPalette(t.palette);
     setWash(t.wash ?? 0.35);
     setFit(t.kind === 'text' ? 'whole' : 'cover');
     setShow((s) => ({ ...s, ornaments: t.show?.ornaments ?? true }));
     if (t.kind === 'text' && id !== templateId) {
-      setItems(textOnlyItems(id)); // each text template places the lines its own way
+      setItems(itemsFor(id)); // each text template places the lines its own way
       setSel(null);
     }
     // Text only is made for their own background, so keep a picture background they already chose.
     if (t.kind === 'text' && bg.type === 'image') return;
+    if (t.bg.type === 'image') return chooseBg(t.bg); // a banner design added by the team: its picture
     setBg(t.bg);
     setBgImg(null);
   };
@@ -267,6 +293,25 @@ export default function PosterMaker({ open, duty: givenDuty, duties = [], person
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, givenDuty?.id]);
 
+  // Team designs: load each picture once; frames are looked at to find the photo window and the banners.
+  useEffect(() => {
+    for (const b of info?.backgrounds || []) {
+      if ((b.kind !== 'frame' && b.kind !== 'drawn') || teamArt[b.id]) continue;
+      setTeamArt((m) => ({ ...m, [b.id]: { loading: true } }));
+      loadImage(b.url).then((img) => setTeamArt((m) => ({ ...m, [b.id]: { img, ...(img && b.kind === 'frame' ? detectFrame(img) : null) } })));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [info]);
+  useEffect(() => {
+    const id = pendingDesign.current;
+    const t = id && teamDesigns.find((x) => x.id === id);
+    if (!t || !teamArt[t.art.id]?.img) return;
+    pendingDesign.current = '';
+    chooseTemplate(id);
+    if (step === 'pick') setStep(text ? 'edit' : 'details');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [teamDesigns]);
+
   const design = text && {
     layout: kind,
     text,
@@ -278,7 +323,8 @@ export default function PosterMaker({ open, duty: givenDuty, duties = [], person
     people,
     items,
     templateId,
-    overlay: kind === 'text' ? overlays[templateId] : null,
+    template: tplById(templateId),
+    overlay: kind === 'text' ? overlayFor(tplById(templateId)) : null,
   };
   // Redraw whenever anything on the poster changes (with the chosen item outlined, and where each item sits).
   useEffect(() => {
@@ -292,7 +338,7 @@ export default function PosterMaker({ open, duty: givenDuty, duties = [], person
   const templateThumbs = useMemo(() => {
     if (!open) return {};
     return Object.fromEntries(
-      TEMPLATES.map((t) => [
+      allTemplates.map((t) => [
         t.id,
         snapshot((c) =>
           renderPoster(
@@ -300,11 +346,12 @@ export default function PosterMaker({ open, duty: givenDuty, duties = [], person
             {
               layout: t.kind,
               palette: t.palette,
-              bg: t.bg,
+              bg: t.bg.type === 'image' ? { type: 'image', img: teamArt[t.art?.id]?.img, wash: 0.35 } : t.bg,
               show: t.show,
-              overlay: overlays[t.id],
+              overlay: overlayFor(t),
               templateId: t.id,
-              items: t.kind === 'text' ? textOnlyItems(t.id) : null,
+              template: t,
+              items: t.kind === 'text' ? itemsFor(t.id) : null,
               people: SAMPLE_PEOPLE,
               text: { ...SAMPLE, program: t.kind === 'samagam' ? 'ਮਹਾਨ ਕੀਰਤਨ ਸਮਾਗਮ' : 'ਕੀਰਤਨ ਹਾਜ਼ਰੀ', time: t.kind === 'samagam' ? '7:00 - 11:00' : '7:00 - 9:00', footer },
             },
@@ -313,7 +360,8 @@ export default function PosterMaker({ open, duty: givenDuty, duties = [], person
         ),
       ]),
     );
-  }, [open, fontsOk, footer, overlays]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, fontsOk, footer, overlays, teamDesigns]);
   const bgThumbs = useMemo(() => {
     if (!open || step !== 'edit') return {};
     return Object.fromEntries([...BG_PRESETS, ...generated].map((b) => [bgKey(b), snapshot((c) => renderBackground(c, b, 84))]));
@@ -443,11 +491,51 @@ export default function PosterMaker({ open, duty: givenDuty, duties = [], person
     shareBg(new File([blob], 'background.jpg', { type: 'image/jpeg' }), name);
   };
   const removeBg = (b) =>
-    window.confirm('Remove this background for the whole team?') &&
+    window.confirm(b.kind && b.kind !== 'background' ? 'Remove this design for the whole team?' : 'Remove this background for the whole team?') &&
     run(b.id, async () => {
       setInfo(await team.deletePosterBackground(b.id));
-      if (bg.type === 'image' && bg.id === b.id) chooseBg(templateById(templateId).bg);
+      if (templateId === ART_PREFIX + b.id) chooseTemplate(b.kind === 'frame' ? PICK_FRAME : PICK_SINGLE);
+      else if (bg.type === 'image' && bg.id === b.id) chooseBg(tplById(templateId).bg);
     });
+  // A new single-photo design for the whole team: 'frame' (a PNG with a see-through photo window) or 'drawn' (a
+  // picture the app's banners go over).
+  const addDesign = async (artKind, file) => {
+    if (!file) return;
+    let upload;
+    if (artKind === 'frame') {
+      const url = URL.createObjectURL(file);
+      const img = await loadImage(url);
+      URL.revokeObjectURL(url);
+      if (!img || !detectFrame(img))
+        return toast('No see-through photo window found. Save the frame as a PNG where the photo area (and the outside) is see-through.', 'error');
+      upload = file.type === 'image/png' ? await shrinkPng(file) : file;
+    } else {
+      upload = await shrinkPhoto(file, 1600);
+    }
+    run(`design-${artKind}`, async () => {
+      const { id } = await uploadMedia(team, upload);
+      const r = await team.addPosterBackground(id, file.name.replace(/\.\w+$/, '').slice(0, 60), artKind);
+      const added = r.backgrounds.filter((b) => b.mine && b.kind === artKind).at(-1);
+      if (added) pendingDesign.current = ART_PREFIX + added.id;
+      setInfo(r);
+      toast('Design added — the whole team can use it now 🙏');
+    });
+  };
+  const addDesignButton = (artKind, label) => (
+    <label className={`btn btn-ghost btn-sm ${busy ? 'disabled' : ''}`}>
+      {busy === `design-${artKind}` ? <Loader2 size={15} className="spin" /> : <Plus size={15} />} {label}
+      <input
+        type="file"
+        accept={artKind === 'frame' ? 'image/png,image/webp' : 'image/*'}
+        hidden
+        disabled={!!busy}
+        onChange={(e) => {
+          addDesign(artKind, e.target.files[0]);
+          e.target.value = '';
+        }}
+      />
+    </label>
+  );
 
   /* ---------- result ---------- */
   // Drawn again on its own canvas, so the editor's selection outline is not in the picture.
@@ -520,7 +608,21 @@ export default function PosterMaker({ open, duty: givenDuty, duties = [], person
                     {GROUPS[g].title}
                   </h4>
                   <p className="fine-print">{GROUPS[g].note}</p>
-                  <div className="poster-template-grid">{templateCard(templateById(g === 'single' ? PICK_SINGLE : PICK_MULTI))}</div>
+                  {g === 'single' ? (
+                    <div className="poster-template-grid poster-pick-kinds">
+                      {PICK_SINGLE_KINDS.map(([id, artKind, label, hint]) => (
+                        <div key={id} className="poster-pick-kind">
+                          <span className="poster-subhead" title={hint}>
+                            {label}
+                          </span>
+                          {templateCard(templateById(id))}
+                          {addDesignButton(artKind, 'Add design')}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="poster-template-grid">{templateCard(templateById(PICK_MULTI))}</div>
+                  )}
                 </div>
               ))}
             </div>
@@ -533,7 +635,7 @@ export default function PosterMaker({ open, duty: givenDuty, duties = [], person
                 <span>{GROUPS.other.note}</span>
               </div>
             </header>
-            <div className="poster-template-grid">{PICK_OTHERS.map(templateCard)}</div>
+            <div className="poster-template-grid">{[...PICK_OTHERS, ...teamDesigns].map(templateCard)}</div>
             <p className="fine-print">You can change the design any time later in the Background tab.</p>
           </section>
         </div>
@@ -542,7 +644,7 @@ export default function PosterMaker({ open, duty: givenDuty, duties = [], person
       {open && step === 'details' && (
         <form className="poster-form" onSubmit={generate}>
           <button type="button" className="poster-chosen" onClick={() => setStep('pick')}>
-            <ArrowLeft size={15} /> {GROUPS[groupOf(templateById(templateId))].title} · {templateById(templateId).name} <em>change</em>
+            <ArrowLeft size={15} /> {GROUPS[groupOf(tplById(templateId))].title} · {tplById(templateId).name} <em>change</em>
           </button>
           {!givenDuty && duties.length > 0 && (
             <label className="field select">
@@ -759,13 +861,27 @@ export default function PosterMaker({ open, duty: givenDuty, duties = [], person
                     <span className="poster-subhead">{label}</span>
                     <div className="poster-swatches designs">
                       {inGroup(g).map((t) => (
-                        <button key={t.id} type="button" className={`poster-swatch ${templateId === t.id ? 'active' : ''}`} onClick={() => chooseTemplate(t.id)} title={`${t.name} — ${t.note}`}>
-                          {templateThumbs[t.id] && <img src={templateThumbs[t.id]} alt={t.name} />}
-                        </button>
+                        <div key={t.id} className={`poster-swatch ${templateId === t.id ? 'active' : ''}`}>
+                          <button type="button" onClick={() => chooseTemplate(t.id)} title={`${t.name} — ${t.note}`}>
+                            {templateThumbs[t.id] && <img src={templateThumbs[t.id]} alt={t.name} />}
+                          </button>
+                          {t.art?.mine && (
+                            <button type="button" className="poster-swatch-remove" onClick={() => removeBg(t.art)} disabled={!!busy} aria-label="Remove design">
+                              {busy === t.art.id ? <Loader2 size={11} className="spin" /> : <Trash2 size={11} />}
+                            </button>
+                          )}
+                        </div>
                       ))}
                     </div>
+                    {g === 'single' && (
+                      <div className="ab-actions">
+                        {addDesignButton('drawn', 'Add banner design')}
+                        {addDesignButton('frame', 'Add frame design')}
+                      </div>
+                    )}
                   </div>
                 ))}
+                <p className="fine-print">A frame design is a PNG whose photo area is see-through — the photo shows there and the words go into its banners. Designs you add can be used by every team member.</p>
                 <hr className="poster-sep" />
                 {kind === 'text' && <p className="fine-print">Choose a background or add your own — only your words and photos go on top of it, nothing else.</p>}
                 <div className="poster-panel-head">
@@ -789,16 +905,16 @@ export default function PosterMaker({ open, duty: givenDuty, duties = [], person
                 )}
 
                 <div className="poster-panel-head">
-                  <strong>Team backgrounds ({info?.backgrounds?.length || 0})</strong>
+                  <strong>Team backgrounds ({teamBackgrounds.length})</strong>
                   <label className="btn btn-ghost btn-sm">
                     {busy === 'bg' ? <Loader2 size={15} className="spin" /> : <ImagePlus size={15} />} Add your own
                     <input type="file" accept="image/*" hidden disabled={!!busy} onChange={(e) => e.target.files[0] && uploadBg(e.target.files[0])} />
                   </label>
                 </div>
                 <p className="fine-print">Backgrounds you add here can be used by every team member.</p>
-                {info?.backgrounds?.length > 0 && (
+                {teamBackgrounds.length > 0 && (
                   <div className="poster-swatches">
-                    {info.backgrounds.map((b) => (
+                    {teamBackgrounds.map((b) => (
                       <div key={b.id} className={`poster-swatch ${bg.type === 'image' && bg.id === b.id ? 'active' : ''}`}>
                         <button type="button" onClick={() => chooseBg(teamBg(b))} title={`${b.title} · added by ${b.by}`}>
                           <img src={b.url} alt={b.title} loading="lazy" />

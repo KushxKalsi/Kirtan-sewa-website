@@ -105,7 +105,7 @@ export const teamApi = (token) => ({
   setPhoto: (id) => request('/team/photo', { method: 'PUT', body: { id }, token }),
   setBio: (bio) => request('/team/bio', { method: 'PUT', body: { bio }, token }),
   posterText: (dutyId, body) => request(dutyId ? `/team/duties/${dutyId}/poster-text` : '/team/poster-text', { method: 'POST', body, token }),
-  addPosterBackground: (id, title) => request('/team/poster-backgrounds', { method: 'POST', body: { id, title }, token }),
+  addPosterBackground: (id, title, kind = 'background') => request('/team/poster-backgrounds', { method: 'POST', body: { id, title, kind }, token }),
   deletePosterBackground: (id) => request(`/team/poster-backgrounds/${id}`, { method: 'DELETE', token }),
 });
 

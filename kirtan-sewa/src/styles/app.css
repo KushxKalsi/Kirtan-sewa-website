@@ -6941,13 +6941,24 @@ a.author-chip:hover strong {
 /* Template picker: Kirtan | Samagam */
 .poster-kinds {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1.7fr);
   gap: 18px;
 }
 .poster-groups {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
   gap: 16px;
+}
+.poster-group .poster-template-grid.poster-pick-kinds {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.poster-pick-kind {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+}
+.poster-pick-kind .btn {
+  justify-content: center;
 }
 .poster-group {
   display: grid;

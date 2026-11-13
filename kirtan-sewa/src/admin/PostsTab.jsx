@@ -187,13 +187,13 @@ export default function PostsTab({ data, api, toast }) {
           </div>
           <div className="glass side-card">
             <h3>
-              <ImagePlus size={16} /> Poster backgrounds
+              <ImagePlus size={16} /> Poster backgrounds &amp; designs
             </h3>
             <p className="muted">Added by team members for everyone’s posters. Remove any that are not suitable.</p>
             {!state.backgrounds?.length && <p className="muted">None added yet.</p>}
             <div className="poster-swatches">
               {(state.backgrounds || []).map((b) => (
-                <div key={b.id} className="poster-swatch" title={`${b.title} · added by ${b.by}`}>
+                <div key={b.id} className="poster-swatch" title={`${b.title} (${{ frame: 'frame design', drawn: 'banner design' }[b.kind] || 'background'}) · added by ${b.by}`}>
                   <img src={b.url} alt={b.title} loading="lazy" />
                   <button
                     type="button"

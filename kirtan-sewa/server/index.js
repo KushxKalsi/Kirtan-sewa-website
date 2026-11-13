@@ -2812,15 +2812,19 @@ app.put('/api/team/photo', requireMember, async (req, res) => {
   res.json(teamPosts(p));
 });
 
-// Backgrounds team members add for everyone's posters (shared with the whole team).
+// Backgrounds and designs team members add for everyone's posters (shared with the whole team).
+// kind: 'background' (a picture behind any poster), 'drawn' (a banner design: the app's banners over this picture)
+// or 'frame' (a frame design: a PNG with a see-through window where the photo goes).
+const POSTER_ART_KINDS = ['background', 'drawn', 'frame'];
 const backgroundsView = (viewerId = '') =>
-  db.posterBackgrounds.map((b) => ({ id: b.id, title: b.title, url: mediaUrl(b.mediaId, b.local), by: personOf(b.personId)?.name || b.authorName || 'Team member', mine: !!viewerId && b.personId === viewerId }));
+  db.posterBackgrounds.map((b) => ({ id: b.id, title: b.title, kind: b.kind || 'background', url: mediaUrl(b.mediaId, b.local), by: personOf(b.personId)?.name || b.authorName || 'Team member', mine: !!viewerId && b.personId === viewerId }));
 app.post('/api/team/poster-backgrounds', requireMember, async (req, res) => {
   const p = req.person;
   throttle(`poster-bg:${p.id}`, 20);
   if (db.posterBackgrounds.length >= 300) fail(400, 'The background library is full. Ask the admin to remove some old ones.');
   const [file] = claimUploads([req.body?.id], `m:${p.id}`, ['image']);
-  db.posterBackgrounds.push({ id: uid(), title: str(req.body?.title, 60) || 'Background', mediaId: file.id, ...(file.local && { local: true }), personId: p.id, authorName: p.name, createdAt: new Date().toISOString() });
+  const kind = POSTER_ART_KINDS.includes(req.body?.kind) ? req.body.kind : 'background';
+  db.posterBackgrounds.push({ id: uid(), title: str(req.body?.title, 60) || (kind === 'background' ? 'Background' : 'Design'), kind, mediaId: file.id, ...(file.local && { local: true }), personId: p.id, authorName: p.name, createdAt: new Date().toISOString() });
   await save();
   res.status(201).json(teamPosts(p));
 });
