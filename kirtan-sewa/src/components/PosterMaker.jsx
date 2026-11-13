@@ -42,11 +42,19 @@ const SHOW = [
   ['frame', 'Border'],
   ['footer', 'Bottom line'],
 ];
-const KINDS = {
-  kirtan: { title: 'Kirtan', note: 'One kirtan — your photo, name, date and time.', icon: UserRound },
-  samagam: { title: 'Samagam', note: 'Many raagis / jathas — a photo, name and time for each person.', icon: UsersRound },
-  text: { title: 'Text only', note: 'Add your own background — only the words (and photos, if you want) go on it. Move and resize anything.', icon: Type },
+// Templates are grouped by how many photos they have. Frame designs (a picture with banners) are not in the template
+// picker — they are chosen in the Background tab, with every other design.
+const GROUPS = {
+  single: { title: 'Single photo', note: 'One kirtan — one photo, name, date and time.', icon: UserRound },
+  multi: { title: 'Multi photo', note: 'Samagam — a photo, name and time for each raagi / jatha.', icon: UsersRound },
+  other: { title: 'Others', note: 'Text only — add your own background; just the words go on it. Move and resize anything.', icon: Type },
 };
+const groupOf = (t) => (t.kind === 'samagam' ? 'multi' : t.kind === 'kirtan' || t.pieces || t.overlayOver ? 'single' : 'other');
+function GroupIcon({ group }) {
+  const Icon = GROUPS[group].icon;
+  return <Icon size={15} />;
+}
+const inGroup = (g, { frames = true } = {}) => TEMPLATES.filter((t) => groupOf(t) === g && (frames || !t.overlay));
 const COLOR_LABELS = {
   text: [
     ['primary', 'Titles'],
@@ -277,7 +285,7 @@ export default function PosterMaker({ open, duty: givenDuty, duties = [], person
 
   // Small previews of each template (sample wording) and of each background.
   const templateThumbs = useMemo(() => {
-    if (!open || step !== 'pick') return {};
+    if (!open) return {};
     return Object.fromEntries(
       TEMPLATES.map((t) => [
         t.id,
@@ -300,7 +308,7 @@ export default function PosterMaker({ open, duty: givenDuty, duties = [], person
         ),
       ]),
     );
-  }, [open, step, fontsOk, footer, overlays]);
+  }, [open, fontsOk, footer, overlays]);
   const bgThumbs = useMemo(() => {
     if (!open || step !== 'edit') return {};
     return Object.fromEntries([...BG_PRESETS, ...generated].map((b) => [bgKey(b), snapshot((c) => renderBackground(c, b, 84))]));
@@ -469,48 +477,67 @@ export default function PosterMaker({ open, duty: givenDuty, duties = [], person
     const it = itemFor(id);
     return it && <ItemControls item={it} palette={palette} onChange={(patch) => setItem(id, patch)} />;
   };
+  const templateCard = (t) => (
+    <button
+      key={t.id}
+      type="button"
+      className={`poster-template-card ${templateId === t.id ? 'active' : ''}`}
+      onClick={() => {
+        chooseTemplate(t.id);
+        if (text && t.kind === 'text') setPanel('background');
+        setStep(text ? 'edit' : 'details');
+      }}
+    >
+      {templateThumbs[t.id] ? <img src={templateThumbs[t.id]} alt="" /> : <span className="poster-thumb-empty" />}
+      <strong>{t.name}</strong>
+      <span>{t.note}</span>
+    </button>
+  );
   const subtitle = duty ? `${duty.serviceName} · ${format(fromKey(duty.date), 'EEE d MMM yyyy')}` : 'Choose a template, then change anything you like.';
 
   return (
     <Modal open={!!open} onClose={onClose} title="Generate poster" subtitle={subtitle} size="xl">
       {open && step === 'pick' && (
         <div className="poster-kinds">
-          {Object.entries(KINDS).map(([k, meta]) => (
-            <section key={k} className="poster-kind">
-              <header>
-                <meta.icon size={18} />
-                <div>
-                  <strong>{meta.title}</strong>
-                  <span>{meta.note}</span>
-                </div>
-              </header>
-              <div className="poster-template-grid">
-                {TEMPLATES.filter((t) => t.kind === k).map((t) => (
-                  <button
-                    key={t.id}
-                    type="button"
-                    className={`poster-template-card ${templateId === t.id ? 'active' : ''}`}
-                    onClick={() => {
-                      chooseTemplate(t.id);
-                      if (text && t.kind === 'text') setPanel('background');
-                      setStep(text ? 'edit' : 'details');
-                    }}
-                  >
-                    {templateThumbs[t.id] ? <img src={templateThumbs[t.id]} alt="" /> : <span className="poster-thumb-empty" />}
-                    <strong>{t.name}</strong>
-                    <span>{t.note}</span>
-                  </button>
-                ))}
+          <section className="poster-kind">
+            <header>
+              <Sparkles size={18} />
+              <div>
+                <strong>Kirtan &amp; Samagam</strong>
+                <span>Single photo for one kirtan, multi photo for a samagam with many raagis / jathas.</span>
               </div>
-            </section>
-          ))}
+            </header>
+            <div className="poster-groups">
+              {['single', 'multi'].map((g) => (
+                <div key={g} className="poster-group">
+                  <h4>
+                    <GroupIcon group={g} />
+                    {GROUPS[g].title}
+                  </h4>
+                  <p className="fine-print">{GROUPS[g].note}</p>
+                  <div className="poster-template-grid">{inGroup(g, { frames: false }).map(templateCard)}</div>
+                </div>
+              ))}
+            </div>
+          </section>
+          <section className="poster-kind poster-kind-other">
+            <header>
+              <Type size={18} />
+              <div>
+                <strong>{GROUPS.other.title}</strong>
+                <span>{GROUPS.other.note}</span>
+              </div>
+            </header>
+            <div className="poster-template-grid">{inGroup('other', { frames: false }).map(templateCard)}</div>
+            <p className="fine-print">More designs with frames and banners are in the Background tab after this.</p>
+          </section>
         </div>
       )}
 
       {open && step === 'details' && (
         <form className="poster-form" onSubmit={generate}>
           <button type="button" className="poster-chosen" onClick={() => setStep('pick')}>
-            <ArrowLeft size={15} /> {KINDS[kind].title} · {templateById(templateId).name} <em>change</em>
+            <ArrowLeft size={15} /> {GROUPS[groupOf(templateById(templateId))].title} · {templateById(templateId).name} <em>change</em>
           </button>
           {!givenDuty && duties.length > 0 && (
             <label className="field select">
@@ -716,6 +743,25 @@ export default function PosterMaker({ open, duty: givenDuty, duties = [], person
 
             {panel === 'background' && (
               <div className="poster-panel">
+                <strong>Designs</strong>
+                <p className="fine-print">Changing the design keeps your wording and photos; colours and background go back to the design’s own.</p>
+                {[
+                  ['single', 'Single photo'],
+                  ['multi', 'Multi photo'],
+                  ['other', 'Text only'],
+                ].map(([g, label]) => (
+                  <div key={g} className="poster-design-group">
+                    <span className="poster-subhead">{label}</span>
+                    <div className="poster-swatches designs">
+                      {inGroup(g).map((t) => (
+                        <button key={t.id} type="button" className={`poster-swatch ${templateId === t.id ? 'active' : ''}`} onClick={() => chooseTemplate(t.id)} title={`${t.name} — ${t.note}`}>
+                          {templateThumbs[t.id] && <img src={templateThumbs[t.id]} alt={t.name} />}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+                <hr className="poster-sep" />
                 {kind === 'text' && <p className="fine-print">Choose a background or add your own — only your words and photos go on top of it, nothing else.</p>}
                 <div className="poster-panel-head">
                   <strong>For Gurbani kirtan</strong>
@@ -787,19 +833,7 @@ export default function PosterMaker({ open, duty: givenDuty, duties = [], person
 
             {panel === 'style' && (
               <div className="poster-panel">
-                {Object.entries(KINDS).map(([k, meta]) => (
-                  <div key={k}>
-                    <strong>{meta.title} templates</strong>
-                    <div className="poster-chips">
-                      {TEMPLATES.filter((t) => t.kind === k).map((t) => (
-                        <button key={t.id} type="button" className={templateId === t.id ? 'active' : ''} onClick={() => chooseTemplate(t.id)}>
-                          {t.name}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-                <p className="fine-print">Changing the template keeps your wording and photos; colours and background go back to the template’s own.</p>
+                <p className="fine-print">To change the design, use the Background tab.</p>
                 <strong>Colours</strong>
                 <div className="poster-colors">
                   {COLOR_LABELS[kind === 'text' ? 'text' : 'other'].map(([k, label]) => (

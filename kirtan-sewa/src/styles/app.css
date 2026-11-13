@@ -6941,8 +6941,59 @@ a.author-chip:hover strong {
 /* Template picker: Kirtan | Samagam */
 .poster-kinds {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
   gap: 18px;
+}
+.poster-groups {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+.poster-group {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+}
+.poster-group h4 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  color: var(--text);
+  font-size: 14px;
+}
+.poster-group h4 svg {
+  color: var(--gold);
+}
+.poster-group .fine-print {
+  margin: 0 0 4px;
+}
+.poster-kind-other .poster-template-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.poster-kind-other > .fine-print {
+  margin: 0;
+}
+/* Background tab: every design, then the backgrounds */
+.poster-design-group {
+  display: grid;
+  gap: 6px;
+}
+.poster-subhead {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.poster-swatches.designs {
+  grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
+}
+.poster-sep {
+  width: 100%;
+  margin: 4px 0;
+  border: 0;
+  border-top: 1px solid var(--border);
 }
 .poster-kind {
   display: grid;
@@ -7384,6 +7435,7 @@ a.author-chip:hover strong {
 
 @media (max-width: 860px) {
   .poster-kinds,
+  .poster-groups,
   .poster-editor {
     grid-template-columns: 1fr;
   }
