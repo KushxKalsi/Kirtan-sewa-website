@@ -6,7 +6,9 @@
  *  - kirtan:  one featured person — title banner, program and place, their photo, name banner, date and time box.
  *  - samagam: many people — title banner, program, then a card per person (photo, name and their own time).
  *  - text:    text only — nothing but the words (and photos, if added) on the background. Every line and photo is an
- *             "item" with its own place, size and colour, so it can be moved around to suit any background.
+ *             "item" with its own place, size and colour, so it can be moved around to suit any background. A text
+ *             template can also have an `overlay`: a see-through picture (frame and empty banners) drawn whole over
+ *             the background, with its items placed to sit inside the banners.
  *
  * Everything is themeable: a palette (banner / highlight / text colours), a background (a light Gurbani-themed preset,
  * a generated one from a seed, or an uploaded picture), an optional title photo at the top, and show / hide switches.
@@ -73,6 +75,8 @@ export const TEMPLATES = [
   { id: 'samagam-neela', kind: 'samagam', name: 'Samagam neela', note: 'Blue and gold, morning sky', palette: { primary: '#14285a', accent: '#d4a227', ink: '#14285a' }, bg: { type: 'preset', id: 'sky' } },
   { id: 'samagam-lotus', kind: 'samagam', name: 'Lotus', note: 'Soft pink and maroon', palette: { primary: '#7a2340', accent: '#e6a23c', ink: '#5a1a2f' }, bg: { type: 'preset', id: 'lotus' } },
   { id: 'text-only', kind: 'text', name: 'Text only', note: 'Your background, just the words', palette: { primary: '#14285a', accent: '#d4a227', ink: '#14285a' }, bg: { type: 'preset', id: 'paper' }, wash: 0 },
+  { id: 'text-royal-photo', kind: 'text', name: 'Royal with photo', note: 'Navy and gold banners, your photo on the right', palette: { primary: '#14306a', accent: '#f0c22e', ink: '#14306a' }, bg: { type: 'preset', id: 'paper' }, wash: 0, overlay: '/posters/royal-frame.webp', pieces: 'royalPhoto', items: 'royalPhoto' },
+  { id: 'text-royal', kind: 'text', name: 'Royal frame', note: 'Navy and gold banners, no photo', palette: { primary: '#14306a', accent: '#f0c22e', ink: '#14306a' }, bg: { type: 'preset', id: 'paper' }, wash: 0, overlay: '/posters/royal-frame.webp', items: 'royal' },
 ];
 export const templateById = (id) => TEMPLATES.find((t) => t.id === id) || TEMPLATES[0];
 
@@ -220,13 +224,16 @@ function paintRecipe(ctx, recipe, seed) {
   const r = seeded(seed);
   for (const m of recipe.motifs) MOTIFS[m]?.(ctx, recipe.tint, r);
 }
-// bg: { type: 'preset', id } | { type: 'gen', seed } | { type: 'image', img, wash }
+// bg: { type: 'preset', id } | { type: 'gen', seed } | { type: 'image', img, wash, fit: 'cover' | 'whole' }
 function paintBackground(ctx, bg) {
   ctx.save();
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   if (bg?.type === 'image' && bg.img) {
-    cover(ctx, bg.img, 0, 0, W, H, 0.5);
+    // Cream paper under the picture: shows through see-through PNGs and around a picture shown whole.
+    paintRecipe(ctx, PRESETS.paper, 7);
+    if (bg.fit === 'whole') contain(ctx, bg.img, 0, 0, W, H);
+    else cover(ctx, bg.img, 0, 0, W, H, 0.5);
     if (bg.wash) {
       ctx.fillStyle = `rgba(255, 255, 255, ${bg.wash})`;
       ctx.fillRect(0, 0, W, H);
@@ -290,6 +297,13 @@ function cover(ctx, img, x, y, w, h, anchorY = 1 / 3) {
   const iw = img.width * scale;
   const ih = img.height * scale;
   ctx.drawImage(img, x + (w - iw) / 2, y + (h - ih) * anchorY, iw, ih);
+}
+// The whole image fits in the box (nothing cut off), centred.
+function contain(ctx, img, x, y, w, h) {
+  const scale = Math.min(w / img.width, h / img.height);
+  const iw = img.width * scale;
+  const ih = img.height * scale;
+  ctx.drawImage(img, x + (w - iw) / 2, y + (h - ih) / 2, iw, ih);
 }
 // A banner with pointed ends, like the ones on printed posters.
 function banner(ctx, x, y, w, h, fill, stroke, point = 34) {
@@ -676,8 +690,9 @@ function drawSamagam(ctx, text, t, show, d) {
 }
 
 /* ---------------- text only ---------------- */
-// [id, type, y, size, colour role or photo shape]. Everything starts centred; they can move it anywhere.
-const TEXT_ONLY_ITEMS = [
+// [id, type, y, size, colour role or photo shape, extra]. Everything starts centred; they can move it anywhere.
+// extra: { maxW (widest the line may be), hidden, outline }.
+const PLAIN_ITEMS = [
   ['headline', 'text', 80, 38, 'ink'],
   ['titlePhoto', 'photo', 210, 200, 'round'],
   ['occasion', 'text', 380, 88, 'primary'],
@@ -691,10 +706,57 @@ const TEXT_ONLY_ITEMS = [
   ['time', 'text', 1415, 52, 'ink'],
   ['footer', 'text', 1490, 28, 'ink'],
 ];
-export const textOnlyItems = () =>
-  TEXT_ONLY_ITEMS.map(([id, type, y, size, look]) =>
-    type === 'photo' ? { id, type, x: W / 2, y, size, shape: look, border: true, hidden: false } : { id, type, x: W / 2, y, size, role: look, color: '', outline: true, hidden: false },
-  );
+// Royal frame (public/posters/royal-frame.webp): each line sits inside one of the banners of the picture.
+const PLAIN = { outline: false };
+const ROYAL_ITEMS = [
+  ['headline', 'text', 80, 34, 'ink', { hidden: true }],
+  ['titlePhoto', 'photo', 300, 200, 'round', { hidden: true }],
+  ['occasion', 'text', 262, 90, 'onPrimary', { ...PLAIN, maxW: 720 }],
+  ['occasionFor', 'text', 368, 78, 'accent', { ...PLAIN, maxW: 780 }],
+  ['program', 'text', 603, 66, 'primary', { ...PLAIN, maxW: 580 }],
+  ['place', 'text', 795, 52, 'onPrimary', { ...PLAIN, maxW: 480 }],
+  ['photo', 'photo', 770, 340, 'round', { hidden: true }],
+  ['name', 'text', 948, 78, 'onPrimary', { ...PLAIN, maxW: 620 }],
+  ['nameLine', 'text', 1060, 46, 'deep', { ...PLAIN, maxW: 440 }],
+  ['date', 'text', 1215, 60, 'ink', { ...PLAIN, maxW: 600 }],
+  ['time', 'text', 1300, 58, 'ink', { ...PLAIN, maxW: 600 }],
+  ['footer', 'text', 1372, 28, 'ink', { ...PLAIN, maxW: 560 }],
+];
+// Royal with photo: the frame cut into pieces — program and place banners move into a left column, the photo goes
+// on the right and the name banner (bottom piece) sits over the bottom of the photo.
+const ROYAL_PHOTO_ITEMS = ROYAL_ITEMS.map((row) => {
+  const [id] = row;
+  if (id === 'program') return ['program', 'text', 590, 54, 'primary', { ...PLAIN, maxW: 380, x: 280 }];
+  if (id === 'place') return ['place', 'text', 743, 42, 'onPrimary', { ...PLAIN, maxW: 320, x: 280 }];
+  if (id === 'photo') return ['photo', 'photo', 742, 440, 'rect', { x: 770 }];
+  return row;
+});
+const ITEM_SETS = { plain: PLAIN_ITEMS, royal: ROYAL_ITEMS, royalPhoto: ROYAL_PHOTO_ITEMS };
+// Pieces of a template's frame picture: src [x, y, w, h] in the picture (1024 × 1536) → dst [x, y, w, h] on the poster.
+// `over` pieces are drawn on top of the photos.
+const PIECE_SETS = {
+  royalPhoto: [
+    { src: [0, 0, 1024, 468], dst: [0, 0, 1024, 468] }, // Khanda, corners and the title banner
+    { src: [280, 466, 465, 62], dst: [100, 482, 360, 48] }, // diamond divider
+    { src: [150, 527, 724, 158], dst: [30, 535, 500, 109] }, // cream program banner
+    { src: [290, 684, 445, 50], dst: [110, 652, 340, 38] }, // diamond divider
+    { src: [160, 734, 710, 122], dst: [30, 700, 500, 86] }, // place banner
+    { src: [280, 466, 465, 62], dst: [100, 800, 360, 48] }, // diamond divider
+    { src: [0, 866, 1024, 670], dst: [0, 866, 1024, 670], over: true }, // name banner, ribbon, date box, bottom corners
+  ],
+};
+/** Starting place, size and colour of every line and photo for a text template (by template id). */
+export const textOnlyItems = (templateId) =>
+  (ITEM_SETS[templateById(templateId).items] || PLAIN_ITEMS).map(([id, type, y, size, look, extra = {}]) => ({
+    id,
+    type,
+    x: W / 2,
+    y,
+    size,
+    ...(type === 'photo' ? { shape: look, border: true } : { role: look, color: '', outline: true, maxW: W - 60 }),
+    hidden: false,
+    ...extra,
+  }));
 // Numbers read better in the serif font; Gurmukhi letters fall back to the Gurmukhi font.
 const SERIF_ITEMS = new Set(['date', 'time']);
 const lightness = (hex) => {
@@ -706,7 +768,21 @@ export const itemColor = (it, palette) => it.color || themeOf(palette)[it.role] 
 
 // d.items: [{ id, type, x, y, size, … }]; d.selected: id to outline (editor only); d.hits: filled with each item's box.
 function drawTextOnly(ctx, text, t, show, d) {
-  for (const it of d.items || textOnlyItems()) {
+  // The template's frame picture over the background: whole (never cropped), or cut into pieces and rearranged.
+  const pieces = d.overlay && PIECE_SETS[templateById(d.templateId).pieces];
+  const drawPieces = (over) => {
+    for (const p of pieces.filter((x) => !!x.over === over)) ctx.drawImage(d.overlay, ...p.src, ...p.dst);
+  };
+  if (pieces) drawPieces(false);
+  else if (d.overlay) ctx.drawImage(d.overlay, 0, 0, W, H);
+  const items = d.items || textOnlyItems(d.templateId);
+  // Photos first, then the frame pieces that go over them, then all the words on top.
+  const ordered = [...items.filter((it) => it.type === 'photo'), 'pieces', ...items.filter((it) => it.type !== 'photo')];
+  for (const it of ordered) {
+    if (it === 'pieces') {
+      if (pieces) drawPieces(true);
+      continue;
+    }
     if (it.hidden) continue;
     let box;
     if (it.type === 'photo') {
@@ -736,7 +812,7 @@ function drawTextOnly(ctx, text, t, show, d) {
       if (!words) continue;
       const family = SERIF_ITEMS.has(it.id) ? `"Noto Serif", ${GURMUKHI}` : GURMUKHI;
       const weight = SERIF_ITEMS.has(it.id) ? 700 : 800;
-      const size = fit(ctx, words, W - 60, weight, it.size, family, 14);
+      const size = fit(ctx, words, it.maxW || W - 60, weight, it.size, family, 14);
       ctx.font = `${weight} ${size}px ${family}`;
       const color = it.color || t[it.role] || t.ink;
       if (it.outline) {

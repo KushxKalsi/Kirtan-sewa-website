@@ -142,6 +142,24 @@ function ItemControls({ item, palette, onChange }) {
     </div>
   );
 }
+// A PNG made smaller only if it is very big — as a PNG, so it keeps its see-through parts.
+function shrinkPng(file, max = 1600) {
+  if (file.size < 5 * 1024 * 1024) return Promise.resolve(file);
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const scale = Math.min(1, max / Math.max(img.width, img.height));
+      const c = document.createElement('canvas');
+      c.width = Math.round(img.width * scale);
+      c.height = Math.round(img.height * scale);
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(img.src);
+      c.toBlob((b) => resolve(b && b.size < file.size ? new File([b], file.name, { type: 'image/png' }) : file), 'image/png');
+    };
+    img.onerror = () => resolve(file);
+    img.src = URL.createObjectURL(file);
+  });
+}
 let nextKey = 0;
 const key = () => `p${++nextKey}`;
 
@@ -168,6 +186,8 @@ export default function PosterMaker({ open, duty: givenDuty, duties = [], person
   const [bg, setBg] = useState(TEMPLATES[0].bg);
   const [bgImg, setBgImg] = useState(null);
   const [wash, setWash] = useState(0.35);
+  const [fit, setFit] = useState('cover'); // a picture background: 'cover' fills the page, 'whole' shows all of it
+  const [overlays, setOverlays] = useState({}); // template id → its frame picture
   const [show, setShow] = useState({ khanda: true, ornaments: true, frame: true, footer: true });
   const [photo, setPhoto] = useState(null); // { url, img }
   const [titlePhoto, setTitlePhoto] = useState(null);
@@ -191,7 +211,12 @@ export default function PosterMaker({ open, duty: givenDuty, duties = [], person
     setTemplateId(id);
     setPalette(t.palette);
     setWash(t.wash ?? 0.35);
+    setFit(t.kind === 'text' ? 'whole' : 'cover');
     setShow((s) => ({ ...s, ornaments: t.show?.ornaments ?? true }));
+    if (t.kind === 'text' && id !== templateId) {
+      setItems(textOnlyItems(id)); // each text template places the lines its own way
+      setSel(null);
+    }
     // Text only is made for their own background, so keep a picture background they already chose.
     if (t.kind === 'text' && bg.type === 'image') return;
     setBg(t.bg);
@@ -213,6 +238,7 @@ export default function PosterMaker({ open, duty: givenDuty, duties = [], person
     chooseTemplate(TEMPLATES[0].id);
     setCaption(givenDuty ? `${givenDuty.serviceName} · ${format(fromKey(givenDuty.date), 'd MMM yyyy')}` : '');
     loadPosterFonts().then(() => setFontsOk(true));
+    Promise.all(TEMPLATES.filter((t) => t.overlay).map(async (t) => [t.id, await loadImage(t.overlay)])).then((list) => setOverlays(Object.fromEntries(list.filter(([, img]) => img))));
     team.posts().then(
       async (r) => {
         setInfo(r);
@@ -232,12 +258,14 @@ export default function PosterMaker({ open, duty: givenDuty, duties = [], person
     layout: kind,
     text,
     palette,
-    bg: bg.type === 'image' ? { type: 'image', img: bgImg, wash } : bg,
+    bg: bg.type === 'image' ? { type: 'image', img: bgImg, wash, fit } : bg,
     show,
     photo: photo?.img,
     titlePhoto: titlePhoto?.img,
     people,
     items,
+    templateId,
+    overlay: kind === 'text' ? overlays[templateId] : null,
   };
   // Redraw whenever anything on the poster changes (with the chosen item outlined, and where each item sits).
   useEffect(() => {
@@ -261,6 +289,9 @@ export default function PosterMaker({ open, duty: givenDuty, duties = [], person
               palette: t.palette,
               bg: t.bg,
               show: t.show,
+              overlay: overlays[t.id],
+              templateId: t.id,
+              items: t.kind === 'text' ? textOnlyItems(t.id) : null,
               people: SAMPLE_PEOPLE,
               text: { ...SAMPLE, program: t.kind === 'samagam' ? 'ਮਹਾਨ ਕੀਰਤਨ ਸਮਾਗਮ' : 'ਕੀਰਤਨ ਹਾਜ਼ਰੀ', time: t.kind === 'samagam' ? '7:00 - 11:00' : '7:00 - 9:00', footer },
             },
@@ -269,7 +300,7 @@ export default function PosterMaker({ open, duty: givenDuty, duties = [], person
         ),
       ]),
     );
-  }, [open, step, fontsOk, footer]);
+  }, [open, step, fontsOk, footer, overlays]);
   const bgThumbs = useMemo(() => {
     if (!open || step !== 'edit') return {};
     return Object.fromEntries([...BG_PRESETS, ...generated].map((b) => [bgKey(b), snapshot((c) => renderBackground(c, b, 84))]));
@@ -389,7 +420,8 @@ export default function PosterMaker({ open, duty: givenDuty, duties = [], person
       if (added) await chooseBg(teamBg(added));
       toast('Background added — the whole team can use it now 🙏');
     });
-  const uploadBg = async (file) => shareBg(await shrinkPhoto(file, 1600), file.name.replace(/\.\w+$/, '').slice(0, 60));
+  // PNGs stay PNG so see-through parts (a frame with no background) stay see-through.
+  const uploadBg = async (file) => shareBg(file.type === 'image/png' ? await shrinkPng(file) : await shrinkPhoto(file, 1600), file.name.replace(/\.\w+$/, '').slice(0, 60));
   const shareCurrentBg = async () => {
     const c = renderBackground(document.createElement('canvas'), bg, W);
     const blob = await new Promise((resolve) => c.toBlob(resolve, 'image/jpeg', 0.9));
@@ -730,6 +762,21 @@ export default function PosterMaker({ open, duty: givenDuty, duties = [], person
                   </div>
                 )}
                 {bg.type === 'image' && (
+                  <div>
+                    <strong>Picture</strong>
+                    <div className="poster-chips">
+                      {[
+                        ['whole', 'Whole picture (no crop)'],
+                        ['cover', 'Fill the page (crops the edges)'],
+                      ].map(([v, label]) => (
+                        <button key={v} type="button" className={fit === v ? 'active' : ''} onClick={() => setFit(v)}>
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {bg.type === 'image' && (
                   <label className="poster-range">
                     <span>Lighten the background ({Math.round(wash * 100)}%)</span>
                     <input type="range" min="0" max="0.8" step="0.05" value={wash} onChange={(e) => setWash(Number(e.target.value))} />
@@ -767,7 +814,7 @@ export default function PosterMaker({ open, duty: givenDuty, duties = [], person
                     type="button"
                     className="btn btn-ghost btn-sm"
                     onClick={() => {
-                      setItems(textOnlyItems());
+                      setItems(textOnlyItems(templateId));
                       setSel(null);
                     }}
                   >
