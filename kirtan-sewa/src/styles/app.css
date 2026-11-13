@@ -6941,7 +6941,7 @@ a.author-chip:hover strong {
 /* Template picker: Kirtan | Samagam */
 .poster-kinds {
   display: grid;
-  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
   gap: 18px;
 }
 .poster-groups {
@@ -6968,8 +6968,11 @@ a.author-chip:hover strong {
 .poster-group .fine-print {
   margin: 0 0 4px;
 }
+.poster-group .poster-template-grid {
+  grid-template-columns: minmax(0, 1fr);
+}
 .poster-kind-other .poster-template-grid {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 .poster-kind-other > .fine-print {
   margin: 0;
@@ -7435,7 +7438,6 @@ a.author-chip:hover strong {
 
 @media (max-width: 860px) {
   .poster-kinds,
-  .poster-groups,
   .poster-editor {
     grid-template-columns: 1fr;
   }
@@ -7452,7 +7454,8 @@ a.author-chip:hover strong {
   }
 }
 @media (max-width: 520px) {
-  .poster-template-grid {
+  .poster-template-grid,
+  .poster-kind-other .poster-template-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .poster-when {

@@ -47,14 +47,19 @@ const SHOW = [
 const GROUPS = {
   single: { title: 'Single photo', note: 'One kirtan — one photo, name, date and time.', icon: UserRound },
   multi: { title: 'Multi photo', note: 'Samagam — a photo, name and time for each raagi / jatha.', icon: UsersRound },
-  other: { title: 'Others', note: 'Text only — add your own background; just the words go on it. Move and resize anything.', icon: Type },
+  other: { title: 'Others', note: 'Text only, more colours and the frame designs — move and resize anything on the text ones.', icon: Type },
 };
 const groupOf = (t) => (t.kind === 'samagam' ? 'multi' : t.kind === 'kirtan' || t.pieces || t.overlayOver ? 'single' : 'other');
 function GroupIcon({ group }) {
   const Icon = GROUPS[group].icon;
   return <Icon size={15} />;
 }
-const inGroup = (g, { frames = true } = {}) => TEMPLATES.filter((t) => groupOf(t) === g && (frames || !t.overlay));
+// The template picker: one design for single photo, one for multi photo, and every other design under Others
+// (Text only first).
+const PICK_SINGLE = 'kirtan-classic';
+const PICK_MULTI = 'samagam-board';
+const PICK_OTHERS = [templateById('text-only'), ...TEMPLATES.filter((t) => ![PICK_SINGLE, PICK_MULTI, 'text-only'].includes(t.id))];
+const inGroup = (g) => TEMPLATES.filter((t) => groupOf(t) === g);
 const COLOR_LABELS = {
   text: [
     ['primary', 'Titles'],
@@ -515,7 +520,7 @@ export default function PosterMaker({ open, duty: givenDuty, duties = [], person
                     {GROUPS[g].title}
                   </h4>
                   <p className="fine-print">{GROUPS[g].note}</p>
-                  <div className="poster-template-grid">{inGroup(g, { frames: false }).map(templateCard)}</div>
+                  <div className="poster-template-grid">{templateCard(templateById(g === 'single' ? PICK_SINGLE : PICK_MULTI))}</div>
                 </div>
               ))}
             </div>
@@ -528,8 +533,8 @@ export default function PosterMaker({ open, duty: givenDuty, duties = [], person
                 <span>{GROUPS.other.note}</span>
               </div>
             </header>
-            <div className="poster-template-grid">{inGroup('other', { frames: false }).map(templateCard)}</div>
-            <p className="fine-print">More designs with frames and banners are in the Background tab after this.</p>
+            <div className="poster-template-grid">{PICK_OTHERS.map(templateCard)}</div>
+            <p className="fine-print">You can change the design any time later in the Background tab.</p>
           </section>
         </div>
       )}
