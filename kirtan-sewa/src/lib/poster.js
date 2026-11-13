@@ -76,6 +76,13 @@ export const TEMPLATES = [
   { id: 'samagam-lotus', kind: 'samagam', name: 'Lotus', note: 'Soft pink and maroon', palette: { primary: '#7a2340', accent: '#e6a23c', ink: '#5a1a2f' }, bg: { type: 'preset', id: 'lotus' } },
   { id: 'text-only', kind: 'text', name: 'Text only', note: 'Your background, just the words', palette: { primary: '#14285a', accent: '#d4a227', ink: '#14285a' }, bg: { type: 'preset', id: 'paper' }, wash: 0 },
   { id: 'text-royal-photo', kind: 'text', name: 'Royal with photo', note: 'Navy and gold banners, your photo on the right', palette: { primary: '#14306a', accent: '#f0c22e', ink: '#14306a' }, bg: { type: 'preset', id: 'paper' }, wash: 0, overlay: '/posters/royal-frame.webp', pieces: 'royalPhoto', items: 'royalPhoto' },
+  ...[
+    ['cream', 'Arch · cream', 'Cream and navy, Gurdwara sketch', { primary: '#0f2b4a', accent: '#f0c22e', ink: '#0f2b4a' }],
+    ['blue', 'Arch · royal blue', 'Deep blue with golden Gurdwara', { primary: '#0d2a5a', accent: '#f2c94c', ink: '#0d2a5a' }],
+    ['lavender', 'Arch · lavender', 'Lavender with flowers', { primary: '#4f3470', accent: '#f6d36b', ink: '#4f3470' }],
+    ['maroon', 'Arch · maroon', 'Peach and maroon', { primary: '#6b1414', accent: '#f2c14e', ink: '#6b1414' }],
+    ['teal', 'Arch · teal', 'Sea green and teal', { primary: '#0f3b4a', accent: '#f2c94c', ink: '#0f3b4a' }],
+  ].map(([id, name, note, palette]) => ({ id: `text-arch-${id}`, kind: 'text', name, note, palette, bg: { type: 'preset', id: 'paper' }, wash: 0, overlay: `/posters/arch-${id}.webp`, overlayOver: true, items: `arch-${id}` })),
   { id: 'text-royal', kind: 'text', name: 'Royal frame', note: 'Navy and gold banners, no photo', palette: { primary: '#14306a', accent: '#f0c22e', ink: '#14306a' }, bg: { type: 'preset', id: 'paper' }, wash: 0, overlay: '/posters/royal-frame.webp', items: 'royal' },
 ];
 export const templateById = (id) => TEMPLATES.find((t) => t.id === id) || TEMPLATES[0];
@@ -731,7 +738,36 @@ const ROYAL_PHOTO_ITEMS = ROYAL_ITEMS.map((row) => {
   if (id === 'photo') return ['photo', 'photo', 742, 440, 'rect', { x: 770 }];
   return row;
 });
-const ITEM_SETS = { plain: PLAIN_ITEMS, royal: ROYAL_ITEMS, royalPhoto: ROYAL_PHOTO_ITEMS };
+// Arch frames (public/posters/arch-*.webp): the photo shows through the arch window; the frame is drawn over it.
+// Boxes measured on the 1024 × 1536 pictures, as [centre x, centre y, width, height]. `dark`: a dark banner (white words).
+const ARCH_SLOTS = {
+  cream: { title: [514, 343, 685, 179], program: [266, 822, 358, 125], place: [266, 979, 360, 93, 'dark'], name: [509, 1210, 779, 142], when: [511, 1368, 616, 128], win: [450, 463, 491, 689] },
+  blue: { title: [506, 340, 713, 166], program: [267, 795, 326, 120], place: [262, 970, 312, 104], name: [519, 1207, 646, 137], when: [509, 1364, 546, 128], win: [447, 462, 469, 719] },
+  lavender: { title: [515, 354, 700, 160], program: [259, 801, 347, 121], place: [262, 970, 340, 116], name: [515, 1212, 694, 136], when: [515, 1372, 541, 122], win: [447, 461, 489, 695] },
+  maroon: { title: [530, 416, 643, 145], program: [287, 818, 386, 110], place: [287, 951, 358, 78, 'dark'], name: [523, 1147, 676, 113], when: [522, 1275, 587, 99], win: [482, 509, 458, 618], top: 76, bottom: 1462 },
+  teal: { title: [483, 384, 632, 145], program: [267, 811, 308, 107], place: [269, 941, 304, 79, 'dark'], name: [548, 1147, 661, 127], when: [544, 1294, 571, 123], win: [452, 482, 511, 639], top: 60, bottom: 1478 },
+};
+const rnd = Math.round;
+function archItems({ title: [tx, ty, tw, th], program: [px, py, pw, ph, pDark], place: [lx, ly, lw, lh, lDark], name: [nx, ny, nw, nh], when: [wx, wy, ww, wh], win: [vx, vy, vw, vh], top, bottom }) {
+  const text = (x, maxW, more) => ({ ...PLAIN, x, maxW: rnd(maxW * 0.8), ...more });
+  return [
+    ['headline', 'text', top || 70, 38, 'primary', { ...PLAIN, hidden: !top }],
+    ['titlePhoto', 'photo', 200, 180, 'round', { hidden: true }],
+    // Two lines in the title banner; one line moves to the middle when the other is empty.
+    ['occasion', 'text', rnd(ty - th * 0.2), rnd(th * 0.36), 'onPrimary', text(tx, tw, { pair: { with: 'occasionFor', dy: rnd(th * 0.2) } })],
+    ['occasionFor', 'text', rnd(ty + th * 0.21), rnd(th * 0.32), 'accent', text(tx, tw, { pair: { with: 'occasion', dy: -rnd(th * 0.21) } })],
+    ['program', 'text', py, Math.min(56, rnd(ph * 0.42)), pDark ? 'onPrimary' : 'primary', text(px, pw)],
+    ['place', 'text', ly, Math.min(52, rnd(lh * 0.44)), lDark ? 'onPrimary' : 'primary', text(lx, lw)],
+    // Covers the whole window (a little more, under the frame's edge).
+    ['photo', 'photo', rnd(vy + vh / 2), vw + 16, 'rect', { x: rnd(vx + vw / 2), ratio: (vh + 16) / (vw + 16), border: false, placeholder: true }],
+    ['name', 'text', rnd(ny - nh * 0.13), rnd(nh * 0.42), 'onPrimary', text(nx, nw, { pair: { with: 'nameLine', dy: rnd(nh * 0.13) } })],
+    ['nameLine', 'text', rnd(ny + nh * 0.27), rnd(nh * 0.24), 'accent', text(nx, nw)],
+    ['date', 'text', rnd(wy - wh * 0.21), rnd(wh * 0.34), 'primary', text(wx, ww, { pair: { with: 'time', dy: rnd(wh * 0.21) } })],
+    ['time', 'text', rnd(wy + wh * 0.23), rnd(wh * 0.32), 'primary', text(wx, ww, { pair: { with: 'date', dy: -rnd(wh * 0.23) } })],
+    ['footer', 'text', bottom || 1490, 28, 'primary', { ...PLAIN, hidden: !bottom }],
+  ];
+}
+const ITEM_SETS = { plain: PLAIN_ITEMS, royal: ROYAL_ITEMS, royalPhoto: ROYAL_PHOTO_ITEMS, ...Object.fromEntries(Object.entries(ARCH_SLOTS).map(([k, v]) => [`arch-${k}`, archItems(v)])) };
 // Pieces of a template's frame picture: src [x, y, w, h] in the picture (1024 × 1536) → dst [x, y, w, h] on the poster.
 // `over` pieces are drawn on top of the photos.
 const PIECE_SETS = {
@@ -769,13 +805,14 @@ export const itemColor = (it, palette) => it.color || themeOf(palette)[it.role] 
 // d.items: [{ id, type, x, y, size, … }]; d.selected: id to outline (editor only); d.hits: filled with each item's box.
 function drawTextOnly(ctx, text, t, show, d) {
   // The template's frame picture over the background: whole (never cropped), or cut into pieces and rearranged.
-  const pieces = d.overlay && PIECE_SETS[templateById(d.templateId).pieces];
+  const tpl = templateById(d.templateId);
+  const pieces = d.overlay && (PIECE_SETS[tpl.pieces] || [{ src: [0, 0, d.overlay.width, d.overlay.height], dst: [0, 0, W, H], over: !!tpl.overlayOver }]);
   const drawPieces = (over) => {
     for (const p of pieces.filter((x) => !!x.over === over)) ctx.drawImage(d.overlay, ...p.src, ...p.dst);
   };
   if (pieces) drawPieces(false);
-  else if (d.overlay) ctx.drawImage(d.overlay, 0, 0, W, H);
   const items = d.items || textOnlyItems(d.templateId);
+  const wordsOf = (it) => (it.hidden ? '' : it.id === 'time' ? timeLine(text) : text[it.id]);
   // Photos first, then the frame pieces that go over them, then all the words on top.
   const ordered = [...items.filter((it) => it.type === 'photo'), 'pieces', ...items.filter((it) => it.type !== 'photo')];
   for (const it of ordered) {
@@ -787,9 +824,9 @@ function drawTextOnly(ctx, text, t, show, d) {
     let box;
     if (it.type === 'photo') {
       const img = it.id === 'titlePhoto' ? d.titlePhoto : d.photo;
-      if (!img) continue;
+      if (!img && !it.placeholder) continue;
       const w = it.size;
-      const h = it.shape === 'round' ? w : Math.round(w * 1.2);
+      const h = it.shape === 'round' ? w : Math.round(w * (it.ratio || 1.2));
       box = { x: it.x - w / 2, y: it.y - h / 2, w, h };
       const shape = () => {
         ctx.beginPath();
@@ -799,7 +836,13 @@ function drawTextOnly(ctx, text, t, show, d) {
       ctx.save();
       shape();
       ctx.clip();
-      cover(ctx, img, box.x, box.y, w, h, it.shape === 'round' ? 0.3 : 1 / 3);
+      if (img) cover(ctx, img, box.x, box.y, w, h, it.shape === 'round' ? 0.3 : 1 / 3);
+      else {
+        // No photo yet: a soft panel with the Khanda, so the frame's window is not empty.
+        ctx.fillStyle = t.paper;
+        ctx.fillRect(box.x, box.y, w, h);
+        khanda(ctx, it.x, it.y, Math.min(w, h) / 200, rgba(t.primary, 0.16));
+      }
       ctx.restore();
       if (it.border) {
         shape();
@@ -808,8 +851,11 @@ function drawTextOnly(ctx, text, t, show, d) {
         ctx.stroke();
       }
     } else {
-      const words = it.id === 'time' ? timeLine(text) : text[it.id];
+      const words = wordsOf(it);
       if (!words) continue;
+      // Paired lines (e.g. the two title lines): alone, the line moves to where the pair's middle was.
+      const partner = it.pair && items.find((x) => x.id === it.pair.with);
+      const y = it.y + (it.pair && !(partner && wordsOf(partner)) ? it.pair.dy : 0);
       const family = SERIF_ITEMS.has(it.id) ? `"Noto Serif", ${GURMUKHI}` : GURMUKHI;
       const weight = SERIF_ITEMS.has(it.id) ? 700 : 800;
       const size = fit(ctx, words, it.maxW || W - 60, weight, it.size, family, 14);
@@ -819,12 +865,12 @@ function drawTextOnly(ctx, text, t, show, d) {
         ctx.lineJoin = 'round';
         ctx.lineWidth = Math.max(4, size * 0.16);
         ctx.strokeStyle = lightness(color) > 0.55 ? 'rgba(20, 16, 10, 0.9)' : 'rgba(255, 255, 255, 0.92)';
-        ctx.strokeText(words, it.x, it.y);
+        ctx.strokeText(words, it.x, y);
       }
       ctx.fillStyle = color;
-      ctx.fillText(words, it.x, it.y);
+      ctx.fillText(words, it.x, y);
       const w = ctx.measureText(words).width;
-      box = { x: it.x - w / 2, y: it.y - size * 0.75, w, h: size * 1.5 };
+      box = { x: it.x - w / 2, y: y - size * 0.75, w, h: size * 1.5 };
     }
     d.hits?.push({ id: it.id, ...box });
     if (d.selected === it.id) {

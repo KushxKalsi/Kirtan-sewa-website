@@ -669,7 +669,7 @@ export default function PosterMaker({ open, duty: givenDuty, duties = [], person
                           </button>
                         )}
                       </div>
-                      {photo && photoControls('photo')}
+                      {(photo || itemFor('photo')?.placeholder) && photoControls('photo')}
                     </div>
                   </div>
                 ) : (
