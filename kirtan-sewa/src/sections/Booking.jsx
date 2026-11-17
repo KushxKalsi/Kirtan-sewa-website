@@ -99,7 +99,7 @@ export default function Booking({ preselect }) {
     nextStep(sewaKept ? calRef : sewaStepRef, category ? 120 : 450);
   };
   const settings = site?.settings || {};
-  const gurpurabsOn = useCallback((key) => (site?.gurpurabs || []).filter((g) => g.date === key), [site]);
+  const gurpurabsOn = useCallback((key) => (site?.gurpurabs || []).filter((g) => g.date === key).sort((a, b) => !!a.monthly - !!b.monthly), [site]); // Gurpurab first
   const customAllowed = settings.customTimeEnabled !== false;
   const payMethods = [settings.upiEnabled && settings.upiId && 'upi', settings.cashEnabled && 'cash'].filter(Boolean);
   const [nudge, setNudge] = useState(0); // bumps to shake the sewa picker when a sewa is still missing

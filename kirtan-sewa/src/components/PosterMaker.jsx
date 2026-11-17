@@ -240,9 +240,10 @@ export default function PosterMaker({ open, duty: givenDuty, duties = [], person
   const footer = site?.settings.siteName || '';
 
   const detailsFor = (d) => {
-    const gp = d && (site?.gurpurabs || []).find((g) => g.date === d.date);
+    const gp = d && (site?.gurpurabs || []).filter((g) => g.date === d.date).sort((a, b) => !!a.monthly - !!b.monthly)[0]; // a Gurpurab first
     const [start = '', end = ''] = (d?.slotTime || '').split('–').map((t) => t.trim());
-    return { occasion: gp ? `${gp.kindLabel} ${gp.name}` : d?.serviceName || '', venue: d?.address || '', name: person.name, from: '', date: d?.date || '', start, end };
+    const gpOccasion = gp && (gp.monthly ? `${gp.name} ${gp.kindLabel}` : `${gp.kindLabel} ${gp.name}`);
+    return { occasion: gpOccasion || d?.serviceName || '', venue: d?.address || '', name: person.name, from: '', date: d?.date || '', start, end };
   };
   const chooseTemplate = (id) => {
     const t = tplById(id);

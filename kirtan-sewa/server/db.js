@@ -3,7 +3,7 @@ import net from 'node:net';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { seedGurpurabs } from './gurpurabs.js';
+import { seedGurpurabs, topUpMonthlyDays } from './gurpurabs.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const DATA_DIR = process.env.DATA_DIR || path.resolve(__dirname, '../data');
@@ -490,6 +490,7 @@ export async function initDb() {
     if (!db.gurpurabs.some((x) => x.id === g.id)) db.gurpurabs.push(g);
   }
   db.gurpurabs.sort((a, b) => a.date.localeCompare(b.date));
+  topUpMonthlyDays(db);
   // The commission went from 10% to 5% (Nov 2026): set it once; later changes in Site settings are kept.
   if (!db.meta.commission5) {
     db.settings.commissionRate = 5;

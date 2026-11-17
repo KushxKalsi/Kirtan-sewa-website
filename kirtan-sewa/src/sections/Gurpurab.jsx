@@ -65,7 +65,7 @@ function Reminders() {
     try {
       await enableGurpurabReminders();
       setOn(true);
-      toast('Done — we’ll remind you a month before each Gurpurab.');
+      toast('Done — we’ll remind you a month before each Gurpurab, and 3 days before Sangrand, Pooranmashi and Dasvin.');
     } catch (e) {
       toast(e.message, 'error');
     } finally {
@@ -80,7 +80,7 @@ function Reminders() {
           ? 'Gurpurab reminders are on for this device.'
           : iosNeedsInstall
             ? 'On iPhone, add this site to your Home Screen (Share → Add to Home Screen) to get Gurpurab reminders.'
-            : 'Get a reminder one month before every Gurpurab, so you can book kirtan in time.'}
+            : 'Get a reminder one month before every Gurpurab (and 3 days before Sangrand, Pooranmashi and Dasvin), so you can book kirtan in time.'}
       </span>
       {!on && !iosNeedsInstall && (
         <button type="button" className="btn btn-ghost btn-sm" onClick={enable} disabled={busy}>
@@ -96,7 +96,7 @@ export default function Gurpurab({ onBookDate, focusId }) {
   const { site } = useSite();
   const lowEnd = useLowEnd();
   const today = site?.today;
-  const events = useMemo(() => site?.gurpurabs || [], [site]);
+  const events = useMemo(() => (site?.gurpurabs || []).filter((g) => !g.monthly), [site]); // monthly days have their own section
   // One slide per picture; a day without pictures gets one designed slide.
   const slides = useMemo(
     () =>

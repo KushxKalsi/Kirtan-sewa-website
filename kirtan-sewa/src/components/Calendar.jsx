@@ -132,6 +132,9 @@ export default function Calendar({ month, onMonthChange, selected, onSelect, get
         <span>
           <i className="lg-gp" /> Gurpurab
         </span>
+        <span>
+          <i className="lg-gp lg-monthly" /> Sangrand / Pooranmashi / Dasvin
+        </span>
       </div>
     </div>
   );

@@ -1174,6 +1174,15 @@
 .k-gurgaddi {
   --gp: #f6c453;
 }
+.k-sangrand {
+  --gp: #3fb8a0;
+}
+.k-pooranmashi {
+  --gp: #b48cf2;
+}
+.k-dasvin {
+  --gp: #5fa8e8;
+}
 .cal-gp {
   position: absolute;
   top: 5px;
@@ -1188,6 +1197,10 @@
   border-radius: 50% !important;
   background: #ff9933;
   box-shadow: 0 0 6px #ff9933;
+}
+.lg-gp.lg-monthly {
+  background: #b48cf2;
+  box-shadow: 0 0 6px #b48cf2;
 }
 .gp-banner {
   display: flex;
@@ -4026,6 +4039,106 @@ input:focus-visible + .tick {
 .gp-item-text small {
   color: var(--muted);
   font-size: 12.5px;
+}
+/* Sangrand / Pooranmashi / Dasvin on the home page */
+.md-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 16px;
+}
+.md-card {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+  padding: 20px;
+  border-radius: 22px;
+  border: 1px solid color-mix(in srgb, var(--gp) 30%, var(--border));
+  transition: border-color 0.3s, box-shadow 0.3s;
+}
+.md-card.focused {
+  border-color: var(--gp);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--gp) 25%, transparent);
+}
+.md-card .btn {
+  justify-self: start;
+}
+.md-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.md-head > div {
+  display: grid;
+  gap: 1px;
+}
+.md-head strong {
+  font-size: 17px;
+}
+.md-head strong .gurmukhi {
+  color: var(--muted);
+  font-weight: 600;
+}
+.md-head small {
+  color: var(--muted);
+  font-size: 13px;
+}
+.md-icon {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  color: var(--gp);
+  background: color-mix(in srgb, var(--gp) 14%, transparent);
+}
+.md-next {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.md-next p {
+  margin: 0;
+}
+.md-name {
+  font-weight: 700;
+  line-height: 1.3;
+}
+.md-name .gurmukhi {
+  color: var(--muted);
+  font-weight: 600;
+}
+.md-when {
+  color: var(--gp);
+  font-size: 13.5px;
+  font-weight: 600;
+}
+.md-more {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 10px 0 0;
+  list-style: none;
+  border-top: 1px dashed var(--border);
+}
+.md-more button {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  padding: 6px 8px;
+  border-radius: 10px;
+  font-size: 14px;
+  text-align: left;
+  color: var(--text);
+  transition: background 0.2s;
+}
+.md-more button:hover {
+  background: color-mix(in srgb, var(--gp) 10%, transparent);
+}
+.md-more small {
+  color: var(--muted);
+  font-size: 13px;
 }
 .gp-remind {
   display: flex;

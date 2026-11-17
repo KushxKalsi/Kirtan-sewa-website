@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { withBase } from '../lib/native';
 import { AnimatePresence, motion } from 'framer-motion';
-import { differenceInCalendarDays, format, subMonths } from 'date-fns';
+import { differenceInCalendarDays, format, subDays, subMonths } from 'date-fns';
 import { BellRing, Eye, EyeOff, ImagePlus, Loader2, Pencil, Plus, Save, Send, Sparkles, Trash2, X } from 'lucide-react';
 import Modal from '../components/Modal';
 import { fromKey, prettyDate } from '../lib/date';
@@ -13,7 +13,13 @@ const KINDS = [
   { id: 'gurgaddi', label: 'Gurgaddi Diwas', gurmukhi: 'ਗੁਰਗੱਦੀ ਦਿਵਸ' },
   { id: 'jyoti-jot', label: 'Jyoti Jot Divas', gurmukhi: 'ਜੋਤੀ ਜੋਤਿ ਦਿਵਸ' },
   { id: 'shaheedi', label: 'Shaheedi Purab', gurmukhi: 'ਸ਼ਹੀਦੀ ਪੁਰਬ' },
+  // Every month (added by themselves for the next twelve months; name = the desi month)
+  { id: 'sangrand', label: 'Sangrand', gurmukhi: 'ਸੰਗਰਾਂਦ', monthly: true },
+  { id: 'pooranmashi', label: 'Pooranmashi', gurmukhi: 'ਪੂਰਨਮਾਸ਼ੀ', monthly: true },
+  { id: 'dasvin', label: 'Dasvin', gurmukhi: 'ਦਸਵੀਂ', monthly: true },
 ];
+const MONTHLY_NOTICE_DAYS = 3; // as on the server
+const MONTHLY_SHOWN = 9;
 const kindOf = (id) => KINDS.find((k) => k.id === id) || KINDS[0];
 const blank = { kind: 'prakash', name: '', gurmukhi: '', date: '', images: [], active: true };
 const imageUrl = (id) => withBase(`/api/gurpurab-images/${id}`);
@@ -23,8 +29,11 @@ const MAX_IMAGES = 8;
 export default function GurpurabTab({ data, api, patch, toast }) {
   const all = data.gurpurabs || [];
   const today = data.today;
-  const upcoming = all.filter((g) => g.date >= today);
-  const past = all.filter((g) => g.date < today).reverse();
+  const isMonthly = (g) => !!kindOf(g.kind).monthly;
+  const upcoming = all.filter((g) => g.date >= today && !isMonthly(g));
+  const past = all.filter((g) => g.date < today && !isMonthly(g)).reverse();
+  const monthly = all.filter((g) => g.date >= today && isMonthly(g));
+  const [allMonthly, setAllMonthly] = useState(false);
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(blank);
   const [saving, setSaving] = useState(false);
@@ -32,6 +41,7 @@ export default function GurpurabTab({ data, api, patch, toast }) {
   const [busy, setBusy] = useState('');
   const [deleteFor, setDeleteFor] = useState(null);
   const [notifyFor, setNotifyFor] = useState(null);
+  const formMonthly = !!kindOf(form.kind).monthly;
 
   const run = async (fn, msg) => {
     try {
@@ -83,8 +93,8 @@ export default function GurpurabTab({ data, api, patch, toast }) {
 
   const noticeText = (g) => {
     if (g.noticeSentFor === g.date) return `Notice sent ${g.noticeSentAt ? format(new Date(g.noticeSentAt), 'd MMM') : ''}${g.noticeDevices != null ? ` to ${g.noticeDevices} device${g.noticeDevices === 1 ? '' : 's'}` : ''}`;
-    const at = subMonths(fromKey(g.date), 1);
-    return differenceInCalendarDays(at, fromKey(today)) >= 0 ? `Notice goes out ${format(at, 'd MMM')}, 10 AM` : 'One-month notice time has passed — you can send it now';
+    const at = isMonthly(g) ? subDays(fromKey(g.date), MONTHLY_NOTICE_DAYS) : subMonths(fromKey(g.date), 1);
+    return differenceInCalendarDays(at, fromKey(today)) >= 0 ? `Notice goes out ${format(at, 'd MMM')}, 10 AM` : 'Notice time has passed — you can send it now';
   };
 
   const row = (g, isPast) => {
@@ -97,7 +107,7 @@ export default function GurpurabTab({ data, api, patch, toast }) {
         </span>
         <div className="as-main">
           <strong>
-            {g.name} {g.gurmukhi && <span className="gurmukhi">{g.gurmukhi}</span>}
+            {isMonthly(g) ? `${g.name} ${kind.label}` : g.name} {g.gurmukhi && <span className="gurmukhi">{g.gurmukhi}</span>}
           </strong>
           <div className="skill-chips">
             <span className="chip gp-kind-chip">{kind.label}</span>
@@ -145,7 +155,8 @@ export default function GurpurabTab({ data, api, patch, toast }) {
           <h2>Gurpurab</h2>
           <p>
             Prakash Purab, Jyoti Jot Divas and Shaheedi Purab of the Gurus and Bhagats. Upcoming days show in the home page carousel (add pictures to them) and on the booking calendar. One month before each day,
-            everyone with notifications on gets a reminder — {data.everyoneDevices ?? 0} device{data.everyoneDevices === 1 ? '' : 's'} right now.
+            everyone with notifications on gets a reminder — {data.everyoneDevices ?? 0} device{data.everyoneDevices === 1 ? '' : 's'} right now. Sangrand, Pooranmashi and Dasvin have their own section on the
+            home page, with the reminder going out {MONTHLY_NOTICE_DAYS} days before.
           </p>
           <p className="muted gp-note">
             <Sparkles size={14} /> Dates are from the SGPC calendar (Nanakshahi 558). Most follow the moon and change every year — when the SGPC publishes the new Jantri, edit each past day and set its new date.
@@ -160,6 +171,22 @@ export default function GurpurabTab({ data, api, patch, toast }) {
       <motion.ul className="admin-services" layout>
         <AnimatePresence initial={false}>{upcoming.map((g) => row(g, false))}</AnimatePresence>
       </motion.ul>
+      {monthly.length > 0 && (
+        <>
+          <h3 className="gp-admin-title">Sangrand · Pooranmashi · Dasvin · next {monthly.length}</h3>
+          <p className="muted gp-note">
+            <Sparkles size={14} /> Worked out from the sun and moon (the same way as the SGPC jantri) and added by themselves for the next twelve months. If your Gurdwara keeps one on another day, edit its date.
+          </p>
+          <motion.ul className="admin-services" layout>
+            <AnimatePresence initial={false}>{(allMonthly ? monthly : monthly.slice(0, MONTHLY_SHOWN)).map((g) => row(g, false))}</AnimatePresence>
+          </motion.ul>
+          {monthly.length > MONTHLY_SHOWN && (
+            <button type="button" className="btn btn-ghost btn-sm" onClick={() => setAllMonthly((v) => !v)}>
+              {allMonthly ? 'Show fewer' : `Show all ${monthly.length}`}
+            </button>
+          )}
+        </>
+      )}
       {past.length > 0 && (
         <>
           <h3 className="gp-admin-title">Passed this year · {past.length}</h3>
@@ -169,7 +196,7 @@ export default function GurpurabTab({ data, api, patch, toast }) {
         </>
       )}
 
-      <Modal open={!!editing} onClose={() => !uploading && setEditing(null)} title={editing === 'new' ? 'Add a Gurpurab' : 'Edit Gurpurab'} wide>
+      <Modal open={!!editing} onClose={() => !uploading && setEditing(null)} title={editing === 'new' ? 'Add a day' : 'Edit day'} wide>
         <form className="admin-form" onSubmit={save}>
           <div>
             <span className="label">Type</span>
@@ -183,18 +210,19 @@ export default function GurpurabTab({ data, api, patch, toast }) {
           </div>
           <div className="grid-2">
             <label>
-              <span className="label">Name *</span>
-              <input className="input" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} required placeholder="e.g. Sri Guru Nanak Dev Ji" />
+              <span className="label">{formMonthly ? 'Month *' : 'Name *'}</span>
+              <input className="input" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} required placeholder={formMonthly ? 'e.g. Maghar' : 'e.g. Sri Guru Nanak Dev Ji'} />
             </label>
             <label>
-              <span className="label">Name (Gurmukhi)</span>
-              <input className="input gurmukhi" value={form.gurmukhi} onChange={(e) => setForm((f) => ({ ...f, gurmukhi: e.target.value }))} placeholder="ਸ੍ਰੀ ਗੁਰੂ ਨਾਨਕ ਦੇਵ ਜੀ" />
+              <span className="label">{formMonthly ? 'Month (Gurmukhi)' : 'Name (Gurmukhi)'}</span>
+              <input className="input gurmukhi" value={form.gurmukhi} onChange={(e) => setForm((f) => ({ ...f, gurmukhi: e.target.value }))} placeholder={formMonthly ? 'ਮੱਘਰ' : 'ਸ੍ਰੀ ਗੁਰੂ ਨਾਨਕ ਦੇਵ ਜੀ'} />
             </label>
           </div>
           <label>
             <span className="label">Date *</span>
             <input className="input" type="date" value={form.date} onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))} required />
           </label>
+          {!formMonthly && (
           <div>
             <span className="label">Pictures for the home page carousel (posters or photos, up to {MAX_IMAGES})</span>
             <div className="gp-edit-images">
@@ -218,10 +246,11 @@ export default function GurpurabTab({ data, api, patch, toast }) {
             </div>
             <p className="fine-print">Without a picture, the carousel shows a designed card with the name in Gurmukhi.</p>
           </div>
+          )}
           <label className="switch-row">
             <input type="checkbox" checked={form.active} onChange={(e) => setForm((f) => ({ ...f, active: e.target.checked }))} />
             <span className="switch" />
-            Show on website and send the one-month notice
+            {formMonthly ? `Show on website and send the notice ${MONTHLY_NOTICE_DAYS} days before` : 'Show on website and send the one-month notice'}
           </label>
           <div className="modal-actions">
             <button type="button" className="btn btn-ghost" onClick={() => setEditing(null)} disabled={!!uploading}>
@@ -238,7 +267,7 @@ export default function GurpurabTab({ data, api, patch, toast }) {
         open={!!notifyFor}
         onClose={() => !busy && setNotifyFor(null)}
         title="Send notification now?"
-        subtitle={notifyFor && `“${kindOf(notifyFor.kind).label} — ${notifyFor.name}” goes to all ${data.everyoneDevices ?? 0} devices with notifications on (customers, team, admins and visitors who asked for reminders).${notifyFor.noticeSentFor === notifyFor.date ? ' It was already sent once for this date.' : ''}`}
+        subtitle={notifyFor && `“${isMonthly(notifyFor) ? `${notifyFor.name} ${kindOf(notifyFor.kind).label}` : `${kindOf(notifyFor.kind).label} — ${notifyFor.name}`}” goes to all ${data.everyoneDevices ?? 0} devices with notifications on (customers, team, admins and visitors who asked for reminders).${notifyFor.noticeSentFor === notifyFor.date ? ' It was already sent once for this date.' : ''}`}
       >
         <div className="modal-actions">
           <button className="btn btn-ghost" onClick={() => setNotifyFor(null)} disabled={!!busy}>

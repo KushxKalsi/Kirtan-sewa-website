@@ -6,12 +6,12 @@ import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { db, save, uid, makeRef, slugify, DATA_DIR, initDb, kv } from './db.js';
 import { initPush, pushPublicKey, addSubscription, notifyPhone, addAdminSubscription, removeAdminSubscription, adminDeviceCount, notifyAdmins, addPublicSubscription, notifyEveryone, everyoneCount } from './push.js';
-import { GURPURAB_KINDS } from './gurpurabs.js';
+import { GURPURAB_KINDS, isMonthly, topUpMonthlyDays } from './gurpurabs.js';
 import { checkPassword, hashPassword, passwordProblem, sessions } from './auth.js';
 import { reversePlace, searchPlaces } from './geo.js';
 import { MEDIA_KINDS, kindOfType, mediaRedirect, readLocal, removeMedia, storageName, storeLocal, uploadTarget, r2On } from './media.js';
 import { posterAiOn, writePosterText } from './poster.js';
-import { format, subMonths } from 'date-fns';
+import { format, subDays, subMonths } from 'date-fns';
 
 await initDb();
 await initPush();
@@ -2345,9 +2345,9 @@ app.delete('/api/admin/users/:id', async (req, res) => {
 
 const sortGurpurabs = () => db.gurpurabs.sort((a, b) => a.date.localeCompare(b.date));
 const readGurpurab = (b, existing = {}) => {
-  if (!GURPURAB_KINDS[b.kind]) fail(400, 'Choose Prakash Purab, Gurgaddi Diwas, Jyoti Jot Divas or Shaheedi Purab.');
+  if (!GURPURAB_KINDS[b.kind]) fail(400, 'Choose the type of day (Prakash Purab, Gurgaddi Diwas, Jyoti Jot Divas, Shaheedi Purab, Sangrand, Pooranmashi or Dasvin).');
   const name = str(b.name, 120);
-  if (name.length < 2) fail(400, 'Enter the name, e.g. Sri Guru Nanak Dev Ji.');
+  if (name.length < 2) fail(400, GURPURAB_KINDS[b.kind].monthly ? 'Enter the month, e.g. Maghar.' : 'Enter the name, e.g. Sri Guru Nanak Dev Ji.');
   const date = str(b.date, 10);
   if (!DATE_RE.test(date)) fail(400, 'Choose the date.');
   const images = (Array.isArray(b.images) ? b.images : []).filter((id) => /^[a-f0-9]{16}$/.test(id)).slice(0, 8);
@@ -2851,7 +2851,9 @@ async function posterText(req, res, details) {
     fail(400, 'The AI could not write the poster just now. Please try again, or type the wording yourself.');
   }
 }
-const gurpurabOn = (date) => (db.gurpurabs || []).find((g) => g.active && g.date === date);
+// A Gurpurab on the day comes before Sangrand / Pooranmashi / Dasvin (Katak Pooranmashi is Guru Nanak Dev Ji's Gurpurab).
+const gurpurabOn = (date) => (db.gurpurabs || []).filter((g) => g.active && g.date === date).sort((a, b) => isMonthly(a) - isMonthly(b))[0];
+const gpOccasion = (g) => (isMonthly(g) ? `${g.name} ${gpKind(g).label}` : `${gpKind(g).label} ${g.name}`);
 // For a kirtan they were given.
 app.post('/api/team/duties/:id/poster-text', requireMember, async (req, res) => {
   const { booking } = findDuty(req);
@@ -2859,7 +2861,7 @@ app.post('/api/team/duties/:id/poster-text', requireMember, async (req, res) => 
   const gurpurab = gurpurabOn(booking.date);
   const [start, end] = rangeOf(booking);
   await posterText(req, res, {
-    occasion: str(b.occasion, 120) || (gurpurab ? `${gpKind(gurpurab).label} ${gurpurab.name}` : ''),
+    occasion: str(b.occasion, 120) || (gurpurab ? gpOccasion(gurpurab) : ''),
     sewa: booking.serviceName,
     category: booking.categoryName || '',
     venue: str(b.venue, 200) || booking.address,
@@ -2877,7 +2879,7 @@ app.post('/api/team/poster-text', requireMember, async (req, res) => {
   const time = (t) => (/^\d{2}:\d{2}$/.test(t) ? t : '');
   const gurpurab = date && gurpurabOn(date);
   await posterText(req, res, {
-    occasion: str(b.occasion, 120) || (gurpurab ? `${gpKind(gurpurab).label} ${gurpurab.name}` : ''),
+    occasion: str(b.occasion, 120) || (gurpurab ? gpOccasion(gurpurab) : ''),
     sewa: str(b.program, 80) || 'Kirtan',
     venue: str(b.venue, 200),
     memberName: str(b.name, 80) || req.person.name,
@@ -3013,22 +3015,30 @@ const publicGurpurab = (g) => ({
   kind: g.kind,
   kindLabel: gpKind(g).label,
   kindGurmukhi: gpKind(g).gurmukhi,
+  monthly: isMonthly(g),
   name: g.name,
   gurmukhi: g.gurmukhi,
   date: g.date,
   images: (g.images || []).map(gpImageUrl),
 });
 
-// "One month to go" goes out at 10 AM, one calendar month before the day.
-const noticeAt = (g) => subMonths(new Date(`${g.date}T10:00:00`), 1).getTime();
+// "One month to go" goes out at 10 AM, one calendar month before the day; for Sangrand, Pooranmashi and Dasvin
+// (every month) three days before.
+const MONTHLY_NOTICE_DAYS = 3;
+const noticeAt = (g) => {
+  const day = new Date(`${g.date}T10:00:00`);
+  return (isMonthly(g) ? subDays(day, MONTHLY_NOTICE_DAYS) : subMonths(day, 1)).getTime();
+};
+// The monthly days read "Katak Pooranmashi"; Gurpurabs "Prakash Purab — Sri Guru Nanak Dev Ji".
+const gpTitle = (g) => (isMonthly(g) ? `${g.name} ${gpKind(g).label}` : `${gpKind(g).label} — ${g.name}`);
 const NOTICE_GRACE = 3 * 24 * 60 * 60 * 1000; // still send if the server was asleep at that moment
 
 async function sendGurpurabNotice(g) {
   const days = Math.round((new Date(`${g.date}T00:00:00`) - new Date(`${todayKey()}T00:00:00`)) / 86400000);
   const when = format(new Date(`${g.date}T00:00:00`), 'EEEE, d MMMM');
   const sent = await notifyEveryone({
-    title: `🙏 ${gpKind(g).label} — ${g.name}`,
-    body: `${when}${days > 1 ? ` · ${days} days to go` : days === 1 ? ' · tomorrow' : ''}. Book Gurbani Kirtan sewa for the Gurpurab.`,
+    title: `🙏 ${gpTitle(g)}`,
+    body: `${when}${days > 1 ? ` · ${days} days to go` : days === 1 ? ' · tomorrow' : ''}. Book Gurbani Kirtan sewa for the ${isMonthly(g) ? gpKind(g).label : 'Gurpurab'}.`,
     url: `/?gurpurab=${encodeURIComponent(g.id)}`,
     tag: `gp-${g.id}-${g.date}`,
     ...(g.images?.[0] && { image: gpImageUrl(g.images[0]) }),
@@ -3053,6 +3063,7 @@ async function sendGurpurabNotices() {
 setInterval(() => {
   sendReminders().catch((e) => console.error('[sewa] Reminders failed:', e));
   sendGurpurabNotices().catch((e) => console.error('[sewa] Gurpurab notices failed:', e));
+  if (topUpMonthlyDays(db)) save().catch((e) => console.error('[sewa] Saving monthly days failed:', e)); // once a day
 }, 60 * 1000);
 sendReminders().catch(() => {});
 sendGurpurabNotices().catch(() => {});

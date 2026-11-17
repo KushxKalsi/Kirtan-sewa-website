@@ -7,12 +7,17 @@
 // next Jantri (around March). Days that already passed this year stay listed so you can just
 // change their date for next year.
 
+import { MONTHLY_KINDS, monthlyRows } from './sikhdays.js';
+
 export const GURPURAB_KINDS = {
   prakash: { label: 'Prakash Purab', gurmukhi: 'ਪ੍ਰਕਾਸ਼ ਪੁਰਬ' },
   'jyoti-jot': { label: 'Jyoti Jot Divas', gurmukhi: 'ਜੋਤੀ ਜੋਤਿ ਦਿਵਸ' },
   shaheedi: { label: 'Shaheedi Purab', gurmukhi: 'ਸ਼ਹੀਦੀ ਪੁਰਬ' },
   gurgaddi: { label: 'Gurgaddi Diwas', gurmukhi: 'ਗੁਰਗੱਦੀ ਦਿਵਸ' },
+  // Every month: Sangrand, Pooranmashi and Dasvin (worked out in sikhdays.js, kept in the same list).
+  ...Object.fromEntries(Object.entries(MONTHLY_KINDS).map(([id, k]) => [id, { ...k, monthly: true }])),
 };
+export const isMonthly = (g) => !!GURPURAB_KINDS[g.kind]?.monthly;
 
 const GURUS = {
   nanak: ['Sri Guru Nanak Dev Ji', 'ਸ੍ਰੀ ਗੁਰੂ ਨਾਨਕ ਦੇਵ ਜੀ'],
@@ -80,3 +85,26 @@ export const seedGurpurabs = () =>
     active: true,
     noticeSentFor: '', // the date a "one month to go" notice was sent for
   })).sort((a, b) => a.date.localeCompare(b.date));
+
+// Sangrand / Pooranmashi / Dasvin: keep the next twelve months in the list. Each day is added once (an edited or
+// deleted one is not brought back), and ones more than a month gone are dropped so the list doesn't grow forever.
+const MONTHLY_AHEAD_DAYS = 370;
+const MONTHLY_KEEP_DAYS = 31;
+const localKey = (ms) => new Date(ms).toLocaleDateString('en-CA'); // YYYY-MM-DD in the server's (Indian) time zone
+export function topUpMonthlyDays(db) {
+  const now = Date.now();
+  const today = localKey(now);
+  if (db.meta.monthlyToppedUp === today) return false;
+  const keepFrom = localKey(now - MONTHLY_KEEP_DAYS * 86400000);
+  const seeded = new Set((db.meta.monthlySeeded || []).filter((id) => id.slice(-10) >= keepFrom));
+  db.gurpurabs = db.gurpurabs.filter((g) => !isMonthly(g) || g.date >= keepFrom);
+  for (const row of monthlyRows(today, localKey(now + MONTHLY_AHEAD_DAYS * 86400000))) {
+    if (seeded.has(row.id)) continue;
+    seeded.add(row.id);
+    if (!db.gurpurabs.some((g) => g.id === row.id)) db.gurpurabs.push(row);
+  }
+  db.meta.monthlySeeded = [...seeded];
+  db.meta.monthlyToppedUp = today;
+  db.gurpurabs.sort((a, b) => a.date.localeCompare(b.date));
+  return true;
+}
