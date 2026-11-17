@@ -86,6 +86,8 @@ export const TEMPLATES = [
   // Single photo · Design 2: whole pictures (no see-through window) with the photo drawn over them.
   { id: 'scenic-sky', kind: 'text', group: 'single2', name: 'Sky Gurdwara', note: 'Morning sky, navy and gold — photo on the left', palette: { primary: '#022a68', accent: '#f2c94c', ink: '#022a68' }, bg: { type: 'preset', id: 'paper' }, wash: 0, overlay: '/posters/scenic-sky.webp', items: 'scenicSky' },
   { id: 'scenic-night', kind: 'text', group: 'single2', name: 'Golden night', note: 'Night lights on the sarovar — photo top right', palette: { primary: '#022a73', accent: '#f2c94c', ink: '#022a73' }, bg: { type: 'preset', id: 'paper' }, wash: 0, overlay: '/posters/scenic-night.webp', items: 'scenicNight' },
+  { id: 'scenic-palace', kind: 'text', group: 'single2', name: 'Golden palace', note: 'Navy panel beside a golden Gurdwara', palette: { primary: '#0c1d45', accent: '#f2c94c', ink: '#0c1d45' }, bg: { type: 'preset', id: 'paper' }, wash: 0, overlay: '/posters/scenic-palace.webp', items: 'scenicPalace' },
+  { id: 'scenic-sangat', kind: 'text', group: 'single2', name: 'Sangat', note: 'Cream panels, sky and sangat', palette: { primary: '#0d2a5a', accent: '#c9962a', ink: '#0d2a5a' }, bg: { type: 'preset', id: 'paper' }, wash: 0, overlay: '/posters/scenic-sangat.webp', items: 'scenicSangat' },
   { id: 'text-royal', kind: 'text', name: 'Royal frame', note: 'Navy and gold banners, no photo', palette: { primary: '#14306a', accent: '#f0c22e', ink: '#14306a' }, bg: { type: 'preset', id: 'paper' }, wash: 0, overlay: '/posters/royal-frame.webp', items: 'royal' },
 ];
 export const templateById = (id) => TEMPLATES.find((t) => t.id === id) || TEMPLATES[0];
@@ -931,7 +933,37 @@ export function detectFrame(img) {
   const primary = darkest ? toHex(darkest.color) : '#14285a';
   return { items: rowsToItems(items), palette: { primary, accent: '#f0c22e', ink: primary } };
 }
-const ITEM_SETS = { plain: PLAIN_ITEMS, royal: ROYAL_ITEMS, royalPhoto: ROYAL_PHOTO_ITEMS, scenicSky: SCENIC_SKY_ITEMS, scenicNight: SCENIC_NIGHT_ITEMS, ...Object.fromEntries(Object.entries(ARCH_SLOTS).map(([k, v]) => [`arch-${k}`, archItems(v)])) };
+// Navy panel on the left with gold lines between the rows; the photo above them, the name in the navy at the bottom.
+const SCENIC_PALACE_ITEMS = [
+  ['headline', 'text', 50, 30, 'accent', { ...PLAIN, x: 320, hidden: true }],
+  ['titlePhoto', 'photo', 200, 180, 'round', { hidden: true }],
+  ['photo', 'photo', 210, 280, 'round', { x: 320, placeholder: true }],
+  ['occasion', 'text', 455, 56, 'accent', { ...PLAIN, x: 300, maxW: 440, pair: { with: 'occasionFor', dy: 26 } }],
+  ['occasionFor', 'text', 512, 38, 'onPrimary', { ...PLAIN, x: 300, maxW: 440, pair: { with: 'occasion', dy: -31 } }],
+  ['program', 'text', 603, 48, 'onPrimary', { ...PLAIN, x: 300, maxW: 440 }],
+  ['place', 'text', 697, 42, 'onPrimary', { ...PLAIN, x: 300, maxW: 440 }],
+  ['date', 'text', 770, 36, 'accent', { ...PLAIN, x: 300, maxW: 440, pair: { with: 'time', dy: 18 } }],
+  ['time', 'text', 808, 32, 'onPrimary', { ...PLAIN, x: 300, maxW: 440, pair: { with: 'date', dy: -20 } }],
+  ['name', 'text', 1300, 68, 'accent', { ...PLAIN, x: 540, maxW: 640, pair: { with: 'nameLine', dy: 20 } }],
+  ['nameLine', 'text', 1378, 40, 'onPrimary', { ...PLAIN, x: 540, maxW: 640 }],
+  ['footer', 'text', 1450, 30, 'accent', { ...PLAIN, x: 540, maxW: 600 }],
+];
+// Cream panels on the left (the last one with a map pin, for the place); the photo in the cream at the bottom.
+const SCENIC_SANGAT_ITEMS = [
+  ['headline', 'text', 50, 30, 'primary', { ...PLAIN, x: 380, hidden: true }],
+  ['titlePhoto', 'photo', 200, 180, 'round', { hidden: true }],
+  ['occasion', 'text', 150, 76, 'primary', { ...PLAIN, x: 380, maxW: 640, pair: { with: 'occasionFor', dy: 40 } }],
+  ['occasionFor', 'text', 238, 48, 'primary', { ...PLAIN, x: 380, maxW: 640, pair: { with: 'occasion', dy: -45 } }],
+  ['program', 'text', 467, 58, 'primary', { ...PLAIN, x: 425, maxW: 480 }],
+  ['name', 'text', 642, 56, 'primary', { ...PLAIN, x: 425, maxW: 480, pair: { with: 'nameLine', dy: 23 } }],
+  ['nameLine', 'text', 710, 34, 'primary', { ...PLAIN, x: 425, maxW: 480 }],
+  ['date', 'text', 820, 42, 'primary', { ...PLAIN, x: 415, maxW: 460, pair: { with: 'time', dy: 22 } }],
+  ['time', 'text', 868, 38, 'primary', { ...PLAIN, x: 415, maxW: 460, pair: { with: 'date', dy: -26 } }],
+  ['place', 'text', 1046, 44, 'primary', { ...PLAIN, x: 391, maxW: 440 }],
+  ['photo', 'photo', 1320, 300, 'round', { x: 360, placeholder: true }],
+  ['footer', 'text', 1505, 28, 'primary', { ...PLAIN, hidden: true }],
+];
+const ITEM_SETS = { plain: PLAIN_ITEMS, royal: ROYAL_ITEMS, royalPhoto: ROYAL_PHOTO_ITEMS, scenicSky: SCENIC_SKY_ITEMS, scenicNight: SCENIC_NIGHT_ITEMS, scenicPalace: SCENIC_PALACE_ITEMS, scenicSangat: SCENIC_SANGAT_ITEMS, ...Object.fromEntries(Object.entries(ARCH_SLOTS).map(([k, v]) => [`arch-${k}`, archItems(v)])) };
 // Pieces of a template's frame picture: src [x, y, w, h] in the picture (1024 × 1536) → dst [x, y, w, h] on the poster.
 // `over` pieces are drawn on top of the photos.
 const PIECE_SETS = {
