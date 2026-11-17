@@ -7590,6 +7590,18 @@ a.author-chip:hover strong {
     border-top: 1px solid var(--border-strong);
     box-shadow: 0 -12px 30px -18px rgba(0, 0, 0, 0.6);
   }
+  /* iOS web views sometimes draw this fixed bar above the real bottom of the screen (while scrolling, after the
+     keyboard closes, in installed apps), and the page showed through in the gap. A solid strip of the bar's own
+     colour hangs below it, off-screen normally, so any gap is filled by the bar instead of the page. */
+  .dash-bottom::after {
+    content: '';
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    height: 100vh;
+    background: var(--modal-bg-end);
+  }
   .dash-bottom button {
     flex: 1 1 0;
     flex-direction: column;

@@ -32,6 +32,7 @@
   --toast-bg: rgba(18, 26, 51, 0.92);
   --backdrop: rgba(3, 5, 12, 0.7);
   --modal-bg: linear-gradient(180deg, #141c38, #0d1328);
+  --modal-bg-end: #0d1328;
   --stroke-gold: rgba(233, 180, 76, 0.35);
   --picker-filter: invert(0.8);
   --particle-1: 246, 213, 142;
@@ -88,6 +89,7 @@
     --toast-bg: rgba(255, 252, 245, 0.96);
     --backdrop: rgba(40, 30, 15, 0.35);
     --modal-bg: linear-gradient(180deg, #fffdf8, #f8f1e3);
+    --modal-bg-end: #f8f1e3;
     --stroke-gold: rgba(168, 109, 18, 0.4);
     --picker-filter: none;
     --particle-1: 196, 136, 40;
@@ -132,6 +134,7 @@
   --toast-bg: rgba(255, 252, 245, 0.96);
   --backdrop: rgba(40, 30, 15, 0.35);
   --modal-bg: linear-gradient(180deg, #fffdf8, #f8f1e3);
+  --modal-bg-end: #f8f1e3;
   --stroke-gold: rgba(168, 109, 18, 0.4);
   --picker-filter: none;
   --particle-1: 196, 136, 40;
