@@ -56,7 +56,7 @@ function GroupIcon({ group }) {
 }
 // The template picker: single photo shows one of each of its two kinds of design (a banner design drawn by the app,
 // and a frame design — a picture with a window for the photo), multi photo shows one, and every other design is under
-// Others (Text only first). Team members can add designs of each single-photo kind.
+// Others (Text only first).
 const PICK_SINGLE = 'kirtan-classic';
 const PICK_FRAME = 'text-arch-cream';
 const PICK_MULTI = 'samagam-board';
@@ -216,7 +216,6 @@ export default function PosterMaker({ open, duty: givenDuty, duties = [], person
   };
   const teamBackgrounds = (info?.backgrounds || []).filter((b) => (b.kind || 'background') === 'background');
   const overlayFor = (t) => overlays[t.id] || (t.art?.kind === 'frame' ? teamArt[t.art.id]?.img : null);
-  const pendingDesign = useRef(''); // a design they just added: chosen as soon as it is loaded
   const kind = tplById(templateId).kind;
   const [details, setDetails] = useState({});
   const [text, setText] = useState(null);
@@ -302,15 +301,6 @@ export default function PosterMaker({ open, duty: givenDuty, duties = [], person
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [info]);
-  useEffect(() => {
-    const id = pendingDesign.current;
-    const t = id && teamDesigns.find((x) => x.id === id);
-    if (!t || !teamArt[t.art.id]?.img) return;
-    pendingDesign.current = '';
-    chooseTemplate(id);
-    if (step === 'pick') setStep(text ? 'edit' : 'details');
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [teamDesigns]);
 
   const design = text && {
     layout: kind,
@@ -497,45 +487,6 @@ export default function PosterMaker({ open, duty: givenDuty, duties = [], person
       if (templateId === ART_PREFIX + b.id) chooseTemplate(b.kind === 'frame' ? PICK_FRAME : PICK_SINGLE);
       else if (bg.type === 'image' && bg.id === b.id) chooseBg(tplById(templateId).bg);
     });
-  // A new single-photo design for the whole team: 'frame' (a PNG with a see-through photo window) or 'drawn' (a
-  // picture the app's banners go over).
-  const addDesign = async (artKind, file) => {
-    if (!file) return;
-    let upload;
-    if (artKind === 'frame') {
-      const url = URL.createObjectURL(file);
-      const img = await loadImage(url);
-      URL.revokeObjectURL(url);
-      if (!img || !detectFrame(img))
-        return toast('No see-through photo window found. Save the frame as a PNG where the photo area (and the outside) is see-through.', 'error');
-      upload = file.type === 'image/png' ? await shrinkPng(file) : file;
-    } else {
-      upload = await shrinkPhoto(file, 1600);
-    }
-    run(`design-${artKind}`, async () => {
-      const { id } = await uploadMedia(team, upload);
-      const r = await team.addPosterBackground(id, file.name.replace(/\.\w+$/, '').slice(0, 60), artKind);
-      const added = r.backgrounds.filter((b) => b.mine && b.kind === artKind).at(-1);
-      if (added) pendingDesign.current = ART_PREFIX + added.id;
-      setInfo(r);
-      toast('Design added — the whole team can use it now 🙏');
-    });
-  };
-  const addDesignButton = (artKind, label) => (
-    <label className={`btn btn-ghost btn-sm ${busy ? 'disabled' : ''}`}>
-      {busy === `design-${artKind}` ? <Loader2 size={15} className="spin" /> : <Plus size={15} />} {label}
-      <input
-        type="file"
-        accept={artKind === 'frame' ? 'image/png,image/webp' : 'image/*'}
-        hidden
-        disabled={!!busy}
-        onChange={(e) => {
-          addDesign(artKind, e.target.files[0]);
-          e.target.value = '';
-        }}
-      />
-    </label>
-  );
 
   /* ---------- result ---------- */
   // Drawn again on its own canvas, so the editor's selection outline is not in the picture.
@@ -610,13 +561,12 @@ export default function PosterMaker({ open, duty: givenDuty, duties = [], person
                   <p className="fine-print">{GROUPS[g].note}</p>
                   {g === 'single' ? (
                     <div className="poster-template-grid poster-pick-kinds">
-                      {PICK_SINGLE_KINDS.map(([id, artKind, label, hint]) => (
+                      {PICK_SINGLE_KINDS.map(([id, , label, hint]) => (
                         <div key={id} className="poster-pick-kind">
                           <span className="poster-subhead" title={hint}>
                             {label}
                           </span>
                           {templateCard(templateById(id))}
-                          {addDesignButton(artKind, 'Add design')}
                         </div>
                       ))}
                     </div>
@@ -873,15 +823,9 @@ export default function PosterMaker({ open, duty: givenDuty, duties = [], person
                         </div>
                       ))}
                     </div>
-                    {g === 'single' && (
-                      <div className="ab-actions">
-                        {addDesignButton('drawn', 'Add banner design')}
-                        {addDesignButton('frame', 'Add frame design')}
-                      </div>
-                    )}
                   </div>
                 ))}
-                <p className="fine-print">A frame design is a PNG whose photo area is see-through — the photo shows there and the words go into its banners. Designs you add can be used by every team member.</p>
+                <p className="fine-print">A frame design is a PNG whose photo area is see-through — the photo shows there and the words go into its banners.</p>
                 <hr className="poster-sep" />
                 {kind === 'text' && <p className="fine-print">Choose a background or add your own — only your words and photos go on top of it, nothing else.</p>}
                 <div className="poster-panel-head">
