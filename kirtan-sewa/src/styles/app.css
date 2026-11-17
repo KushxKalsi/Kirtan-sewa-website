@@ -6988,6 +6988,9 @@ a.author-chip:hover strong {
 .poster-kind-other > .fine-print {
   margin: 0;
 }
+.poster-kind-wide {
+  grid-column: 1 / -1;
+}
 /* Background tab: every design, then the backgrounds */
 .poster-design-group {
   display: grid;

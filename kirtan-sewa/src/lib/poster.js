@@ -83,6 +83,9 @@ export const TEMPLATES = [
     ['maroon', 'Arch · maroon', 'Peach and maroon', { primary: '#6b1414', accent: '#f2c14e', ink: '#6b1414' }],
     ['teal', 'Arch · teal', 'Sea green and teal', { primary: '#0f3b4a', accent: '#f2c94c', ink: '#0f3b4a' }],
   ].map(([id, name, note, palette]) => ({ id: `text-arch-${id}`, kind: 'text', name, note, palette, bg: { type: 'preset', id: 'paper' }, wash: 0, overlay: `/posters/arch-${id}.webp`, overlayOver: true, items: `arch-${id}` })),
+  // Single photo · Design 2: whole pictures (no see-through window) with the photo drawn over them.
+  { id: 'scenic-sky', kind: 'text', group: 'single2', name: 'Sky Gurdwara', note: 'Morning sky, navy and gold — photo on the left', palette: { primary: '#022a68', accent: '#f2c94c', ink: '#022a68' }, bg: { type: 'preset', id: 'paper' }, wash: 0, overlay: '/posters/scenic-sky.webp', items: 'scenicSky' },
+  { id: 'scenic-night', kind: 'text', group: 'single2', name: 'Golden night', note: 'Night lights on the sarovar — photo top right', palette: { primary: '#022a73', accent: '#f2c94c', ink: '#022a73' }, bg: { type: 'preset', id: 'paper' }, wash: 0, overlay: '/posters/scenic-night.webp', items: 'scenicNight' },
   { id: 'text-royal', kind: 'text', name: 'Royal frame', note: 'Navy and gold banners, no photo', palette: { primary: '#14306a', accent: '#f0c22e', ink: '#14306a' }, bg: { type: 'preset', id: 'paper' }, wash: 0, overlay: '/posters/royal-frame.webp', items: 'royal' },
 ];
 export const templateById = (id) => TEMPLATES.find((t) => t.id === id) || TEMPLATES[0];
@@ -738,6 +741,36 @@ const ROYAL_PHOTO_ITEMS = ROYAL_ITEMS.map((row) => {
   if (id === 'photo') return ['photo', 'photo', 742, 440, 'rect', { x: 770 }];
   return row;
 });
+// Single photo · Design 2 (public/posters/scenic-*.webp): each line sits in a banner of the picture, measured on the
+// 1024 × 1536 picture. Paired lines move to the banner's middle when the other line is empty.
+const SCENIC_SKY_ITEMS = [
+  ['headline', 'text', 70, 34, 'primary', { ...PLAIN, hidden: true }],
+  ['titlePhoto', 'photo', 200, 180, 'round', { hidden: true }],
+  ['program', 'text', 215, 54, 'primary', { x: 235, maxW: 400 }], // over the sky, top left (outlined to stay readable)
+  ['place', 'text', 290, 40, 'primary', { x: 235, maxW: 400 }],
+  ['photo', 'photo', 735, 320, 'round', { x: 265, placeholder: true }], // over the water, left
+  ['name', 'text', 646, 50, 'onPrimary', { ...PLAIN, x: 770, maxW: 380, pair: { with: 'nameLine', dy: 18 } }], // navy panel, right
+  ['nameLine', 'text', 700, 32, 'accent', { ...PLAIN, x: 770, maxW: 380 }],
+  ['date', 'text', 806, 42, 'primary', { ...PLAIN, x: 773, maxW: 400, pair: { with: 'time', dy: 22 } }], // cream box
+  ['time', 'text', 854, 38, 'primary', { ...PLAIN, x: 773, maxW: 400, pair: { with: 'date', dy: -26 } }],
+  ['occasion', 'text', 1010, 62, 'onPrimary', { ...PLAIN, x: 515, maxW: 620, pair: { with: 'occasionFor', dy: 36 } }], // big banner
+  ['occasionFor', 'text', 1085, 46, 'accent', { ...PLAIN, x: 515, maxW: 620, pair: { with: 'occasion', dy: -39 } }],
+  ['footer', 'text', 1230, 40, 'onPrimary', { ...PLAIN, x: 585, maxW: 580 }], // the phone strip
+];
+const SCENIC_NIGHT_ITEMS = [
+  ['headline', 'text', 65, 30, 'onPrimary', { ...PLAIN, hidden: true }],
+  ['titlePhoto', 'photo', 200, 180, 'round', { hidden: true }],
+  ['photo', 'photo', 330, 360, 'round', { x: 745, placeholder: true }], // top right, beside the Gurdwara
+  ['occasion', 'text', 645, 46, 'onPrimary', { ...PLAIN, x: 510, maxW: 540, pair: { with: 'occasionFor', dy: 17 } }], // navy banner
+  ['occasionFor', 'text', 690, 32, 'accent', { ...PLAIN, x: 510, maxW: 540, pair: { with: 'occasion', dy: -28 } }],
+  ['program', 'text', 782, 62, 'primary', { ...PLAIN, maxW: 860 }], // cream band
+  ['place', 'text', 850, 42, 'primary', { ...PLAIN, maxW: 820 }],
+  ['name', 'text', 942, 54, 'onPrimary', { ...PLAIN, maxW: 660 }], // red banner
+  ['date', 'text', 1058, 42, 'primary', { ...PLAIN, x: 570, maxW: 620 }], // beside the calendar
+  ['time', 'text', 1139, 34, 'onPrimary', { ...PLAIN, maxW: 310 }], // small navy pill
+  ['nameLine', 'text', 1245, 38, 'primary', { ...PLAIN, x: 261, maxW: 400 }], // left box
+  ['footer', 'text', 1245, 36, 'primary', { ...PLAIN, x: 757, maxW: 400 }], // right box
+];
 // Arch frames (public/posters/arch-*.webp): the photo shows through the arch window; the frame is drawn over it.
 // Boxes measured on the 1024 × 1536 pictures, as [centre x, centre y, width, height]. `dark`: a dark banner (white words).
 const ARCH_SLOTS = {
@@ -898,7 +931,7 @@ export function detectFrame(img) {
   const primary = darkest ? toHex(darkest.color) : '#14285a';
   return { items: rowsToItems(items), palette: { primary, accent: '#f0c22e', ink: primary } };
 }
-const ITEM_SETS = { plain: PLAIN_ITEMS, royal: ROYAL_ITEMS, royalPhoto: ROYAL_PHOTO_ITEMS, ...Object.fromEntries(Object.entries(ARCH_SLOTS).map(([k, v]) => [`arch-${k}`, archItems(v)])) };
+const ITEM_SETS = { plain: PLAIN_ITEMS, royal: ROYAL_ITEMS, royalPhoto: ROYAL_PHOTO_ITEMS, scenicSky: SCENIC_SKY_ITEMS, scenicNight: SCENIC_NIGHT_ITEMS, ...Object.fromEntries(Object.entries(ARCH_SLOTS).map(([k, v]) => [`arch-${k}`, archItems(v)])) };
 // Pieces of a template's frame picture: src [x, y, w, h] in the picture (1024 × 1536) → dst [x, y, w, h] on the poster.
 // `over` pieces are drawn on top of the photos.
 const PIECE_SETS = {

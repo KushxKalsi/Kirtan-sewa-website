@@ -47,9 +47,10 @@ const SHOW = [
 const GROUPS = {
   single: { title: 'Single photo', note: 'One kirtan — one photo, name, date and time.', icon: UserRound },
   multi: { title: 'Multi photo', note: 'Samagam — a photo, name and time for each raagi / jatha.', icon: UsersRound },
+  single2: { title: 'Single photo · Design 2', note: 'Ready-made picture posters — your photo, and the words in their banners.', icon: UserRound },
   other: { title: 'Others', note: 'Text only, more colours and the frame designs — move and resize anything on the text ones.', icon: Type },
 };
-const groupOf = (t) => (t.kind === 'samagam' ? 'multi' : t.kind === 'kirtan' || t.pieces || t.overlayOver ? 'single' : 'other');
+const groupOf = (t) => t.group || (t.kind === 'samagam' ? 'multi' : t.kind === 'kirtan' || t.pieces || t.overlayOver ? 'single' : 'other');
 function GroupIcon({ group }) {
   const Icon = GROUPS[group].icon;
   return <Icon size={15} />;
@@ -64,7 +65,7 @@ const PICK_SINGLE_KINDS = [
   [PICK_SINGLE, 'drawn', 'Banner design', 'Any picture — the app’s banners go over it.'],
   [PICK_FRAME, 'frame', 'Frame design', 'A PNG frame whose photo area is see-through.'],
 ];
-const PICK_OTHERS = [templateById('text-only'), ...TEMPLATES.filter((t) => ![PICK_SINGLE, PICK_FRAME, PICK_MULTI, 'text-only'].includes(t.id))];
+const PICK_OTHERS = [templateById('text-only'), ...TEMPLATES.filter((t) => !t.group && ![PICK_SINGLE, PICK_FRAME, PICK_MULTI, 'text-only'].includes(t.id))];
 // Designs team members added (kept with the team backgrounds) turned into templates.
 const ART_PREFIX = 'team-';
 function teamTemplate(b, art) {
@@ -588,6 +589,16 @@ export default function PosterMaker({ open, duty: givenDuty, duties = [], person
             <div className="poster-template-grid">{[...PICK_OTHERS, ...teamDesigns].map(templateCard)}</div>
             <p className="fine-print">You can change the design any time later in the Background tab.</p>
           </section>
+          <section className="poster-kind poster-kind-other poster-kind-wide">
+            <header>
+              <UserRound size={18} />
+              <div>
+                <strong>{GROUPS.single2.title}</strong>
+                <span>{GROUPS.single2.note}</span>
+              </div>
+            </header>
+            <div className="poster-template-grid">{TEMPLATES.filter((t) => t.group === 'single2').map(templateCard)}</div>
+          </section>
         </div>
       )}
 
@@ -804,6 +815,7 @@ export default function PosterMaker({ open, duty: givenDuty, duties = [], person
                 <p className="fine-print">Changing the design keeps your wording and photos; colours and background go back to the design’s own.</p>
                 {[
                   ['single', 'Single photo'],
+                  ['single2', 'Single photo · Design 2'],
                   ['multi', 'Multi photo'],
                   ['other', 'Text only'],
                 ].map(([g, label]) => (
