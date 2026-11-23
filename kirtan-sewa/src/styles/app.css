@@ -7479,6 +7479,9 @@ a.author-chip:hover strong {
 .poster-canvas.movable:active {
   cursor: grabbing;
 }
+.poster-canvas.movable.panning {
+  cursor: move;
+}
 .poster-stage-hint {
   margin: 8px 0 0;
   text-align: center;

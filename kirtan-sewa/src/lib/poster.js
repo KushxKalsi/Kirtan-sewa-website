@@ -304,12 +304,17 @@ function roundRect(ctx, x, y, w, h, r) {
   ctx.roundRect(x, y, w, h, r);
 }
 // The image fills the box (cropped, not stretched); anchorY 0 keeps the top, 0.5 the middle.
-function cover(ctx, img, x, y, w, h, anchorY = 1 / 3) {
-  const scale = Math.max(w / img.width, h / img.height);
+// zoom > 1 goes closer, < 1 shows more of the photo (the box may then have empty edges); anchorX like anchorY.
+// Returns how far the photo can slide inside the box (w - iw, h - ih), for dragging it about.
+function cover(ctx, img, x, y, w, h, anchorY = 1 / 3, zoom = 1, anchorX = 0.5) {
+  const scale = Math.max(w / img.width, h / img.height) * zoom;
   const iw = img.width * scale;
   const ih = img.height * scale;
-  ctx.drawImage(img, x + (w - iw) / 2, y + (h - ih) * anchorY, iw, ih);
+  ctx.drawImage(img, x + (w - iw) * anchorX, y + (h - ih) * anchorY, iw, ih);
+  return { ex: w - iw, ey: h - ih };
 }
+/** Where a text-template photo sits inside its frame: zoom and the horizontal / vertical position (0 – 1). */
+export const photoCrop = (it) => ({ zoom: it.zoom ?? 1, fx: it.fx ?? 0.5, fy: it.fy ?? (it.shape === 'round' ? 0.3 : 1 / 3) });
 // The whole image fits in the box (nothing cut off), centred.
 function contain(ctx, img, x, y, w, h) {
   const scale = Math.min(w / img.width, h / img.height);
@@ -1034,8 +1039,14 @@ function drawTextOnly(ctx, text, t, show, d) {
       ctx.save();
       shape();
       ctx.clip();
-      if (img) cover(ctx, img, box.x, box.y, w, h, it.shape === 'round' ? 0.3 : 1 / 3);
-      else {
+      if (img) {
+        const { zoom, fx, fy } = photoCrop(it);
+        if (zoom < 1) {
+          ctx.fillStyle = t.paper; // zoomed out: the edges the photo no longer covers
+          ctx.fillRect(box.x, box.y, w, h);
+        }
+        box.slide = cover(ctx, img, box.x, box.y, w, h, fy, zoom, fx);
+      } else {
         // No photo yet: a soft panel with the Khanda, so the frame's window is not empty.
         ctx.fillStyle = t.paper;
         ctx.fillRect(box.x, box.y, w, h);

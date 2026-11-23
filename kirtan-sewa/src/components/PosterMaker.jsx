@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { format } from 'date-fns';
-import { AlignCenter, ArrowLeft, ArrowUp, Camera, Download, Eye, EyeOff, ImagePlus, Images, Loader2, Palette, Plus, RefreshCw, RotateCcw, Send, Share2, SlidersHorizontal, Sparkles, Trash2, Type, UserRound, UsersRound, Wand2, X } from 'lucide-react';
+import { AlignCenter, ArrowLeft, ArrowUp, Camera, Crop, Download, Eye, EyeOff, ImagePlus, Images, Loader2, Palette, Plus, RefreshCw, RotateCcw, Send, Share2, SlidersHorizontal, Sparkles, Trash2, Type, UserRound, UsersRound, Wand2, X } from 'lucide-react';
 import Modal from './Modal';
 import { useSite } from './SiteContext';
 import { fromKey, prettyDate } from '../lib/date';
 import { shrinkPhoto, uploadMedia } from '../lib/media';
-import { BG_PRESETS, H, MAX_PEOPLE, TEMPLATES, W, detectFrame, genBackground, itemColor, loadImage, loadPosterFonts, renderBackground, renderPoster, templateById, textOnlyItems } from '../lib/poster';
+import { BG_PRESETS, H, MAX_PEOPLE, TEMPLATES, W, detectFrame, photoCrop, genBackground, itemColor, loadImage, loadPosterFonts, renderBackground, renderPoster, templateById, textOnlyItems } from '../lib/poster';
 
 const to12 = (t) => {
   const [h, m] = t.split(':').map(Number);
@@ -116,14 +116,36 @@ function snapshot(draw) {
   }
 }
 // Size, colour, outline and so on for one line or photo of the text-only template.
-function ItemControls({ item, palette, onChange }) {
+function ItemControls({ item, palette, onChange, adjusting, onAdjust }) {
   const photo = item.type === 'photo';
+  const crop = photo && photoCrop(item);
   return (
     <div className="poster-item-tools">
       <label className="poster-range">
-        <span>Size</span>
+        <span>{photo ? 'Frame size' : 'Size'}</span>
         <input type="range" min={photo ? 80 : 16} max={photo ? 900 : 160} step="2" value={item.size} onChange={(e) => onChange({ size: Number(e.target.value) })} />
       </label>
+      {photo && (
+        <>
+          <label className="poster-range">
+            <span>Photo zoom</span>
+            <input type="range" min="0.3" max="3" step="0.02" value={crop.zoom} onChange={(e) => onChange({ zoom: Number(e.target.value) })} />
+          </label>
+          <div className="poster-item-row">
+            {onAdjust && (
+              <button type="button" className={`btn btn-sm ${adjusting ? 'btn-primary' : 'btn-ghost'}`} onClick={onAdjust} title="Drag on the poster to move the photo inside its frame">
+                <Crop size={14} /> {adjusting ? 'Done moving photo' : 'Move photo inside frame'}
+              </button>
+            )}
+            {(item.zoom != null || item.fx != null || item.fy != null) && (
+              <button type="button" className="btn btn-ghost btn-sm" onClick={() => onChange({ zoom: undefined, fx: undefined, fy: undefined })}>
+                <RotateCcw size={14} /> Reset photo
+              </button>
+            )}
+          </div>
+          {adjusting && <p className="fine-print">Drag the photo on the poster to choose which part shows. Zoom out to fit all of it.</p>}
+        </>
+      )}
       <div className="poster-item-row">
         {photo ? (
           <>
@@ -233,6 +255,7 @@ export default function PosterMaker({ open, duty: givenDuty, duties = [], person
   const [generated, setGenerated] = useState([]);
   const [items, setItems] = useState(textOnlyItems); // text-only template: where each line / photo goes
   const [sel, setSel] = useState(null); // the item being moved / changed
+  const [adjust, setAdjust] = useState(null); // photo item whose picture (not frame) is dragged about inside its frame
   const hitsRef = useRef([]);
   const drag = useRef(null);
   const [panel, setPanel] = useState('text');
@@ -255,6 +278,7 @@ export default function PosterMaker({ open, duty: givenDuty, duties = [], person
     if (t.kind === 'text' && id !== templateId) {
       setItems(itemsFor(id)); // each text template places the lines its own way
       setSel(null);
+      setAdjust(null);
     }
     // Text only is made for their own background, so keep a picture background they already chose.
     if (t.kind === 'text' && bg.type === 'image') return;
@@ -412,6 +436,7 @@ export default function PosterMaker({ open, duty: givenDuty, duties = [], person
   };
   /* ---------- text only: move and change each item ---------- */
   const setItem = (id, patch) => setItems((list) => list.map((it) => (it.id === id ? { ...it, ...patch } : it)));
+  const resetCrop = (id) => setItem(id, { zoom: undefined, fx: undefined, fy: undefined }); // a new photo starts uncropped
   const toPoster = (e) => {
     const r = canvasRef.current.getBoundingClientRect();
     return { x: ((e.clientX - r.left) * W) / r.width, y: ((e.clientY - r.top) * H) / r.height };
@@ -421,17 +446,33 @@ export default function PosterMaker({ open, duty: givenDuty, duties = [], person
     const p = toPoster(e);
     const pad = 14;
     const hit = [...hitsRef.current].reverse().find((b) => p.x >= b.x - pad && p.x <= b.x + b.w + pad && p.y >= b.y - pad && p.y <= b.y + b.h + pad);
-    if (!hit) return setSel(null);
+    if (!hit) {
+      setAdjust(null);
+      return setSel(null);
+    }
     const it = items.find((i) => i.id === hit.id);
     setSel(hit.id);
     setPanel(it.type === 'photo' ? 'photos' : 'text');
-    drag.current = { id: hit.id, dx: p.x - it.x, dy: p.y - it.y, moved: false };
+    if (adjust !== hit.id) setAdjust(null);
+    // Moving the picture inside its frame: remember where it was and how far it can slide.
+    if (adjust === hit.id && hit.slide) {
+      const { fx, fy } = photoCrop(it);
+      drag.current = { id: hit.id, pan: true, sx: p.x, sy: p.y, fx, fy, ...hit.slide, moved: false };
+    } else drag.current = { id: hit.id, dx: p.x - it.x, dy: p.y - it.y, moved: false };
     e.currentTarget.setPointerCapture?.(e.pointerId);
   };
   const onCanvasMove = (e) => {
     const d = drag.current;
     if (!d) return;
     const p = toPoster(e);
+    if (d.pan) {
+      const clamp = (v) => Math.max(0, Math.min(1, v));
+      const patch = {};
+      if (Math.abs(d.ex) > 1) patch.fx = clamp(d.fx + (p.x - d.sx) / d.ex);
+      if (Math.abs(d.ey) > 1) patch.fy = clamp(d.fy + (p.y - d.sy) / d.ey);
+      d.moved = true;
+      return setItem(d.id, patch);
+    }
     let x = Math.round(Math.max(0, Math.min(W, p.x - d.dx)));
     if (Math.abs(x - W / 2) < 12) x = W / 2; // snaps to the middle
     const y = Math.round(Math.max(0, Math.min(H, p.y - d.dy)));
@@ -521,7 +562,20 @@ export default function PosterMaker({ open, duty: givenDuty, duties = [], person
   const itemFor = (id) => (kind === 'text' ? items.find((it) => it.id === id) : null);
   const photoControls = (id) => {
     const it = itemFor(id);
-    return it && <ItemControls item={it} palette={palette} onChange={(patch) => setItem(id, patch)} />;
+    return (
+      it && (
+        <ItemControls
+          item={it}
+          palette={palette}
+          onChange={(patch) => setItem(id, patch)}
+          adjusting={adjust === id}
+          onAdjust={() => {
+            setSel(id);
+            setAdjust(adjust === id ? null : id);
+          }}
+        />
+      )
+    );
   };
   const templateCard = (t) => (
     <button
@@ -678,13 +732,13 @@ export default function PosterMaker({ open, duty: givenDuty, duties = [], person
           <div className="poster-stage">
             <canvas
               ref={canvasRef}
-              className={`poster-canvas ${kind === 'text' ? 'movable' : ''}`}
+              className={`poster-canvas ${kind === 'text' ? 'movable' : ''} ${adjust ? 'panning' : ''}`}
               onPointerDown={onCanvasDown}
               onPointerMove={onCanvasMove}
               onPointerUp={onCanvasUp}
               onPointerCancel={onCanvasUp}
             />
-            {kind === 'text' && <p className="fine-print poster-stage-hint">Drag any line or photo to move it. Tap it to change its size and colour.</p>}
+            {kind === 'text' && <p className="fine-print poster-stage-hint">{adjust ? 'Drag the photo to move it inside its frame.' : 'Drag any line or photo to move it. Tap it to change its size and colour.'}</p>}
           </div>
 
           <div className="poster-side">
@@ -737,7 +791,7 @@ export default function PosterMaker({ open, duty: givenDuty, duties = [], person
                     <div className="ab-actions">
                       <label className="btn btn-ghost btn-sm">
                         <Camera size={15} /> {titlePhoto ? 'Change' : 'Add title photo'}
-                        <input type="file" accept="image/*" hidden onChange={async (e) => e.target.files[0] && setTitlePhoto(await fromFile(e.target.files[0]))} />
+                        <input type="file" accept="image/*" hidden onChange={async (e) => e.target.files[0] && (setTitlePhoto(await fromFile(e.target.files[0])), resetCrop('titlePhoto'))} />
                       </label>
                       {titlePhoto && (
                         <button type="button" className="btn btn-ghost btn-sm danger-text" onClick={() => setTitlePhoto(null)}>
@@ -757,7 +811,7 @@ export default function PosterMaker({ open, duty: givenDuty, duties = [], person
                       <div className="ab-actions">
                         <label className="btn btn-ghost btn-sm">
                           <Camera size={15} /> {photo ? 'Use another photo' : 'Add your photo'}
-                          <input type="file" accept="image/*" hidden onChange={async (e) => e.target.files[0] && setPhoto(await fromFile(e.target.files[0]))} />
+                          <input type="file" accept="image/*" hidden onChange={async (e) => e.target.files[0] && (setPhoto(await fromFile(e.target.files[0])), resetCrop('photo'))} />
                         </label>
                         {photo && (
                           <button type="button" className="btn btn-ghost btn-sm danger-text" onClick={() => setPhoto(null)}>
