@@ -418,6 +418,15 @@
   gap: 14px;
   margin-top: 34px;
 }
+.hero-gurbani-cta {
+  display: flex;
+  justify-content: center;
+  flex-basis: 100%;
+}
+.hero-gurbani-cta .btn {
+  border-color: var(--stroke-gold);
+  color: var(--gold-2);
+}
 .scroll-cue {
   position: absolute;
   bottom: max(24px, env(safe-area-inset-bottom));
@@ -3573,8 +3582,12 @@ input:focus-visible + .tick {
     max-width: 340px;
   }
   .hero-ctas > div,
+  .hero-gurbani-cta > div,
   .hero-ctas .btn {
     width: 100%;
+  }
+  .hero-gurbani-cta {
+    flex-basis: auto;
   }
   .scroll-cue {
     display: none; /* would overlap the stacked buttons on phones */

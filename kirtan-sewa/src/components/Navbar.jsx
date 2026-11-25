@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { AnimatePresence, motion, useMotionValueEvent, useScroll } from 'framer-motion';
-import { CalendarDays, CircleUserRound, ClipboardList, Download, LogIn, Menu, Search, X } from 'lucide-react';
+import { BookOpen, CalendarDays, CircleUserRound, ClipboardList, Download, LogIn, Menu, X } from 'lucide-react';
 import { useSite } from './SiteContext';
 import { useAuth } from './AuthContext';
 import { useGoTo } from './useGoTo';
@@ -74,8 +74,8 @@ export default function Navbar() {
           </nav>
 
           <div className="nav-actions">
-            <Link to="/gurbani" className={`nav-manage nav-gurbani${inGurbani ? ' active' : ''}`} aria-label="Gurbani search" aria-current={pathname === '/gurbani' ? 'page' : undefined} onClick={() => setOpen(false)}>
-              <Search size={17} aria-hidden="true" />
+            <Link to="/gurbani" className={`nav-manage nav-gurbani${inGurbani ? ' active' : ''}`} aria-label="Gurbani" aria-current={pathname === '/gurbani' ? 'page' : undefined} onClick={() => setOpen(false)}>
+              <BookOpen size={17} aria-hidden="true" />
               <span>Gurbani</span>
             </Link>
             <Link to={me.to} className={`nav-manage ${pathname === me.to ? 'active' : ''}`} aria-current={pathname === me.to ? 'page' : undefined}>
@@ -127,7 +127,7 @@ export default function Navbar() {
             </motion.ul>
             <motion.div className="mobile-menu-foot" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0, transition: { delay: 0.6 } }} exit={{ opacity: 0 }}>
               <Link to="/gurbani" className="btn btn-ghost btn-block" onClick={() => setOpen(false)}>
-                <Search size={18} aria-hidden="true" /> Gurbani search
+                <BookOpen size={18} aria-hidden="true" /> Gurbani
               </Link>
               <button className="btn btn-primary btn-block" onClick={() => go('book')}>
                 <CalendarDays size={18} /> Book a Sewa

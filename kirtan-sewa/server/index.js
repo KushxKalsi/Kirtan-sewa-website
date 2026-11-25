@@ -777,6 +777,25 @@ app.get('/api/gurbani/shabads/:id', async (req, res) => {
   res.json(shabad);
 });
 
+app.get('/api/gurbani/paaths', async (_req, res) => {
+  const paaths = await gurbani.paaths();
+  res.set('Cache-Control', 'public, max-age=86400').json({ paaths });
+});
+
+app.get('/api/gurbani/paaths/:id', async (req, res) => {
+  if (!/^[1-9]\d{0,3}$/.test(req.params.id)) fail(404, 'Paath not found.');
+  const paath = await gurbani.paath(Number(req.params.id));
+  if (!paath) fail(404, 'Paath not found.');
+  res.set('Cache-Control', 'public, max-age=86400').json(paath);
+});
+
+app.get('/api/gurbani/angs/:ang', async (req, res) => {
+  const ang = Number(req.params.ang);
+  if (!/^[1-9]\d{0,3}$/.test(req.params.ang) || ang > 1430) fail(404, 'Ang not found.');
+  const lines = await gurbani.ang(ang);
+  res.set('Cache-Control', 'public, max-age=86400').json({ ang, lines });
+});
+
 // Customers can only ask to cancel; the admin approves or rejects the request.
 app.post('/api/bookings/cancel-request', requireUser, async (req, res) => {
   const booking = findOwnBooking(req);

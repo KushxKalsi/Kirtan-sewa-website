@@ -64,7 +64,7 @@ empty, it copies `data/db.json` into it. Upload the UPI QR again afterwards.
   group ID. Either all the slots are booked or none are.
 - **Calendar**: anyone can see which slots are booked, what sewa each is for, and the venue address.
   Visitors must choose their sewa first. Nothing is pre-selected.
-- **`/gurbani`**: search Sri Guru Granth Sahib Ji in Gurmukhi, by first letters, or in Romanized Punjabi. Open any result to read the full shabad. See the [Gurbani corpus and import details](server/gurbani-data/README.md).
+- **`/gurbani`**: choose **Read** for the paath library and the complete Sri Guru Granth Sahib Ji by Ang, or **Search** to find shabads in Gurmukhi, by first letters, or in Romanized Punjabi. Matches appear after typing three characters. Search history and favourite shabads are saved on the current device. See the [Gurbani corpus and import details](server/gurbani-data/README.md).
 - **`/login`**: customers (sangat) and team members log in with their mobile number and password. Customers can
   create an account there or in the last booking step, and land on the booking calendar after logging in. Team
   members create their own account there too, choosing Head Ragi, Side Ragi or Tabla, picking where they are based on the map (required) and adding their documents (Aadhaar card required; jatha photos and bank

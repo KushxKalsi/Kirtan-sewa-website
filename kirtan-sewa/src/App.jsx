@@ -22,8 +22,7 @@ const Account = lazy(() => import('./pages/Account'));
 const TeamDashboard = lazy(() => import('./pages/TeamDashboard'));
 const MemberProfile = lazy(() => import('./pages/MemberProfile'));
 const PostPage = lazy(() => import('./pages/PostPage'));
-const GurbaniSearch = lazy(() => import('./pages/Gurbani').then(({ GurbaniSearch }) => ({ default: GurbaniSearch })));
-const GurbaniShabad = lazy(() => import('./pages/Gurbani').then(({ GurbaniShabad }) => ({ default: GurbaniShabad })));
+const Gurbani = lazy(() => import('./pages/Gurbani'));
 
 const curtain = {
   initial: { scaleY: 1, transformOrigin: '50% 0%' },
@@ -105,8 +104,7 @@ function Shell() {
               <Route path="/team" element={<Suspense fallback={<main className="page" />}><TeamDashboard /></Suspense>} />
               <Route path="/m/:id" element={<Suspense fallback={<main className="page" />}><MemberProfile /></Suspense>} />
               <Route path="/p/:id" element={<Suspense fallback={<main className="page" />}><PostPage /></Suspense>} />
-              <Route path="/gurbani" element={<Suspense fallback={<main className="page" />}><GurbaniSearch /></Suspense>} />
-              <Route path="/gurbani/shabad/:id" element={<Suspense fallback={<main className="page" />}><GurbaniShabad /></Suspense>} />
+              <Route path="/gurbani/*" element={<Suspense fallback={<main className="page" />}><Gurbani /></Suspense>} />
               <Route path="/manage" element={<Navigate to="/account" replace />} />
               <Route path="/admin" element={<Suspense fallback={<main className="page" />}><Admin /></Suspense>} />
               <Route path="*" element={<Home ready={ready} />} />

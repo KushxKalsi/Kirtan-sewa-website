@@ -27,7 +27,7 @@ export default function Footer() {
           <p className="footer-text">{s?.gurmukhiTagline}</p>
         </div>
         <div className="footer-links">
-          <Link to="/gurbani">Gurbani search</Link>
+          <Link to="/gurbani">Gurbani</Link>
           <button onClick={() => goTo('sewa')}>Sewa</button>
           <button onClick={() => goTo('book')}>Book a date</button>
           {canInstall() && <button onClick={showInstall}>Install app</button>}

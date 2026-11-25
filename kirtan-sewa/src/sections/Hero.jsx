@@ -1,7 +1,7 @@
 import { useRef } from 'react';
 import { motion, useScroll, useTransform } from 'framer-motion';
 import { Link } from 'react-router-dom';
-import { ArrowRight, CalendarDays, ClipboardList } from 'lucide-react';
+import { ArrowRight, BookOpen, CalendarDays, ClipboardList } from 'lucide-react';
 import Mandala from '../components/Mandala';
 import Particles from '../components/Particles';
 import SplitText from '../components/SplitText';
@@ -66,6 +66,13 @@ export default function Hero({ ready }) {
         </motion.p>
 
         <motion.div className="hero-ctas" {...appear(1.3)}>
+          <div className="hero-gurbani-cta">
+            <Magnetic>
+              <Link className="btn btn-ghost" to="/gurbani">
+                <BookOpen size={18} aria-hidden="true" /> Read &amp; search Gurbani
+              </Link>
+            </Magnetic>
+          </div>
           <Magnetic>
             <button className="btn btn-primary" onClick={() => scrollToId('book')}>
               <CalendarDays size={18} /> Check dates &amp; book
