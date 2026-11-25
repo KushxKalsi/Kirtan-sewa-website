@@ -4,6 +4,7 @@ import { Link, Navigate, Route, Routes, useLocation, useParams, useSearchParams 
 import { BookOpen, Delete, History, Keyboard, Search, Star } from 'lucide-react';
 import { api } from '../lib/api';
 import { clearGurbaniHistory, rememberGurbaniSearch, toggleGurbaniFavourite, useGurbaniLibrary } from '../lib/gurbaniLibrary';
+import GurbaniText from '../components/GurbaniText';
 import GurbaniPage from './GurbaniPage';
 import { GurbaniAng, GurbaniPaath, GurbaniRead } from './GurbaniRead';
 import '../styles/gurbani.css';
@@ -84,8 +85,8 @@ function ShabadResults({ lines, favourites, context, query, previewScript }) {
           <li className="gurbani-shabad-result" key={line.shabadId}>
             <Link className="gurbani-result" to={`/gurbani/shabad/${line.shabadId}?${search}`} onClick={query ? () => rememberGurbaniSearch(query) : undefined}>
               <span className="gurbani-result-ang">Ang {line.ang}</span>
-              {previewScript !== 'roman' && <span lang="pa-Guru" className="gurmukhi gurbani-verse">{line.text}</span>}
-              {previewScript !== 'gurmukhi' && <span className="gurbani-roman" lang="pa-Latn">{line.roman}</span>}
+              {previewScript !== 'roman' && <span lang="pa-Guru" className="gurmukhi gurbani-verse"><GurbaniText text={line.text} /></span>}
+              {previewScript !== 'gurmukhi' && <span className="gurbani-roman" lang="pa-Latn"><GurbaniText text={line.roman} /></span>}
             </Link>
             <FavouriteButton line={line} saved={savedIds.has(line.shabadId)} />
           </li>
@@ -359,7 +360,7 @@ function GurbaniShabad() {
           {lines.map((line) => (
             <div className={`gurbani-shabad-line${lineId === line.id ? ' gurbani-matched-line' : ''}`} key={line.id}>
               {lineId === line.id && <span className="gurbani-result-ang">Matching line · Ang {line.ang}</span>}
-              <p lang="pa-Guru" className="gurmukhi gurbani-verse">{line.text}</p>
+              <p lang="pa-Guru" className="gurmukhi gurbani-verse"><GurbaniText text={line.text} /></p>
             </div>
           ))}
         </article>

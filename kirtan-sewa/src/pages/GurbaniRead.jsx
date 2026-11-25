@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { BookOpen } from 'lucide-react';
 import { api } from '../lib/api';
+import GurbaniText from '../components/GurbaniText';
 import GurbaniPage from './GurbaniPage';
 
 const LAST_ANG = 1430;
@@ -38,7 +39,9 @@ function ReadingStatus({ response, retry, message }) {
 function ReadingLines({ label, lines }) {
   return (
     <article className="gurbani-shabad" aria-label={label} lang="pa-Guru">
-      {lines.map((line, index) => <p key={index} className="gurbani-reading-line gurmukhi gurbani-verse">{line}</p>)}
+      {lines.map((line, index) => (
+        <p key={index} className="gurbani-reading-line gurmukhi gurbani-verse"><GurbaniText text={line} /></p>
+      ))}
     </article>
   );
 }

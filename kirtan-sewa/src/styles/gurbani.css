@@ -403,6 +403,16 @@
   line-height: 1.8;
 }
 
+.gurbani-pause-word {
+  background: transparent;
+  color: var(--gold-2);
+  font-weight: 600;
+}
+
+.gurbani-pause-word[data-pause='period'] {
+  color: var(--blue);
+}
+
 .gurbani-roman,
 .gurbani-pagination,
 .gurbani-credit {
