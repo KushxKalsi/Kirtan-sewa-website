@@ -413,6 +413,20 @@
   color: var(--blue);
 }
 
+.gurbani-pause-word[data-pause='comma'] {
+  color: var(--gurbani-comma-color, #5eead4);
+}
+
+:root[data-theme='light'] {
+  --gurbani-comma-color: #0f766e;
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme='dark']) {
+    --gurbani-comma-color: #0f766e;
+  }
+}
+
 .gurbani-roman,
 .gurbani-pagination,
 .gurbani-credit {
