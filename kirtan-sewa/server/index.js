@@ -4,7 +4,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { db, save, uid, makeRef, slugify, DATA_DIR, initDb, kv } from './db.js';
+import { db, gurbani, save, uid, makeRef, slugify, DATA_DIR, initDb, kv } from './db.js';
+import { gurbaniQuery } from './gurbani.js';
 import { initPush, pushPublicKey, addSubscription, notifyPhone, addAdminSubscription, removeAdminSubscription, adminDeviceCount, notifyAdmins, addPublicSubscription, notifyEveryone, everyoneCount } from './push.js';
 import { GURPURAB_KINDS, isMonthly, topUpMonthlyDays } from './gurpurabs.js';
 import { checkPassword, hashPassword, passwordProblem, sessions } from './auth.js';
@@ -15,6 +16,7 @@ import { format, subDays, subMonths } from 'date-fns';
 
 await initDb();
 await initPush();
+gurbani.prepare().catch((error) => console.error('[sewa] Gurbani database:', error.message));
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT) || 5174;
@@ -754,6 +756,25 @@ app.post('/api/push/subscribe-public', async (req, res) => {
 
 app.get('/api/health', async (_req, res) => {
   res.json({ ok: true, uptime: Math.round(process.uptime()) });
+});
+
+app.get('/api/gurbani/search', async (req, res) => {
+  const { q, page = '1' } = req.query;
+  if (typeof q !== 'string' || q.length > 160) fail(400, 'Enter up to 160 characters of Gurbani.');
+  const query = gurbaniQuery(q);
+  if (!query) fail(400, 'Enter Gurbani in Gurmukhi or Romanized Punjabi.');
+  if (typeof page !== 'string' || !/^[1-9][0-9]{0,2}$/.test(page)) fail(400, 'Invalid search page.');
+  const results = await gurbani.search(query, Number(page));
+  res.set('Cache-Control', 'public, max-age=300');
+  res.json(results);
+});
+
+app.get('/api/gurbani/shabads/:id', async (req, res) => {
+  if (!/^[a-z0-9]{3}$/i.test(req.params.id)) fail(404, 'Shabad not found.');
+  const shabad = await gurbani.shabad(req.params.id);
+  if (!shabad) fail(404, 'Shabad not found.');
+  res.set('Cache-Control', 'public, max-age=86400');
+  res.json(shabad);
 });
 
 // Customers can only ask to cancel; the admin approves or rejects the request.

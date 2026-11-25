@@ -13,15 +13,16 @@ function deviceId() {
 // Logged in on this device as a customer or team member: likes count once per account.
 const sessionToken = () => readStore('sewa.session', null)?.token;
 
-async function request(path, { method = 'GET', body, token, device } = {}) {
+async function request(path, { method = 'GET', body, token, device, signal } = {}) {
   const headers = {};
   if (device) headers['X-Device'] = deviceId();
   if (body !== undefined) headers['Content-Type'] = 'application/json';
   if (token) headers.Authorization = `Bearer ${token}`;
   let res;
   try {
-    res = await fetch(`${API_BASE}/api${path}`, { method, headers, body: body !== undefined ? JSON.stringify(body) : undefined });
-  } catch {
+    res = await fetch(`${API_BASE}/api${path}`, { method, headers, signal, body: body !== undefined ? JSON.stringify(body) : undefined });
+  } catch (error) {
+    if (signal?.aborted) throw error;
     throw new Error('Cannot reach the server. Check your connection.');
   }
   const data = await res.json().catch(() => ({}));
@@ -35,6 +36,8 @@ async function request(path, { method = 'GET', body, token, device } = {}) {
 
 export const api = {
   site: () => request('/public'),
+  searchGurbani: (q, page, signal) => request(`/gurbani/search?${new URLSearchParams({ q, page })}`, { signal }),
+  gurbaniShabad: (id, signal) => request(`/gurbani/shabads/${encodeURIComponent(id)}`, { signal }),
   availability: (from, to) => request(`/availability?from=${from}&to=${to}`),
   pushKey: () => request('/push/key'),
   pushSubscribePublic: (subscription) => request('/push/subscribe-public', { method: 'POST', body: { subscription } }),

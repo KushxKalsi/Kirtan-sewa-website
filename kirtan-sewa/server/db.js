@@ -4,6 +4,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { seedGurpurabs, topUpMonthlyDays } from './gurpurabs.js';
+import { createGurbaniStore } from './gurbani.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const DATA_DIR = process.env.DATA_DIR || path.resolve(__dirname, '../data');
@@ -382,6 +383,7 @@ async function postgresStore(url) {
 
   return {
     name: 'postgres (tables)',
+    gurbani: createGurbaniStore(pool),
     async load() {
       const has = (await pool.query("SELECT 1 FROM app_meta WHERE id = 'meta'")).rowCount > 0;
       if (!has) {
@@ -470,9 +472,11 @@ async function postgresStore(url) {
 
 let store;
 export let db;
+export let gurbani;
 
 export async function initDb() {
   store = process.env.DATABASE_URL ? await postgresStore(process.env.DATABASE_URL) : fileStore();
+  gurbani = store.gurbani || createGurbaniStore();
   const base = defaults();
   const stored = await store.load();
   // Fill in keys added in newer versions without touching existing data.

@@ -3537,6 +3537,16 @@ input:focus-visible + .tick {
     color: var(--text);
     font-size: 13.5px;
   }
+  .nav-gurbani {
+    display: grid;
+    place-items: center;
+    width: 40px;
+    height: 40px;
+    padding: 0;
+  }
+  .nav-gurbani span {
+    display: none;
+  }
   .nm-full {
     display: none;
   }
@@ -3708,10 +3718,10 @@ input:focus-visible + .tick {
 }
 
 @media (max-width: 420px) {
-  .nav-manage svg {
+  .nav-manage:not(.nav-gurbani) svg {
     display: none;
   }
-  .nav-manage {
+  .nav-manage:not(.nav-gurbani) {
     padding: 7px 11px;
   }
   .brand {

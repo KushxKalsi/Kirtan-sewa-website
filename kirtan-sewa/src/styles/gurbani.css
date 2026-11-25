@@ -1,0 +1,229 @@
+.gurbani-page {
+  padding-top: calc(var(--nav-h) + clamp(24px, 5vw, 65px));
+}
+
+.gurbani-container {
+  max-width: 870px;
+}
+
+.gurbani-header {
+  margin-bottom: clamp(16px, 3vw, 28px);
+}
+
+.gurbani-header p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 1rem;
+}
+
+.gurbani-header .gurmukhi {
+  color: var(--gold-2);
+  font-size: 1.0625rem;
+}
+
+.gurbani-header h1 {
+  margin: 4px 0 8px;
+  font: 700 clamp(2.75rem, 7vw, 4.5rem) / 1.05 var(--font-display);
+}
+
+.gurbani-form,
+.gurbani-shabad {
+  padding: clamp(14px, 3.5vw, 30px);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--glass-grad);
+}
+
+.gurbani-form label {
+  display: block;
+  margin-bottom: 8px;
+  font-weight: 700;
+  font-size: 0.9375rem;
+}
+
+.gurbani-search-field {
+  display: flex;
+  gap: 8px;
+}
+
+.gurbani-search-field input {
+  flex: 1;
+  min-width: 0;
+  padding: 9px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--text);
+  font: 1.125rem / 1.65 var(--font-gurmukhi);
+}
+
+.gurbani-search-field .btn {
+  height: auto;
+  min-height: 48px;
+  padding: 0 14px;
+}
+
+.gurbani-keyboard-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 12px;
+}
+
+.gurbani-keyboard-options .btn {
+  padding: 0 10px;
+}
+
+.gurbani-keyboard-options button[aria-pressed='true'] {
+  border-color: var(--gold);
+  background: var(--tint);
+  color: var(--gold-2);
+}
+
+.gurbani-keyboard {
+  display: grid;
+  gap: 5px;
+  margin-top: 12px;
+  padding: clamp(5px, 1.6vw, 12px);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-2);
+}
+
+.gurbani-key-grid,
+.gurbani-key-controls {
+  display: grid;
+  gap: clamp(3px, 1vw, 6px);
+}
+
+.gurbani-key-grid {
+  grid-template-columns: repeat(10, minmax(0, 1fr));
+}
+
+.gurbani-key-controls {
+  grid-template-columns: 1fr minmax(42px, 13%);
+}
+
+.gurbani-keyboard button {
+  display: grid;
+  min-height: 42px;
+  place-items: center;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--tint);
+  touch-action: manipulation;
+}
+
+.gurbani-keyboard .gurmukhi {
+  font-size: clamp(0.9375rem, 3.7vw, 1.25rem);
+  line-height: 1.35;
+}
+
+.gurbani-keyboard button:hover {
+  border-color: var(--gold);
+  color: var(--gold-2);
+}
+
+.gurbani-keyboard button:active {
+  background: var(--surface-2);
+}
+
+.gurbani-examples {
+  margin: 11px 0 0;
+  color: var(--muted);
+  font-size: 0.9375rem;
+}
+
+.gurbani-examples button,
+.gurbani-text-button,
+.gurbani-credit a,
+.gurbani-back {
+  color: var(--gold-2);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.gurbani-results {
+  margin-top: 32px;
+}
+
+.gurbani-results h2 {
+  margin: 0;
+  font: 700 2rem / 1.2 var(--font-display);
+  scroll-margin-top: calc(var(--nav-h) + 14px);
+}
+
+.gurbani-results p {
+  margin: 6px 0 15px;
+  color: var(--muted);
+}
+
+.gurbani-result-list {
+  display: grid;
+  gap: 10px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.gurbani-result {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px clamp(12px, 3vw, 22px);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--card-grad);
+}
+
+.gurbani-result:hover {
+  border-color: var(--gold);
+}
+
+.gurbani-result-ang {
+  color: var(--gold-2);
+  font-size: 0.875rem;
+  font-weight: 700;
+}
+
+.gurbani-verse {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-size: clamp(1.125rem, 3.2vw, 1.375rem);
+  line-height: 1.8;
+}
+
+.gurbani-roman,
+.gurbani-pagination,
+.gurbani-credit {
+  color: var(--muted);
+  font-size: 0.875rem;
+}
+
+.gurbani-pagination {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.gurbani-back {
+  display: inline-block;
+  margin-bottom: 16px;
+}
+
+.gurbani-shabad-line {
+  padding: 8px 10px;
+  border-inline-start: 2px solid transparent;
+  border-radius: 4px;
+}
+
+.gurbani-matched-line {
+  border-inline-start-color: var(--gold);
+  background: var(--surface-2);
+}
+
+.gurbani-credit {
+  margin: 20px 0 0;
+}
