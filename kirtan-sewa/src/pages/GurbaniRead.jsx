@@ -81,8 +81,8 @@ function ChapterPicker({ chapters, status, pageLabel, label = 'Go to chapter', o
                     </span>
                   ) : (
                     <>
-                      {chapter.title && <span>{chapter.title}</span>}
-                      {chapter.gurmukhi && <span className="gurmukhi" lang="pa-Guru">{chapter.gurmukhi}</span>}
+                      {chapter.title && <span><GurbaniText text={chapter.title} /></span>}
+                      {chapter.gurmukhi && <span className="gurmukhi" lang="pa-Guru"><GurbaniText text={chapter.gurmukhi} /></span>}
                       <span className="gurbani-result-ang">{chapter.ang ? `${pageLabel} ${chapter.ang}` : `Line ${chapter.line + 1}`}</span>
                     </>
                   )}

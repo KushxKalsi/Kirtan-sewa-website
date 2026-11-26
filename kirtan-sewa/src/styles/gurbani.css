@@ -274,11 +274,7 @@ body:has(.install-app) .gurbani-reader-footer {
   font-size: 0.875rem;
 }
 
-.gurbani-live-status {
-  font-weight: 700;
-}
-
-.gurbani-suggestions .gurbani-compact-results {
+.gurbani-results-with-keys .gurbani-compact-results {
   gap: 4px;
 }
 
@@ -386,6 +382,19 @@ body:has(.install-app) .gurbani-reader-footer {
   margin: 0;
   font: 700 2rem / 1.2 var(--font-display);
   scroll-margin-top: calc(var(--nav-h) + 14px);
+}
+
+.gurbani-results.gurbani-results-with-keys {
+  margin-top: 12px;
+}
+
+.gurbani-results-with-keys h2 {
+  margin-bottom: 4px;
+  font: 700 0.875rem / 1.5 var(--font-body);
+}
+
+.gurbani-results-with-keys .gurbani-pagination {
+  margin-top: 6px;
 }
 
 .gurbani-results p {
@@ -584,6 +593,12 @@ body:has(.install-app) .gurbani-reader-footer {
 
 .gurbani-playlist-folder > :not(summary) {
   margin-top: 10px;
+}
+
+.gurbani-folder-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 @media (max-width: 620px) {

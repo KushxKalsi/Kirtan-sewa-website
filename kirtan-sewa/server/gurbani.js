@@ -61,6 +61,7 @@ function localSearch(rows, query, page, sourceVersions) {
     else if (text.startsWith(query.key)) rank = 1;
     else if (text.includes(query.key)) rank = 2;
     else if (query.initials && row.initials.startsWith(query.initials)) rank = 3;
+    else if (query.initials && row.initials.includes(query.initials)) rank = 4;
     else continue;
 
     const previous = best.get(row.shabad_id);
@@ -141,6 +142,7 @@ async function postgresSearch(pool, query, page, sourceVersions) {
         WHEN strpos(${keyColumn}, $2) = 1 THEN 1
         WHEN strpos(${keyColumn}, $2) > 1 THEN 2
         WHEN $3 <> '' AND strpos(initials, $3) = 1 THEN 3
+        WHEN $3 <> '' AND strpos(initials, $3) > 1 THEN 4
       END AS rank
       FROM gurbani_lines WHERE version = ANY($1::text[])
     ), best AS (
@@ -181,6 +183,15 @@ export function createGurbaniStore(pool) {
             WHERE version = $1 AND shabad_id = $2 ORDER BY line_no`, [version, id])).rows
         : local.lines.filter((row) => row.version === version && row.shabad_id === id);
       return lines.length ? { id, lines: lines.map(publicLine) } : null;
+    },
+    async shabadLine(book, shabadId, id) {
+      const local = await prepare();
+      const version = CORPORA[book];
+      const row = pool
+        ? (await pool.query(`SELECT version, id, shabad_id, ang, text, roman FROM gurbani_lines
+            WHERE version = $1 AND shabad_id = $2 AND id = $3`, [version, shabadId, id])).rows[0]
+        : local.lines.find((line) => line.version === version && line.shabad_id === shabadId && line.id === id);
+      return row ? publicLine(row) : null;
     },
     async paaths() {
       const local = await prepare();

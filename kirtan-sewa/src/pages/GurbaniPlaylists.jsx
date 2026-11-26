@@ -1,13 +1,30 @@
 import { createContext, useCallback, useContext, useEffect, useId, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { FolderPlus, Trash2 } from 'lucide-react';
-import { GURBANI_BOOKS, gurbaniAngPath, isGurbaniAng } from '../../shared/gurbani';
+import { FolderPlus, Pencil, Trash2 } from 'lucide-react';
+import { GURBANI_BOOKS, gurbaniAngPath, isGurbaniAng, isGurbaniShabadLine } from '../../shared/gurbani';
 import { useAuth } from '../components/AuthContext';
+import GurbaniShabadLink from '../components/GurbaniShabadLink';
 import Modal from '../components/Modal';
 import { useToast } from '../components/Toast';
 import GurbaniPage from './GurbaniPage';
 
-const SaveAngContext = createContext(null);
+const SavePlaylistContext = createContext(null);
+
+function entryKey({ book, ang, shabadId, id }) {
+  return shabadId ? `${book}:${shabadId}:${id}` : `${book}:${ang}`;
+}
+
+function entryLabel(entry) {
+  return entry.shabadId ? 'Shabad' : `${GURBANI_BOOKS[entry.book].pageLabel} ${entry.ang}`;
+}
+
+function pendingEntry(value) {
+  const parts = (value || '').split(':');
+  const [book, target, id] = parts;
+  if (parts.length === 3 && isGurbaniShabadLine(book, target, id)) return { book, shabadId: target, id };
+  const ang = Number(target);
+  return parts.length === 2 && isGurbaniAng(book, ang) ? { book, ang } : null;
+}
 
 function usePlaylistClient() {
   const { user, team } = useAuth();
@@ -21,7 +38,7 @@ function PlaylistLogin({ entry, query }) {
     params.set('q', query);
     params.delete('page');
   }
-  if (entry) params.set('save', `${entry.book}:${entry.ang}`);
+  if (entry) params.set('save', entryKey(entry));
   const next = pathname + (params.size ? `?${params}` : '') + hash;
   return <Link className="btn btn-primary btn-sm" to={`/login?${new URLSearchParams({ next })}`}>Log in</Link>;
 }
@@ -47,12 +64,17 @@ function usePlaylistFolders(client) {
     },
     update(folder) {
       setResponse((current) => {
-        if (current?.client !== client) return current;
+        if (current?.client !== client || !current.folders) return current;
         const folders = current.folders.some(({ id }) => id === folder.id)
           ? current.folders.map((item) => item.id === folder.id ? folder : item)
           : [...current.folders, folder];
         return { client, folders };
       });
+    },
+    remove(id) {
+      setResponse((current) => current?.client === client && current.folders
+        ? { client, folders: current.folders.filter((folder) => folder.id !== id) }
+        : current);
     },
   };
 }
@@ -90,27 +112,30 @@ function usePlaylistAction() {
   };
 }
 
-function NewPlaylistFolder({ busy, saveAng = false, onCreate }) {
+function PlaylistNameForm({ busy, initialName = '', label = 'New folder name', buttonLabel = 'Create folder', onSubmit }) {
   const id = useId();
-  const [name, setName] = useState('');
+  const [name, setName] = useState(initialName);
   return (
     <form className="gurbani-folder-form" onSubmit={(event) => {
       event.preventDefault();
-      if (name.trim()) onCreate(name.trim(), () => setName(''));
+      if (name.trim()) onSubmit(name.trim(), () => setName(initialName));
     }}>
-      <label htmlFor={id}>New folder name</label>
+      <label htmlFor={id}>{label}</label>
       <div>
         <input id={id} value={name} onChange={(event) => setName(event.target.value)} maxLength={80} required />
-        <button type="submit" className="btn btn-primary btn-sm" disabled={busy || !name.trim()}>{saveAng ? 'Create and save' : 'Create folder'}</button>
+        <button type="submit" className="btn btn-primary btn-sm" disabled={busy || !name.trim()}>{buttonLabel}</button>
       </div>
     </form>
   );
 }
 
-function SaveAngForm({ client, entry, onSaved }) {
+function SavePlaylistForm({ client, entry, onSaved }) {
   const { response, retry } = usePlaylistFolders(client);
   const { busy, error, run } = usePlaylistAction();
   const selectId = useId();
+  const shabad = Boolean(entry.shabadId);
+  const saveEntry = shabad ? client.saveGurbaniShabad : client.saveGurbaniAng;
+  const key = entryKey(entry);
 
   if (!response?.folders) return <PlaylistStatus response={response} retry={retry} />;
   return (
@@ -119,39 +144,47 @@ function SaveAngForm({ client, entry, onSaved }) {
         <form className="gurbani-folder-form" onSubmit={(event) => {
           event.preventDefault();
           const id = new FormData(event.currentTarget).get('folder');
-          if (id) run(() => client.saveGurbaniAng(id, entry), onSaved);
+          if (id) run(() => saveEntry(id, entry), onSaved);
         }}>
           <label htmlFor={selectId}>Choose a folder</label>
           <div>
             <select id={selectId} name="folder" defaultValue="" required>
               <option value="" disabled>Select a folder</option>
               {response.folders.map((folder) => {
-                const saved = folder.angs.some(({ book, ang }) => book === entry.book && ang === entry.ang);
+                const entries = shabad ? (folder.shabads || []) : folder.angs;
+                const saved = entries.some((item) => entryKey(item) === key);
                 return <option key={folder.id} value={folder.id} disabled={saved}>{folder.name}{saved ? ' (saved)' : ''}</option>;
               })}
             </select>
-            <button type="submit" className="btn btn-primary btn-sm" disabled={busy}>Save {GURBANI_BOOKS[entry.book].pageLabel}</button>
+            <button type="submit" className="btn btn-primary btn-sm" disabled={busy}>Save {shabad ? 'shabad' : GURBANI_BOOKS[entry.book].pageLabel}</button>
           </div>
         </form>
       )}
-      <NewPlaylistFolder busy={busy} saveAng onCreate={(name) => run(() => client.createGurbaniFolder(name, entry), onSaved)} />
+      <PlaylistNameForm busy={busy} buttonLabel="Create and save" onSubmit={(name) => run(() => client.createGurbaniFolder(name, entry), onSaved)} />
       {busy && <p role="status">Saving…</p>}
       {error && <p role="alert">{error}</p>}
     </div>
   );
 }
 
-export function SaveAngButton({ book, ang, query, compact = false }) {
-  const open = useContext(SaveAngContext);
-  const { pageLabel } = GURBANI_BOOKS[book];
-  const label = `Save ${pageLabel}${compact ? ` ${ang}` : ''} to playlist`;
+function SavePlaylistButton({ entry, label, query, compact }) {
+  const open = useContext(SavePlaylistContext);
   return (
     <button type="button" aria-label={label} title={compact ? label : undefined} aria-haspopup="dialog"
-      className={compact ? 'icon-btn gurbani-save-ang' : 'btn btn-ghost btn-sm'}
-      onClick={() => open({ book, ang, query })}>
+      className={compact ? 'icon-btn gurbani-save-shabad' : 'btn btn-ghost btn-sm'}
+      onClick={() => open({ entry, query })}>
       <FolderPlus size={18} aria-hidden="true" />{!compact && label}
     </button>
   );
+}
+
+export function SaveAngButton({ book, ang }) {
+  return <SavePlaylistButton entry={{ book, ang }} label={`Save ${GURBANI_BOOKS[book].pageLabel} to playlist`} />;
+}
+
+export function SaveShabadButton({ line, query, compact = false }) {
+  const { book = 'sggs', shabadId, id } = line;
+  return <SavePlaylistButton entry={{ book, shabadId, id }} label="Save shabad to playlist" query={query} compact={compact} />;
 }
 
 export function GurbaniPlaylistProvider({ children }) {
@@ -160,10 +193,9 @@ export function GurbaniPlaylistProvider({ children }) {
   const navigate = useNavigate();
   const [target, setTarget] = useState(null);
   const toast = useToast();
-  const [book, rawAng] = (new URLSearchParams(search).get('save') || '').split(':');
-  const ang = Number(rawAng);
-  const entry = target || (isGurbaniAng(book, ang) ? { book, ang } : null);
+  const entry = target?.entry || pendingEntry(new URLSearchParams(search).get('save'));
   const bookInfo = entry && GURBANI_BOOKS[entry.book];
+  const saveLabel = entry?.shabadId ? 'shabad' : bookInfo?.pageLabel || 'page';
 
   const close = useCallback(() => {
     setTarget(null);
@@ -174,36 +206,97 @@ export function GurbaniPlaylistProvider({ children }) {
   }, [pathname, search, hash, navigate]);
 
   return (
-    <SaveAngContext.Provider value={setTarget}>
+    <SavePlaylistContext.Provider value={setTarget}>
       {children}
-      <Modal open={Boolean(entry)} onClose={close} title={`Save ${bookInfo?.pageLabel || 'page'} to playlist`}
-        subtitle={entry && `${bookInfo.title} · ${bookInfo.pageLabel} ${entry.ang}`}>
+      <Modal open={Boolean(entry)} onClose={close} title={`Save ${saveLabel} to playlist`}
+        subtitle={entry && (entry.shabadId ? bookInfo.title : `${bookInfo.title} · ${entryLabel(entry)}`)}>
         {entry && (client ? (
-          <SaveAngForm key={`${entry.book}:${entry.ang}`} client={client} entry={{ book: entry.book, ang: entry.ang }} onSaved={(folder) => {
+          <SavePlaylistForm key={entryKey(entry)} client={client} entry={entry} onSaved={(folder) => {
             close();
-            toast(`${bookInfo.pageLabel} ${entry.ang} saved to ${folder.name}`);
+            toast(`${entryLabel(entry)} saved to ${folder.name}`);
           }} />
         ) : (
           <div className="gurbani-playlist-forms">
-            <p>Log in to save pages to your playlist folders.</p>
-            <PlaylistLogin entry={entry} query={entry.query} />
+            <p>Log in to save to your playlist folders.</p>
+            <PlaylistLogin entry={entry} query={target?.query} />
           </div>
         ))}
       </Modal>
-    </SaveAngContext.Provider>
+    </SavePlaylistContext.Provider>
+  );
+}
+
+function PlaylistFolder({ folder, busy, onRename, onDelete, onRemove }) {
+  const entries = [...(folder.shabads || []), ...folder.angs];
+  return (
+    <details className="gurbani-playlist-folder">
+      <summary>{folder.name} <span>{entries.length} {entries.length === 1 ? 'item' : 'items'}</span></summary>
+      <div className="gurbani-folder-actions">
+        <button type="button" className="btn btn-ghost btn-sm" disabled={busy} onClick={onRename}>
+          <Pencil size={16} aria-hidden="true" /> Rename folder
+        </button>
+        <button type="button" className="btn btn-ghost btn-sm danger-text" disabled={busy} onClick={onDelete}>
+          <Trash2 size={16} aria-hidden="true" /> Delete folder
+        </button>
+      </div>
+      {entries.length ? (
+        <ul className="gurbani-result-list">
+          {entries.map((entry) => (
+            <li className="gurbani-shabad-result" key={entryKey(entry)}>
+              {entry.shabadId ? (
+                <GurbaniShabadLink line={entry} context={{ view: 'playlists' }} />
+              ) : (
+                <Link className="gurbani-result" to={gurbaniAngPath(entry.book, entry.ang)}>
+                  <strong>{entryLabel(entry)}</strong>
+                  <span className="gurbani-roman">{GURBANI_BOOKS[entry.book].title}</span>
+                </Link>
+              )}
+              <button type="button" className="icon-btn" disabled={busy}
+                aria-label={`Remove ${entry.shabadId ? `“${entry.text}”` : entryLabel(entry)} from ${folder.name}`}
+                onClick={() => onRemove(entry)}>
+                <Trash2 size={17} aria-hidden="true" />
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : <p>Save a shabad from search or a page from the reader.</p>}
+    </details>
+  );
+}
+
+function RenamePlaylistForm({ folder, client, onRenamed }) {
+  const { busy, error, run } = usePlaylistAction();
+  return (
+    <div className="gurbani-playlist-forms">
+      <PlaylistNameForm busy={busy} initialName={folder.name} label="Folder name" buttonLabel="Save name"
+        onSubmit={(name) => run(() => client.renameGurbaniFolder(folder.id, name), onRenamed)} />
+      {error && <p role="alert">{error}</p>}
+    </div>
   );
 }
 
 export function GurbaniPlaylists() {
   const client = usePlaylistClient();
-  const { response, retry, update } = usePlaylistFolders(client);
+  const { response, retry, update, remove } = usePlaylistFolders(client);
   const { busy, error, run } = usePlaylistAction();
+  const [renaming, setRenaming] = useState(null);
+  const closeRename = useCallback(() => setRenaming(null), []);
+
+  function deleteFolder(folder) {
+    if (!window.confirm(`Delete “${folder.name}” and its saved items?`)) return;
+    run(() => client.deleteGurbaniFolder(folder.id), () => remove(folder.id));
+  }
+
+  function removeEntry(folder, entry) {
+    const removeSaved = entry.shabadId ? client.removeGurbaniShabad : client.removeGurbaniAng;
+    run(() => removeSaved(folder.id, entry), update);
+  }
 
   return (
-    <GurbaniPage title="Gurbani playlists" back={{ to: '/gurbani', label: 'Back to Gurbani' }}>
+    <GurbaniPage title="Gurbani playlists" back={{ to: '/gurbani', label: 'Back to Gurbani' }} adjustableText>
       {!client ? (
         <section className="gurbani-search-library gurbani-playlist-forms">
-          <p>Log in to open your saved pages and create playlist folders.</p>
+          <p>Log in to open your saved shabads and pages.</p>
           <PlaylistLogin />
         </section>
       ) : (
@@ -211,7 +304,7 @@ export function GurbaniPlaylists() {
           <PlaylistStatus response={response} retry={retry} />
           {response?.folders && (
             <>
-              <NewPlaylistFolder busy={busy} onCreate={(name, reset) => run(() => client.createGurbaniFolder(name), (folder) => {
+              <PlaylistNameForm busy={busy} onSubmit={(name, reset) => run(() => client.createGurbaniFolder(name), (folder) => {
                 update(folder);
                 reset();
               })} />
@@ -219,30 +312,21 @@ export function GurbaniPlaylists() {
               {error && <p role="alert">{error}</p>}
               {response.folders.length === 0 && <p>Your playlist folders will appear here.</p>}
               {response.folders.map((folder) => (
-                <details className="gurbani-playlist-folder" key={folder.id}>
-                  <summary>{folder.name} <span>{folder.angs.length} {folder.angs.length === 1 ? 'page' : 'pages'}</span></summary>
-                  {folder.angs.length ? (
-                    <ul className="gurbani-result-list">
-                      {folder.angs.map((entry) => (
-                        <li className="gurbani-shabad-result" key={`${entry.book}:${entry.ang}`}>
-                          <Link className="gurbani-result" to={gurbaniAngPath(entry.book, entry.ang)}>
-                            <strong>{GURBANI_BOOKS[entry.book].pageLabel} {entry.ang}</strong>
-                            <span className="gurbani-roman">{GURBANI_BOOKS[entry.book].title}</span>
-                          </Link>
-                          <button type="button" className="icon-btn" disabled={busy} aria-label={`Remove ${GURBANI_BOOKS[entry.book].pageLabel} ${entry.ang} from ${folder.name}`}
-                            onClick={() => run(() => client.removeGurbaniAng(folder.id, entry), update)}>
-                            <Trash2 size={17} aria-hidden="true" />
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                  ) : <p>Save a page from the reader or search results.</p>}
-                </details>
+                <PlaylistFolder key={folder.id} folder={folder} busy={busy} onRename={() => setRenaming(folder)}
+                  onDelete={() => deleteFolder(folder)} onRemove={(entry) => removeEntry(folder, entry)} />
               ))}
             </>
           )}
         </section>
       )}
+      <Modal open={Boolean(renaming && client)} onClose={closeRename} title="Rename folder">
+        {renaming && client && (
+          <RenamePlaylistForm key={renaming.id} folder={renaming} client={client} onRenamed={(folder) => {
+            update(folder);
+            closeRename();
+          }} />
+        )}
+      </Modal>
     </GurbaniPage>
   );
 }

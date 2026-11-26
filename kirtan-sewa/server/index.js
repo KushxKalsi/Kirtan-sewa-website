@@ -6,7 +6,7 @@ import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { db, gurbani, save, uid, makeRef, slugify, DATA_DIR, initDb, kv } from './db.js';
 import { gurbaniQuery } from './gurbani.js';
-import { GURBANI_BOOKS, isGurbaniAng } from '../shared/gurbani.js';
+import { GURBANI_BOOKS, isGurbaniAng, isGurbaniShabadLine } from '../shared/gurbani.js';
 import { initPush, pushPublicKey, addSubscription, notifyPhone, addAdminSubscription, removeAdminSubscription, adminDeviceCount, notifyAdmins, addPublicSubscription, notifyEveryone, everyoneCount } from './push.js';
 import { GURPURAB_KINDS, isMonthly, topUpMonthlyDays } from './gurpurabs.js';
 import { checkPassword, hashPassword, passwordProblem, sessions } from './auth.js';
@@ -769,8 +769,18 @@ app.use(playlistsPath, (req, res, next) => {
   next();
 });
 
-const playlistView = ({ id, name, angs }) => ({ id, name, angs });
+const playlistView = ({ id, name, angs, shabads = [] }) => ({ id, name, angs, shabads });
 const ownedPlaylists = (req) => db.gurbaniPlaylists.filter((folder) => folder.owner === req.playlistOwner);
+
+function readPlaylistName(value) {
+  const name = typeof value === 'string' ? value.trim().normalize() : '';
+  if (!name || name.length > 80) fail(400, 'Enter a folder name of up to 80 characters.');
+  return name;
+}
+
+function playlistNamed(req, name) {
+  return ownedPlaylists(req).find((folder) => folder.name.toLowerCase() === name.toLowerCase());
+}
 
 function requestedPlaylist(req) {
   const folder = ownedPlaylists(req).find(({ id }) => id === req.params.id);
@@ -785,23 +795,72 @@ function readPlaylistAng(book, ang) {
 
 const containsAng = (folder, entry) => folder.angs.some(({ book, ang }) => book === entry.book && ang === entry.ang);
 
+async function readPlaylistShabad(book, shabadId, id) {
+  if (!isGurbaniShabadLine(book, shabadId, id)) fail(400, 'Choose a valid shabad line.');
+  const line = await gurbani.shabadLine(book, shabadId, id);
+  if (!line) fail(404, 'Shabad line not found.');
+  return line;
+}
+
+function addPlaylistShabad(folder, line) {
+  const shabads = folder.shabads ||= [];
+  if (!shabads.some(({ book, id }) => book === line.book && id === line.id)) shabads.push(line);
+}
+
 app.get(playlistsPath, (req, res) => {
   res.json({ folders: ownedPlaylists(req).map(playlistView) });
 });
 
 app.post(playlistsPath, async (req, res) => {
-  const name = typeof req.body?.name === 'string' ? req.body.name.trim().normalize() : '';
-  if (!name || name.length > 80) fail(400, 'Enter a folder name of up to 80 characters.');
-  const entry = req.body.entry === undefined ? null : readPlaylistAng(req.body.entry?.book, req.body.entry?.ang);
-  let folder = ownedPlaylists(req).find((item) => item.name.toLowerCase() === name.toLowerCase());
+  const name = readPlaylistName(req.body?.name);
+  const { entry } = req.body;
+  const shabad = entry?.shabadId !== undefined ? await readPlaylistShabad(entry.book, entry.shabadId, entry.id) : null;
+  const ang = !shabad && entry !== undefined ? readPlaylistAng(entry?.book, entry?.ang) : null;
+  let folder = playlistNamed(req, name);
   const created = !folder;
   if (!folder) {
     folder = { id: uid(), owner: req.playlistOwner, name, angs: [] };
     db.gurbaniPlaylists.push(folder);
   }
-  if (entry && !containsAng(folder, entry)) folder.angs.push(entry);
+  if (shabad) addPlaylistShabad(folder, shabad);
+  if (ang && !containsAng(folder, ang)) folder.angs.push(ang);
   await save();
   res.status(created ? 201 : 200).json({ folder: playlistView(folder) });
+});
+
+app.patch(`${playlistsPath}/:id`, async (req, res) => {
+  const folder = requestedPlaylist(req);
+  const name = readPlaylistName(req.body?.name);
+  const duplicate = playlistNamed(req, name);
+  if (duplicate && duplicate !== folder) fail(409, 'You already have a folder with that name.');
+  folder.name = name;
+  await save();
+  res.json({ folder: playlistView(folder) });
+});
+
+app.delete(`${playlistsPath}/:id`, async (req, res) => {
+  const folder = requestedPlaylist(req);
+  db.gurbaniPlaylists = db.gurbaniPlaylists.filter((entry) => entry !== folder);
+  await save();
+  res.json({ ok: true });
+});
+
+app.put(`${playlistsPath}/:id/shabads/:book/:shabadId/:lineId`, async (req, res) => {
+  requestedPlaylist(req);
+  const { book, shabadId, lineId } = req.params;
+  const line = await readPlaylistShabad(book, shabadId, lineId);
+  const folder = requestedPlaylist(req);
+  addPlaylistShabad(folder, line);
+  await save();
+  res.json({ folder: playlistView(folder) });
+});
+
+app.delete(`${playlistsPath}/:id/shabads/:book/:shabadId/:lineId`, async (req, res) => {
+  const folder = requestedPlaylist(req);
+  const { book, shabadId, lineId } = req.params;
+  folder.shabads = (folder.shabads || []).filter((entry) => entry.book !== book || entry.shabadId !== shabadId || entry.id !== lineId);
+  await save();
+  res.json({ folder: playlistView(folder) });
 });
 
 app.put(`${playlistsPath}/:id/angs/:book/:ang`, async (req, res) => {

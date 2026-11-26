@@ -5,9 +5,19 @@ export const GURBANI_BOOKS = {
 
 export const ASA_DI_VAAR_PAATH_ID = 13;
 
+function isGurbaniBook(book) {
+  return typeof book === 'string' && Object.hasOwn(GURBANI_BOOKS, book);
+}
+
 export function isGurbaniAng(book, ang) {
-  return typeof book === 'string' && Object.hasOwn(GURBANI_BOOKS, book)
+  return isGurbaniBook(book)
     && Number.isInteger(ang) && ang >= 1 && ang <= GURBANI_BOOKS[book].lastAng;
+}
+
+export function isGurbaniShabadLine(book, shabadId, lineId) {
+  return isGurbaniBook(book)
+    && typeof shabadId === 'string' && /^[a-z0-9]{3}$/i.test(shabadId)
+    && typeof lineId === 'string' && /^[a-z0-9]{4}$/i.test(lineId);
 }
 
 export function gurbaniAngPath(book, ang) {

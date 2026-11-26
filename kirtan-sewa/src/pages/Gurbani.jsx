@@ -5,15 +5,15 @@ import { BookOpen, Delete, Folder, History, Keyboard, Search, Star } from 'lucid
 import { GURBANI_BOOKS } from '../../shared/gurbani';
 import { api } from '../lib/api';
 import { clearGurbaniHistory, rememberGurbaniSearch, toggleGurbaniFavourite, useGurbaniLibrary } from '../lib/gurbaniLibrary';
+import GurbaniShabadLink from '../components/GurbaniShabadLink';
 import GurbaniText from '../components/GurbaniText';
 import GurbaniPage from './GurbaniPage';
-import { GurbaniPlaylistProvider, GurbaniPlaylists, SaveAngButton } from './GurbaniPlaylists';
+import { GurbaniPlaylistProvider, GurbaniPlaylists, SaveShabadButton } from './GurbaniPlaylists';
 import { GurbaniAng, GurbaniPaath, GurbaniRead } from './GurbaniRead';
 import '../styles/gurbani.css';
 
 const MAX_QUERY_LENGTH = 160;
 const LIVE_MIN_LENGTH = 3;
-const LIVE_RESULT_COUNT = 3;
 const DASHBOARD_BACK = { to: '/gurbani', label: 'Back to Gurbani' };
 const LETTER_KEYS = [
   'ੳ ਅ ੲ ਸ ਹ ਤ ਥ ਦ ਧ ਨ',
@@ -79,7 +79,7 @@ function GurbaniDashboard() {
         <Link className="gurbani-choice" to="/gurbani/playlists">
           <Folder size={25} aria-hidden="true" />
           <strong>Playlists</strong>
-          <span>Organize saved pages into folders.</span>
+          <span>Organize saved shabads and pages into folders.</span>
         </Link>
       </nav>
     </GurbaniPage>
@@ -97,30 +97,16 @@ function FavouriteButton({ line, saved, showLabel = false }) {
   );
 }
 
-function ShabadResultLink({ line, context, recordHistory, previewScript }) {
-  const search = new URLSearchParams(context);
-  search.set('line', line.id);
-  if (line.book === 'dasam') search.set('book', line.book);
-  return (
-    <Link className="gurbani-result" to={`/gurbani/shabad/${line.shabadId}?${search}`} onClick={recordHistory ? () => rememberGurbaniSearch(line) : undefined}>
-      <span className="gurbani-result-ang">
-        {line.book === 'dasam' ? `${previewScript ? 'Dasam' : 'Sri Dasam Granth'} · Panna` : 'Ang'} {line.ang}
-      </span>
-      {previewScript !== 'roman' && <span lang="pa-Guru" className="gurmukhi gurbani-verse"><GurbaniText text={line.text} /></span>}
-      {previewScript !== 'gurmukhi' && <span className="gurbani-roman" lang="pa-Latn"><GurbaniText text={line.roman} /></span>}
-    </Link>
-  );
-}
-
-function ShabadResults({ lines, favourites, context, recordHistory, previewScript }) {
+function ShabadResults({ lines, favourites, context, recordHistory, previewScript, liveQuery }) {
   const savedIds = new Set(favourites.map((line) => line.shabadId));
   return (
     <ul className={`gurbani-result-list${previewScript ? ' gurbani-compact-results' : ''}`} aria-label={previewScript ? 'Matching shabads' : undefined}>
       {lines.map((line) => (
         <li className="gurbani-shabad-result" key={line.shabadId}>
-          <ShabadResultLink line={line} context={context} recordHistory={recordHistory} previewScript={previewScript} />
+          <GurbaniShabadLink line={line} context={context} previewScript={previewScript}
+            onClick={recordHistory ? () => rememberGurbaniSearch(line) : undefined} />
           <div className="gurbani-result-actions">
-            <SaveAngButton book={line.book || 'sggs'} ang={line.ang} query={previewScript ? context.q : undefined} compact />
+            <SaveShabadButton line={line} query={liveQuery} compact />
             <FavouriteButton line={line} saved={savedIds.has(line.shabadId)} />
           </div>
         </li>
@@ -165,7 +151,7 @@ function SearchHistory({ history }) {
       {history.length ? (
         <ul className="gurbani-result-list">
           {history.map((line) => (
-            <li key={line.id}><ShabadResultLink line={line} context={{ view: 'history' }} /></li>
+            <li key={line.id}><GurbaniShabadLink line={line} context={{ view: 'history' }} /></li>
           ))}
         </ul>
       ) : <p role="status">Lines you open from search results will appear here.</p>}
@@ -189,6 +175,7 @@ function GurbaniSearch() {
   const [attempt, setAttempt] = useState(0);
   const input = useRef(null);
   const resultsHeading = useRef(null);
+  const resultsList = useRef(null);
   const pendingCaret = useRef(null);
   const typed = draft.trim();
   const editing = typed !== query;
@@ -267,8 +254,9 @@ function GurbaniSearch() {
   }
 
   function changePage(nextPage) {
-    setParams(nextPage === 1 ? { q: query } : { q: query, page: nextPage });
-    resultsHeading.current?.focus();
+    setParams(nextPage === 1 ? { q: activeQuery } : { q: activeQuery, page: nextPage });
+    resultsHeading.current?.focus({ preventScroll: showKeys });
+    if (resultsList.current) resultsList.current.scrollTop = 0;
   }
 
   const results = currentResponse?.data?.results;
@@ -290,11 +278,33 @@ function GurbaniSearch() {
     );
   }
 
+  const resultsPanel = activeQuery && (
+    <section className={`gurbani-results${showKeys ? ' gurbani-results-with-keys' : ''}`} aria-labelledby="gurbani-results-title">
+      <h2 id="gurbani-results-title" tabIndex={-1} ref={resultsHeading}>{showKeys ? 'Matching shabads' : 'Search results'}</h2>
+      <div className={showKeys ? 'gurbani-suggestions-with-keys' : undefined} data-lenis-prevent={showKeys ? '' : undefined} ref={resultsList}>
+        {!currentResponse && <p role="status">Searching…</p>}
+        {currentResponse?.error && <p role="alert">{currentResponse.error} <button className="gurbani-text-button" type="button" onClick={() => setAttempt((count) => count + 1)}>Try again</button></p>}
+        {results?.length === 0 && <p role="status">No shabads found for “{activeQuery}”. Try fewer words or a different spelling.</p>}
+        {results?.length > 0 && (
+          <ShabadResults lines={results} favourites={favourites} recordHistory context={{ q: activeQuery, page: activePage }}
+            previewScript={showKeys ? previewScript : undefined} liveQuery={previewing ? activeQuery : undefined} />
+        )}
+      </div>
+      {results && (activePage > 1 || currentResponse.data.hasMore) && (
+        <nav className="gurbani-pagination" aria-label="Search result pages">
+          <button className="btn btn-ghost btn-sm" type="button" disabled={activePage === 1} onClick={() => changePage(activePage - 1)}>Previous</button>
+          <span>Page {activePage}</span>
+          <button className="btn btn-ghost btn-sm" type="button" disabled={!currentResponse.data.hasMore} onClick={() => changePage(activePage + 1)}>Next</button>
+        </nav>
+      )}
+    </section>
+  );
+
   return (
     <GurbaniPage title="Gurbani search" back={DASHBOARD_BACK} adjustableText>
       {views}
       <form className="gurbani-form" role="search" aria-label="Gurbani" onSubmit={(event) => { event.preventDefault(); submit(draft); }}>
-        <label htmlFor="gurbani-query">Enter a line or the first letter of each word</label>
+        <label htmlFor="gurbani-query">Enter any part of a line or the initials of consecutive words</label>
         <div className="gurbani-search-field">
           <input id="gurbani-query" ref={input} type="search" value={draft} maxLength={MAX_QUERY_LENGTH}
             inputMode={phoneKeyboard ? 'text' : 'none'} enterKeyHint="search" autoComplete="off" autoCapitalize="off" spellCheck={false}
@@ -313,50 +323,19 @@ function GurbaniSearch() {
             </button>
           </div>
         )}
-        {(showKeys || editing || !query) && (
+        {!activeQuery && (
           <div className={`gurbani-suggestions${showKeys ? ' gurbani-suggestions-with-keys' : ''}`} data-lenis-prevent>
-            {!previewing && (
-              <p className="gurbani-examples">
-                Type {LIVE_MIN_LENGTH} characters to see matches. {!typed && <>Try{' '}
-                  <button type="button" className="gurmukhi" lang="pa-Guru" onClick={() => submit('ਤੇਰਾ ਕੀਤਾ')}>ਤੇਰਾ ਕੀਤਾ</button> or{' '}
-                  <button type="button" onClick={() => submit('tera kita')}>tera kita</button>.</>}
-              </p>
-            )}
-            {previewing && !currentResponse && <p role="status">Searching…</p>}
-            {previewing && currentResponse?.error && <p role="alert">{currentResponse.error}</p>}
-            {previewing && results?.length === 0 && <p role="status">No matching shabads.</p>}
-            {previewing && results?.length > 0 && (
-              <>
-                <p role="status" className="gurbani-live-status">Matching shabads</p>
-                <ShabadResults lines={results.slice(0, LIVE_RESULT_COUNT)} favourites={favourites} recordHistory
-                  context={{ q: activeQuery, page: activePage }} previewScript={previewScript} />
-              </>
-            )}
+            <p className="gurbani-examples">
+              Type {LIVE_MIN_LENGTH} characters to see matches. {!typed && <>Try{' '}
+                <button type="button" className="gurmukhi" lang="pa-Guru" onClick={() => submit('ਤੇਰਾ ਕੀਤਾ')}>ਤੇਰਾ ਕੀਤਾ</button> or{' '}
+                <button type="button" onClick={() => submit('tera kita')}>tera kita</button>.</>}
+            </p>
           </div>
         )}
+        {showKeys && resultsPanel}
         {showKeys && <GurmukhiKeyboard onKey={editWithKey} onPhoneKeyboard={() => setKeyboard(true)} canSearch={Boolean(typed)} />}
       </form>
-
-      {query && !editing && (
-        <section className="gurbani-results" aria-labelledby="gurbani-results-title">
-          <h2 id="gurbani-results-title" tabIndex={-1} ref={resultsHeading}>Search results</h2>
-          {!currentResponse && <p role="status">Searching…</p>}
-          {currentResponse?.error && <p role="alert">{currentResponse.error} <button className="gurbani-text-button" type="button" onClick={() => setAttempt((count) => count + 1)}>Try again</button></p>}
-          {results && (
-            <>
-              <p role="status">{results.length ? `Shabads matching “${query}”` : `No shabads found for “${query}”. Try fewer words or a different spelling.`}</p>
-              <ShabadResults lines={results} favourites={favourites} recordHistory context={{ q: query, page }} />
-              {(page > 1 || currentResponse.data.hasMore) && (
-                <nav className="gurbani-pagination" aria-label="Search result pages">
-                  <button className="btn btn-ghost btn-sm" type="button" disabled={page === 1} onClick={() => changePage(page - 1)}>Previous</button>
-                  <span>Page {page}</span>
-                  <button className="btn btn-ghost btn-sm" type="button" disabled={!currentResponse.data.hasMore} onClick={() => changePage(page + 1)}>Next</button>
-                </nav>
-              )}
-            </>
-          )}
-        </section>
-      )}
+      {!showKeys && resultsPanel}
     </GurbaniPage>
   );
 }
@@ -374,7 +353,12 @@ function GurbaniShabad() {
   back.delete('book');
   back.delete('save');
   const backView = back.get('view');
-  const backLabel = backView === 'history' ? 'Back to History' : backView === 'favourites' ? 'Back to Favourites' : 'Back to Gurbani search';
+  const backLink = backView === 'playlists'
+    ? { to: '/gurbani/playlists', label: 'Back to Playlists' }
+    : {
+      to: { pathname: '/gurbani/search', search: back.toString() },
+      label: backView === 'history' ? 'Back to History' : backView === 'favourites' ? 'Back to Favourites' : 'Back to Gurbani search',
+    };
 
   useEffect(() => {
     const controller = new AbortController();
@@ -394,10 +378,10 @@ function GurbaniShabad() {
   return (
     <GurbaniPage title="Shabad" adjustableText
       subtitle={lines && `${GURBANI_BOOKS[book].title} · ${GURBANI_BOOKS[book].pageLabel} ${firstAng}${firstAng === lastAng ? '' : `–${lastAng}`}`}
-      back={{ to: { pathname: '/gurbani/search', search: back.toString() }, label: backLabel }}>
+      back={backLink}>
       {favouriteLine && (
         <div className="gurbani-reader-actions">
-          <SaveAngButton book={book} ang={favouriteLine.ang} />
+          <SaveShabadButton line={favouriteLine} />
           <FavouriteButton line={favouriteLine} saved={saved} showLabel />
         </div>
       )}

@@ -36,7 +36,7 @@ async function request(path, { method = 'GET', body, token, device, signal } = {
 
 export const api = {
   site: () => request('/public'),
-  searchGurbani: (q, page, signal) => request(`/gurbani/search?${new URLSearchParams({ q, page, book: 'all' })}`, { signal }),
+  searchGurbani: (q, page, signal) => request(`/gurbani/search?${new URLSearchParams({ q, page, book: 'all', v: 2 })}`, { signal }),
   gurbaniShabad: (id, book, signal) => request(`/gurbani/shabads/${encodeURIComponent(id)}?${new URLSearchParams({ book })}`, { signal }),
   gurbaniPaaths: (signal) => request('/gurbani/paaths', { signal }),
   gurbaniPaath: (id, signal) => request(`/gurbani/paaths/${encodeURIComponent(id)}?chapters=2`, { signal }),
@@ -67,6 +67,10 @@ export const api = {
 export const gurbaniPlaylistApi = (token) => ({
   gurbaniFolders: (signal) => request('/gurbani/playlists', { token, signal }),
   createGurbaniFolder: (name, entry) => request('/gurbani/playlists', { token, method: 'POST', body: { name, entry } }),
+  renameGurbaniFolder: (id, name) => request(`/gurbani/playlists/${id}`, { token, method: 'PATCH', body: { name } }),
+  deleteGurbaniFolder: (id) => request(`/gurbani/playlists/${id}`, { token, method: 'DELETE' }),
+  saveGurbaniShabad: (folderId, { book, shabadId, id }) => request(`/gurbani/playlists/${folderId}/shabads/${book}/${shabadId}/${id}`, { token, method: 'PUT' }),
+  removeGurbaniShabad: (folderId, { book, shabadId, id }) => request(`/gurbani/playlists/${folderId}/shabads/${book}/${shabadId}/${id}`, { token, method: 'DELETE' }),
   saveGurbaniAng: (id, { book, ang }) => request(`/gurbani/playlists/${id}/angs/${book}/${ang}`, { token, method: 'PUT' }),
   removeGurbaniAng: (id, { book, ang }) => request(`/gurbani/playlists/${id}/angs/${book}/${ang}`, { token, method: 'DELETE' }),
 });
