@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom';
+import { GurbaniReadingExtras } from './GurbaniDisplay';
 import GurbaniText from './GurbaniText';
 
 export default function GurbaniShabadLink({ line, context, onClick, previewScript }) {
@@ -12,6 +13,7 @@ export default function GurbaniShabadLink({ line, context, onClick, previewScrip
       </span>
       {previewScript !== 'roman' && <span lang="pa-Guru" className="gurmukhi gurbani-verse"><GurbaniText text={line.text} /></span>}
       {previewScript !== 'gurmukhi' && <span className="gurbani-roman" lang="pa-Latn"><GurbaniText text={line.roman} /></span>}
+      <GurbaniReadingExtras id={line.id} roman={line.roman} romanShown={previewScript !== 'gurmukhi'} />
     </Link>
   );
 }

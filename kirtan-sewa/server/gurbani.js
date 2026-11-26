@@ -1,6 +1,9 @@
+import { createReadStream } from 'node:fs';
 import { readFile } from 'node:fs/promises';
+import { createInterface } from 'node:readline';
+import { pipeline } from 'node:stream/promises';
 import { promisify } from 'node:util';
-import { gunzip } from 'node:zlib';
+import { createGunzip, gunzip } from 'node:zlib';
 
 const CORPORA = { sggs: 'shabados-4.8.7-sggs', dasam: 'shabados-4.8.7-dasam' };
 const versions = Object.values(CORPORA);
@@ -9,6 +12,23 @@ const PAATHS = 'shabados-4.8.7-paaths';
 const PAGE_SIZE = 20;
 const unzip = promisify(gunzip);
 const readSeed = async (name) => JSON.parse(await unzip(await readFile(new URL(`./gurbani-data/${name}.json.gz`, import.meta.url))));
+
+async function readDisplaySeed() {
+  const input = createReadStream(new URL('./gurbani-data/reading-display.jsonl.gz', import.meta.url));
+  const decompressed = createGunzip();
+  const records = createInterface({ input: decompressed, crlfDelay: Infinity });
+  const lines = new Map();
+  let credits;
+  async function readRecords() {
+    for await (const record of records) {
+      const row = JSON.parse(record);
+      if (!credits) credits = row;
+      else lines.set(...row);
+    }
+  }
+  await Promise.all([pipeline(input, decompressed), readRecords()]);
+  return { lines, credits };
+}
 
 function gurmukhiKey(text) {
   return text.normalize('NFC')
@@ -156,6 +176,7 @@ async function postgresSearch(pool, query, page, sourceVersions) {
 
 export function createGurbaniStore(pool) {
   let ready;
+  let readingDisplay;
   function prepare() {
     ready ||= Promise.all([
       pool ? seedPostgres(pool) : Promise.all(Object.keys(CORPORA).map(readCorpus)),
@@ -199,12 +220,16 @@ export function createGurbaniStore(pool) {
         ? (await pool.query('SELECT id, title, gurmukhi FROM gurbani_paaths WHERE version = $1 ORDER BY id', [PAATHS])).rows
         : local.paaths.map(({ id, title, gurmukhi }) => ({ id, title, gurmukhi }));
     },
-    async paath(id) {
+    async paath(id, includeLineIds = false) {
       const local = await prepare();
       const paath = pool
         ? (await pool.query('SELECT id, title, gurmukhi, lines FROM gurbani_paaths WHERE version = $1 AND id = $2', [PAATHS, id])).rows[0]
         : local.paaths.find((paath) => paath.id === id);
-      return paath && { ...paath, chapters: local.chapters.paaths[id] };
+      return paath && {
+        ...paath,
+        chapters: local.chapters.paaths[id],
+        ...(includeLineIds && { lineIds: local.chapters.paathLineIds[id] }),
+      };
     },
     async chapters(book) {
       return (await prepare()).chapters.books[book];
@@ -213,9 +238,31 @@ export function createGurbaniStore(pool) {
       const local = await prepare();
       const version = CORPORA[book];
       const lines = pool
-        ? (await pool.query('SELECT text FROM gurbani_lines WHERE version = $1 AND ang = $2 ORDER BY line_no', [version, ang])).rows
+        ? (await pool.query('SELECT id, text FROM gurbani_lines WHERE version = $1 AND ang = $2 ORDER BY line_no', [version, ang])).rows
         : local.lines.filter((row) => row.version === version && row.ang === ang);
-      return lines.map(({ text }) => text);
+      return lines.map(({ id, text }) => ({ id, text }));
+    },
+    async readingDisplay(ids, languages) {
+      readingDisplay ||= readDisplaySeed().catch((error) => {
+        readingDisplay = undefined;
+        throw error;
+      });
+      const { lines, credits } = await readingDisplay;
+      const selected = {};
+      const sources = {};
+      for (const id of ids) {
+        const extra = lines.get(id);
+        if (!extra) continue;
+        const variants = {};
+        for (const language of languages) {
+          const item = extra[language];
+          if (!item) continue;
+          if (Array.isArray(item)) sources[item[1]] = credits[item[1]];
+          variants[language] = item;
+        }
+        if (Object.keys(variants).length) selected[id] = variants;
+      }
+      return { lines: selected, sources };
     },
   };
 }

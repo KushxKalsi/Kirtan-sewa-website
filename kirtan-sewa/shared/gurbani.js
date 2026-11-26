@@ -1,7 +1,17 @@
 export const GURBANI_BOOKS = {
-  sggs: { title: 'Sri Guru Granth Sahib Ji', pageLabel: 'Ang', lastAng: 1430, route: 'ang' },
-  dasam: { title: 'Sri Dasam Granth', pageLabel: 'Panna', lastAng: 1428, route: 'dasam' },
+  sggs: { title: 'Sri Guru Granth Sahib Ji', gurmukhi: 'ਸ੍ਰੀ ਗੁਰੂ ਗ੍ਰੰਥ ਸਾਹਿਬ ਜੀ', pageLabel: 'Ang', lastAng: 1430, route: 'ang' },
+  dasam: { title: 'Sri Dasam Granth', gurmukhi: 'ਸ੍ਰੀ ਦਸਮ ਗ੍ਰੰਥ', pageLabel: 'Panna', lastAng: 1428, route: 'dasam' },
 };
+
+export const GURBANI_DISPLAY = {
+  pa: { label: 'ਪੰਜਾਬੀ', name: 'Punjabi', lang: 'pa-Guru', translation: true },
+  en: { label: 'English', name: 'English', lang: 'en', translation: true },
+  es: { label: 'Español', name: 'Spanish', lang: 'es', translation: true },
+  roman: { label: 'Roman', name: 'Roman', lang: 'pa-Latn' },
+  deva: { label: 'देवनागरी', name: 'Devanagari', lang: 'pa-Deva' },
+  shah: { label: 'شاہ مکھی', name: 'Shahmukhi', lang: 'pa-Arab', rtl: true },
+};
+export const GURBANI_DISPLAY_LIMIT = 2200;
 
 export const ASA_DI_VAAR_PAATH_ID = 13;
 

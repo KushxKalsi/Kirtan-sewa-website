@@ -8,7 +8,9 @@ The export selects Sri Guru Granth Sahib Ji and its Roman transliteration from t
 
 `paaths.json.gz` contains the 29 named paaths in the same release, including those with lines from other sources such as Sri Dasam Granth. It preserves the source's text and line order by sorting first by bani line group and then by line order. The export converts the Gurmukhi text and titles to Unicode and uses the same data license.
 
-`chapters.json.gz` indexes the opening lines of the 51 sections of Sri Guru Granth Sahib Ji and 17 sections of Sri Dasam Granth. The paath indexes use source headings, line groups, and numbered verses.
+`chapters.json.gz` indexes the opening lines of the 51 sections of Sri Guru Granth Sahib Ji and 17 sections of Sri Dasam Granth. The paath indexes use source headings, line groups, and numbered verses. The file also carries the source ID of each paath line in reading order.
+
+`reading-display.jsonl.gz` supplies English, Punjabi and Spanish translations and Roman, Devanagari and Shahmukhi transliterations from the same [Shabad OS release](https://github.com/shabados/database/releases/tag/4.8.7) under CC BY-SA 4.0. The export matches by source line ID, trims surrounding whitespace and skips blank entries. Its first record credits the translators and editions, and the following records index the available text by source line. For English in Sri Dasam Granth, the source places some translations at the end of a stanza and has gaps in Charitropakhyan. Spanish is available for Sri Guru Granth Sahib Ji, including its lines used in paaths. The reader displays coverage and credits for the selected editions.
 
 To regenerate the seed, download `database.sqlite` from the release above, install `gurmukhi-utils@3.2.2` in a temporary directory, and run the following with Node.js 22.13 or newer.
 

@@ -6,7 +6,7 @@ import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { db, gurbani, save, uid, makeRef, slugify, DATA_DIR, initDb, kv } from './db.js';
 import { gurbaniQuery } from './gurbani.js';
-import { GURBANI_BOOKS, isGurbaniAng, isGurbaniShabadLine } from '../shared/gurbani.js';
+import { GURBANI_BOOKS, GURBANI_DISPLAY, GURBANI_DISPLAY_LIMIT, isGurbaniAng, isGurbaniShabadLine } from '../shared/gurbani.js';
 import { initPush, pushPublicKey, addSubscription, notifyPhone, addAdminSubscription, removeAdminSubscription, adminDeviceCount, notifyAdmins, addPublicSubscription, notifyEveryone, everyoneCount } from './push.js';
 import { GURPURAB_KINDS, isMonthly, topUpMonthlyDays } from './gurpurabs.js';
 import { applyJantriDates, editJantriDay, refreshJantri } from './jantri.js';
@@ -928,7 +928,7 @@ app.get('/api/gurbani/paaths', async (_req, res) => {
 
 app.get('/api/gurbani/paaths/:id', async (req, res) => {
   if (!/^[1-9]\d{0,3}$/.test(req.params.id)) fail(404, 'Paath not found.');
-  const paath = await gurbani.paath(Number(req.params.id));
+  const paath = await gurbani.paath(Number(req.params.id), req.query.reading === '1');
   if (!paath) fail(404, 'Paath not found.');
   res.set('Cache-Control', 'public, max-age=86400').json(paath);
 });
@@ -939,7 +939,19 @@ app.get('/api/gurbani/angs/:ang', async (req, res) => {
   if (!isGurbaniAng(book, ang)) fail(404, 'Ang not found.');
   const lines = await gurbani.ang(ang, book);
   if (!lines.length) fail(404, 'Ang not found.');
-  res.set('Cache-Control', 'public, max-age=86400').json({ ang, lines });
+  res.set('Cache-Control', 'public, max-age=86400').json({
+    ang, lines: lines.map(({ text }) => text),
+    ...(req.query.reading === '1' && { lineIds: lines.map(({ id }) => id) }),
+  });
+});
+
+app.post('/api/gurbani/reading-display', async (req, res) => {
+  const { ids, languages } = req.body || {};
+  if (!Array.isArray(ids) || !ids.length || ids.length > GURBANI_DISPLAY_LIMIT ||
+      ids.some((id) => typeof id !== 'string' || !/^[a-z0-9]{4}$/i.test(id))) fail(400, 'Choose valid Gurbani lines.');
+  if (!Array.isArray(languages) || !languages.length || languages.length > Object.keys(GURBANI_DISPLAY).length ||
+      languages.some((id) => typeof id !== 'string' || !Object.hasOwn(GURBANI_DISPLAY, id))) fail(400, 'Choose supported reading languages.');
+  res.json(await gurbani.readingDisplay(new Set(ids), new Set(languages)));
 });
 
 app.get('/api/gurbani/books/:book/chapters', async (req, res) => {

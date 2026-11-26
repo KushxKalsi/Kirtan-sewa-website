@@ -4,7 +4,173 @@
 }
 
 .gurbani-container {
+  min-width: 0;
   max-width: 870px;
+  width: 100%;
+  margin-inline: auto;
+}
+
+.gurbani-layout {
+  display: grid;
+  grid-template-columns: minmax(165px, 195px) minmax(0, 870px);
+  justify-content: center;
+  align-items: start;
+  gap: clamp(18px, 3vw, 40px);
+}
+
+.gurbani-sidebar {
+  position: sticky;
+  top: calc(var(--nav-h) + 24px);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--glass-grad);
+  padding: 8px;
+}
+
+.gurbani-sidebar-links {
+  display: grid;
+  gap: 3px;
+}
+
+.gurbani-sidebar-links a,
+.gurbani-sidebar-language {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 7px 12px;
+  border-radius: var(--radius-sm);
+  color: var(--muted);
+  font-size: .925rem;
+  font-weight: 600;
+  text-align: start;
+}
+
+.gurbani-sidebar-links a:hover,
+.gurbani-sidebar-language:hover,
+.gurbani-sidebar-links [aria-current='page'] {
+  background: var(--surface-2);
+  color: var(--gold-2);
+}
+
+.gurbani-topbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.gurbani-language-button {
+  margin-inline-start: auto;
+  min-height: 42px;
+}
+
+.gurbani-sidebar-toggle {
+  display: none;
+}
+
+.gurbani-drawer {
+  inset: 0 auto 0 0;
+  width: min(20rem, calc(100vw - 44px));
+  max-width: none;
+  height: 100%;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-inline-end: 1px solid var(--border-strong);
+  background: var(--bg-2);
+  color: inherit;
+}
+
+.gurbani-drawer::backdrop {
+  background: rgb(0 0 0 / .58);
+}
+
+.gurbani-drawer-inner {
+  min-height: 100%;
+  padding: max(18px, env(safe-area-inset-top)) 14px max(18px, env(safe-area-inset-bottom));
+}
+
+.gurbani-drawer header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 0 4px 12px;
+  font: 700 1.5rem / 1.1 var(--font-display);
+}
+
+.gurbani-language-options {
+  display: grid;
+  gap: 16px;
+}
+
+.gurbani-language-options fieldset {
+  display: grid;
+  min-width: 0;
+  border: 0;
+  padding: 0;
+  margin: 0;
+}
+
+.gurbani-language-options legend {
+  padding: 0;
+  margin-bottom: 4px;
+  color: var(--muted);
+  font-size: .875rem;
+}
+
+.gurbani-language-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 42px;
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+}
+
+.gurbani-language-option input {
+  width: 17px;
+  height: 17px;
+  accent-color: var(--gold-2);
+}
+
+.gurbani-language-option small {
+  margin-inline-start: auto;
+  color: var(--muted);
+}
+
+.gurbani-language-options > .btn {
+  justify-self: end;
+}
+
+@media (max-width: 800px) {
+  .gurbani-layout {
+    display: block;
+  }
+
+  .gurbani-sidebar {
+    display: none;
+  }
+
+  .gurbani-sidebar-toggle {
+    display: inline-flex;
+    min-width: 42px;
+    min-height: 42px;
+    padding: 0;
+  }
+}
+
+@media (max-width: 450px) {
+  .gurbani-language-button {
+    min-width: 42px;
+    padding: 0;
+  }
+
+  .gurbani-language-button > span {
+    display: none;
+  }
 }
 
 .gurbani-header {
@@ -154,23 +320,6 @@ body:has(.install-app) .gurbani-reader-footer {
   background: var(--glass-grad);
 }
 
-.gurbani-search-views {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 7px;
-  margin-bottom: 12px;
-}
-
-.gurbani-search-views .btn {
-  padding-inline: 10px;
-}
-
-.gurbani-search-views [aria-current='page'] {
-  border-color: var(--gold);
-  background: var(--surface-2);
-  color: var(--gold-2);
-}
-
 .gurbani-search-library header {
   display: flex;
   align-items: baseline;
@@ -303,6 +452,13 @@ body:has(.install-app) .gurbani-reader-footer {
   grid-row: 1;
   font-size: calc(1rem * var(--gurbani-text-scale, 1));
   line-height: 1.5;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.gurbani-compact-results .gurbani-reading-extra {
+  grid-column: 1 / -1;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -496,6 +652,38 @@ body:has(.install-app) .gurbani-reader-footer {
   font-size: calc(0.875rem * var(--gurbani-text-scale, 1));
 }
 
+.gurbani-reading-extra {
+  display: block;
+  color: var(--muted);
+  font-size: calc(.94rem * var(--gurbani-text-scale, 1));
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+  white-space: pre-line;
+}
+
+.gurbani-reading-extra.gurmukhi {
+  font-size: calc(1.125rem * var(--gurbani-text-scale, 1));
+}
+
+.gurbani-translation {
+  color: var(--text);
+}
+
+.gurbani-reading-extra[dir='rtl'] {
+  text-align: start;
+}
+
+.gurbani-shabad .gurbani-reading-extra {
+  margin-top: .3em;
+}
+
+.gurbani-reading-note {
+  margin: .4rem 0 .6rem;
+  color: var(--muted);
+  font-size: .84rem;
+  line-height: 1.4;
+}
+
 .gurbani-pagination {
   display: flex;
   justify-content: space-between;
@@ -506,7 +694,6 @@ body:has(.install-app) .gurbani-reader-footer {
 
 .gurbani-back {
   display: inline-block;
-  margin-bottom: 16px;
 }
 
 .gurbani-shabad-line {

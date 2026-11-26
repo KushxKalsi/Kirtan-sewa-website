@@ -21,7 +21,7 @@ const bookLines = db.prepare(`SELECT l.id, l.shabad_id, l.source_page, l.gurmukh
 const bookSections = db.prepare('SELECT id, name_english, name_gurmukhi FROM sections WHERE source_id = ?');
 const paaths = new Map(db.prepare(`SELECT id, name_english, name_gurmukhi FROM banis ORDER BY id`).all()
   .map(({ id, name_english, name_gurmukhi }) => [id, { id, title: name_english, gurmukhi: toUnicode(name_gurmukhi), rows: [] }]));
-const paathLines = db.prepare(`SELECT bl.bani_id, bl.line_group, l.gurmukhi, l.type_id, l.shabad_id, t.transliteration
+const paathLines = db.prepare(`SELECT bl.bani_id, bl.line_group, l.id, l.gurmukhi, l.type_id, l.shabad_id, t.transliteration
   FROM bani_lines bl
   JOIN lines l ON l.id = bl.line_id
   LEFT JOIN transliterations t ON t.line_id = l.id AND t.language_id = 1
@@ -30,6 +30,43 @@ for (const row of paathLines.iterate()) paaths.get(row.bani_id).rows.push(row);
 
 function writeSeed(name, data) {
   writeFileSync(new URL(`./${name}.json.gz`, import.meta.url), gzipSync(JSON.stringify(data), { level: 9 }));
+}
+
+// Match editions to source lines by ID. Use the next credited edition when the preferred edition has a blank.
+function exportReadingDisplay() {
+  const translations = {
+    pa: [3, 6, 5, 8], // Bhai Manmohan Singh, Prof. Sahib Singh, Fareedkot Teeka, Dr. Rattan Singh Jaggi
+    en: [1, 2, 7, 9], // Dr. Sant Singh Khalsa, Bhai Manmohan Singh, Dr. Surinder Singh Kohli, SGPC
+    es: [4], // SikhNet
+  };
+  const scripts = { roman: 1, deva: 4, shah: 5 };
+  const lines = new Map();
+  const credits = {};
+  const mask = 's.source_id IN (1, 2) OR l.id IN (SELECT line_id FROM bani_lines)';
+  const scoped = `JOIN lines l ON l.id = t.line_id JOIN shabads s ON s.id = l.shabad_id WHERE (${mask})`;
+
+  function add(id, language, text, credit = undefined) {
+    if (!text) return;
+    if (!lines.has(id)) lines.set(id, {});
+    const line = lines.get(id);
+    line[language] ??= credit === undefined ? text : [text, credit];
+  }
+
+  const readTranslations = db.prepare(`SELECT l.id, t.translation FROM translations t ${scoped} AND t.translation_source_id = ?`);
+  const readCredit = db.prepare('SELECT name_english FROM translation_sources WHERE id = ?');
+  for (const [language, editions] of Object.entries(translations)) {
+    for (const edition of editions) {
+      credits[edition] = readCredit.get(edition).name_english;
+      for (const { id, translation } of readTranslations.iterate(edition)) add(id, language, translation.trim(), edition);
+    }
+  }
+  const readScript = db.prepare(`SELECT l.id, t.transliteration FROM transliterations t ${scoped} AND t.language_id = ?`);
+  for (const [language, code] of Object.entries(scripts)) {
+    for (const { id, transliteration } of readScript.iterate(code)) add(id, language, transliteration.trim());
+  }
+  const records = [credits, ...lines].map((row) => JSON.stringify(row)).join('\n') + '\n';
+  writeFileSync(new URL('./reading-display.jsonl.gz', import.meta.url), gzipSync(records, { level: 9 }));
+  console.log(`Bundled reading translations and transliterations for ${lines.size} source lines.`);
 }
 
 function exportBook(book, source, expectedLines, expectedShabads) {
@@ -129,11 +166,16 @@ function paathChapters({ id, rows }) {
 }
 
 const books = { sggs: exportBook('sggs', 1, 60555, 5549), dasam: exportBook('dasam', 2, 67758, 5470) };
+exportReadingDisplay();
 db.close();
 const readings = [...paaths.values()].map(({ rows, ...paath }) => ({ ...paath, lines: rows.map(({ gurmukhi }) => toUnicode(gurmukhi)) }));
 if (readings.length !== 29 || readings.some(({ lines }) => !lines.length || lines.some((line) => !line))) {
   throw new Error('Expected all 29 paaths from Shabad OS 4.8.7.');
 }
 writeSeed('paaths', readings);
-writeSeed('chapters', { books, paaths: Object.fromEntries([...paaths].map(([id, paath]) => [id, paathChapters(paath)])) });
+writeSeed('chapters', {
+  books,
+  paaths: Object.fromEntries([...paaths].map(([id, paath]) => [id, paathChapters(paath)])),
+  paathLineIds: Object.fromEntries([...paaths].map(([id, { rows }]) => [id, rows.map((line) => line.id)])),
+});
 console.log(`Bundled ${readings.length} paaths with chapter indexes.`);

@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { BookOpen, List } from 'lucide-react';
 import { ASA_DI_VAAR_PAATH_ID, GURBANI_BOOKS, gurbaniAngPath, isGurbaniAng } from '../../shared/gurbani';
 import { api } from '../lib/api';
+import { GurbaniReadingDisplay, GurbaniReadingExtras } from '../components/GurbaniDisplay';
 import GurbaniText from '../components/GurbaniText';
 import Modal from '../components/Modal';
 import GurbaniPage from './GurbaniPage';
@@ -38,7 +39,7 @@ function ReadingStatus({ response, retry, message }) {
   return <p role="alert">{response.error} {!response.missing && <button className="gurbani-text-button" type="button" onClick={retry}>Try again</button>}</p>;
 }
 
-function ReadingLines({ label, lines }) {
+function ReadingLines({ label, lines, lineIds }) {
   const { hash, key } = useLocation();
   useEffect(() => {
     if (!/^#gurbani-line-\d+$/.test(hash)) return;
@@ -51,11 +52,16 @@ function ReadingLines({ label, lines }) {
   }, [hash, key, lines]);
 
   return (
-    <article className="gurbani-shabad" aria-label={label} lang="pa-Guru">
-      {lines.map((line, index) => (
-        <p key={index} id={`gurbani-line-${index}`} tabIndex={-1} className="gurbani-reading-line gurmukhi gurbani-verse"><GurbaniText text={line} /></p>
-      ))}
-    </article>
+    <GurbaniReadingDisplay ids={lineIds}>
+      <article className="gurbani-shabad" aria-label={label}>
+        {lines.map((line, index) => (
+          <div key={index} id={`gurbani-line-${index}`} tabIndex={-1} className="gurbani-reading-line">
+            <p lang="pa-Guru" className="gurmukhi gurbani-verse"><GurbaniText text={line} /></p>
+            <GurbaniReadingExtras id={lineIds?.[index]} />
+          </div>
+        ))}
+      </article>
+    </GurbaniReadingDisplay>
   );
 }
 
@@ -107,10 +113,10 @@ export function GurbaniRead() {
   return (
     <GurbaniPage title="Read Gurbani" back={{ to: '/gurbani', label: 'Back to Gurbani' }}>
       <div className="gurbani-books">
-        {Object.entries(GURBANI_BOOKS).map(([book, { title, lastAng, pageLabel }]) => (
+        {Object.entries(GURBANI_BOOKS).map(([book, { title, gurmukhi, lastAng, pageLabel }]) => (
           <Link key={book} className="gurbani-read-feature" to={gurbaniAngPath(book, 1)}>
             <BookOpen size={24} aria-hidden="true" />
-            <span><strong>{title}</strong><span>Read all {lastAng.toLocaleString('en-IN')} {pageLabel.toLowerCase()}s</span></span>
+            <span><strong>{title}</strong><span className="gurmukhi" lang="pa-Guru">{gurmukhi}</span><span>Read all {lastAng.toLocaleString('en-IN')} {pageLabel.toLowerCase()}s</span></span>
           </Link>
         ))}
       </div>
@@ -145,7 +151,7 @@ export function GurbaniPaath() {
       <ReadingStatus response={response} retry={retry} message="Loading paath…" />
       {paath && (
         <>
-          <ReadingLines label={paath.title} lines={paath.lines} />
+          <ReadingLines label={paath.title} lines={paath.lines} lineIds={paath.lineIds} />
           <div className="gurbani-pagination gurbani-reader-footer">
             <ChapterPicker chapters={paath.chapters} label={paath.id === ASA_DI_VAAR_PAATH_ID ? 'Go to chakka' : undefined}
               onSelect={({ line }) => navigate({ hash: chapterHash(line) })} />
@@ -169,7 +175,7 @@ function AngNavigation({ book, ang, label, footer = false, children }) {
 
 export function GurbaniAng({ book }) {
   const { ang } = useParams();
-  const { title, lastAng, pageLabel } = GURBANI_BOOKS[book];
+  const { title, gurmukhi, lastAng, pageLabel } = GURBANI_BOOKS[book];
   const navigate = useNavigate();
   const load = useCallback((signal) => api.gurbaniAng(ang, book, signal), [ang, book]);
   const { response, retry } = useReading(load);
@@ -184,7 +190,7 @@ export function GurbaniAng({ book }) {
   }
 
   return (
-    <GurbaniPage title={title} subtitle={data && `${pageLabel} ${data.ang} of ${lastAng}`} back={READ_BACK} adjustableText>
+    <GurbaniPage title={title} gurmukhi={gurmukhi} subtitle={data && `${pageLabel} ${data.ang} of ${lastAng}`} back={READ_BACK} adjustableText>
       <form className="gurbani-ang-form" onSubmit={jumpToAng}>
         <label htmlFor="gurbani-ang">Go to {pageLabel}</label>
         <input id="gurbani-ang" name="ang" type="number" min="1" max={lastAng} defaultValue={isGurbaniAng(book, Number(ang)) ? ang : 1} required />
@@ -196,7 +202,7 @@ export function GurbaniAng({ book }) {
           <AngNavigation book={book} ang={data.ang} label="Page navigation above reading">
             <SaveAngButton book={book} ang={data.ang} />
           </AngNavigation>
-          <ReadingLines label={`${pageLabel} ${data.ang}`} lines={data.lines} />
+          <ReadingLines label={`${pageLabel} ${data.ang}`} lines={data.lines} lineIds={data.lineIds} />
           <AngNavigation book={book} ang={data.ang} label="Page navigation below reading" footer>
             <ChapterPicker chapters={chapterResponse?.data?.chapters} pageLabel={pageLabel}
               status={<ReadingStatus response={chapterResponse} retry={retryChapters} message="Loading chapters…" />}

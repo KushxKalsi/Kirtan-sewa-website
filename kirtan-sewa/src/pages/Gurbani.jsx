@@ -1,12 +1,13 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { Link, Navigate, Route, Routes, useLocation, useParams, useSearchParams } from 'react-router-dom';
-import { BookOpen, Delete, Folder, History, Keyboard, Search, Star } from 'lucide-react';
+import { BookOpen, Delete, Folder, Keyboard, Search, Star } from 'lucide-react';
 import { GURBANI_BOOKS } from '../../shared/gurbani';
 import { api } from '../lib/api';
 import { clearGurbaniHistory, rememberGurbaniSearch, toggleGurbaniFavourite, useGurbaniLibrary } from '../lib/gurbaniLibrary';
 import GurbaniShabadLink from '../components/GurbaniShabadLink';
 import GurbaniText from '../components/GurbaniText';
+import { GurbaniLanguageProvider, GurbaniReadingDisplay, GurbaniReadingExtras } from '../components/GurbaniDisplay';
 import GurbaniPage from './GurbaniPage';
 import { GurbaniPlaylistProvider, GurbaniPlaylists, SaveShabadButton } from './GurbaniPlaylists';
 import { GurbaniAng, GurbaniPaath, GurbaniRead } from './GurbaniRead';
@@ -100,44 +101,20 @@ function FavouriteButton({ line, saved, showLabel = false }) {
 function ShabadResults({ lines, favourites, context, recordHistory, previewScript, liveQuery }) {
   const savedIds = new Set(favourites.map((line) => line.shabadId));
   return (
-    <ul className={`gurbani-result-list${previewScript ? ' gurbani-compact-results' : ''}`} aria-label={previewScript ? 'Matching shabads' : undefined}>
-      {lines.map((line) => (
-        <li className="gurbani-shabad-result" key={line.shabadId}>
-          <GurbaniShabadLink line={line} context={context} previewScript={previewScript}
-            onClick={recordHistory ? () => rememberGurbaniSearch(line) : undefined} />
-          <div className="gurbani-result-actions">
-            <SaveShabadButton line={line} query={liveQuery} compact />
-            <FavouriteButton line={line} saved={savedIds.has(line.shabadId)} />
-          </div>
-        </li>
-      ))}
-    </ul>
-  );
-}
-
-const SEARCH_VIEWS = [
-  { id: 'search', label: 'Search', Icon: Search },
-  { id: 'history', label: 'History', Icon: History },
-  { id: 'favourites', label: 'Favourites', Icon: Star },
-];
-
-function SearchViews({ current, params }) {
-  return (
-    <nav className="gurbani-search-views" aria-label="Gurbani search views">
-      {SEARCH_VIEWS.map(({ id, label, Icon }) => {
-        const next = new URLSearchParams(params);
-        if (id === 'search') next.delete('view');
-        else next.set('view', id);
-        return (
-          <Link key={id} className="btn btn-ghost btn-sm" to={{ search: next.toString() }} aria-current={current === id ? 'page' : undefined}>
-            <Icon size={16} aria-hidden="true" /> {label}
-          </Link>
-        );
-      })}
-      <Link className="btn btn-ghost btn-sm" to="/gurbani/playlists">
-        <Folder size={16} aria-hidden="true" /> Playlists
-      </Link>
-    </nav>
+    <GurbaniReadingDisplay ids={lines.map(({ id }) => id)} hasRoman>
+      <ul className={`gurbani-result-list${previewScript ? ' gurbani-compact-results' : ''}`} aria-label={previewScript ? 'Matching shabads' : undefined}>
+        {lines.map((line) => (
+          <li className="gurbani-shabad-result" key={line.shabadId}>
+            <GurbaniShabadLink line={line} context={context} previewScript={previewScript}
+              onClick={recordHistory ? () => rememberGurbaniSearch(line) : undefined} />
+            <div className="gurbani-result-actions">
+              <SaveShabadButton line={line} query={liveQuery} compact />
+              <FavouriteButton line={line} saved={savedIds.has(line.shabadId)} />
+            </div>
+          </li>
+        ))}
+      </ul>
+    </GurbaniReadingDisplay>
   );
 }
 
@@ -149,11 +126,13 @@ function SearchHistory({ history }) {
         {history.length > 0 && <button type="button" className="gurbani-text-button" onClick={clearGurbaniHistory}>Clear history</button>}
       </header>
       {history.length ? (
-        <ul className="gurbani-result-list">
-          {history.map((line) => (
-            <li key={line.id}><GurbaniShabadLink line={line} context={{ view: 'history' }} /></li>
-          ))}
-        </ul>
+        <GurbaniReadingDisplay ids={history.map(({ id }) => id)} hasRoman>
+          <ul className="gurbani-result-list">
+            {history.map((line) => (
+              <li key={line.id}><GurbaniShabadLink line={line} context={{ view: 'history' }} /></li>
+            ))}
+          </ul>
+        </GurbaniReadingDisplay>
       ) : <p role="status">Lines you open from search results will appear here.</p>}
     </section>
   );
@@ -260,12 +239,10 @@ function GurbaniSearch() {
   }
 
   const results = currentResponse?.data?.results;
-  const views = <SearchViews current={view} params={params} />;
 
   if (view !== 'search') {
     return (
       <GurbaniPage title="Gurbani search" back={DASHBOARD_BACK} adjustableText>
-        {views}
         {view === 'history' ? <SearchHistory history={history} /> : (
           <section className="gurbani-search-library" aria-labelledby="gurbani-favourites-title">
             <header><h2 id="gurbani-favourites-title">Favourite shabads</h2></header>
@@ -302,7 +279,6 @@ function GurbaniSearch() {
 
   return (
     <GurbaniPage title="Gurbani search" back={DASHBOARD_BACK} adjustableText>
-      {views}
       <form className="gurbani-form" role="search" aria-label="Gurbani" onSubmit={(event) => { event.preventDefault(); submit(draft); }}>
         <label htmlFor="gurbani-query">Enter any part of a line or the initials of consecutive words</label>
         <div className="gurbani-search-field">
@@ -390,13 +366,16 @@ function GurbaniShabad() {
         <p role="alert">{response.error} {!response.missing && <button className="gurbani-text-button" type="button" onClick={() => { setResponse(null); setAttempt((count) => count + 1); }}>Try again</button>}</p>
       )}
       {lines && (
-        <article className="gurbani-shabad" aria-label="Full shabad">
-          {lines.map((line) => (
-            <div className={`gurbani-shabad-line${lineId === line.id ? ' gurbani-matched-line' : ''}`} key={line.id}>
-              <p lang="pa-Guru" className="gurmukhi gurbani-verse"><GurbaniText text={line.text} /></p>
-            </div>
-          ))}
-        </article>
+        <GurbaniReadingDisplay ids={lines.map(({ id }) => id)} hasRoman>
+          <article className="gurbani-shabad" aria-label="Full shabad">
+            {lines.map((line) => (
+              <div className={`gurbani-shabad-line${lineId === line.id ? ' gurbani-matched-line' : ''}`} key={line.id}>
+                <p lang="pa-Guru" className="gurmukhi gurbani-verse"><GurbaniText text={line.text} /></p>
+                <GurbaniReadingExtras id={line.id} roman={line.roman} />
+              </div>
+            ))}
+          </article>
+        </GurbaniReadingDisplay>
       )}
     </GurbaniPage>
   );
@@ -404,18 +383,20 @@ function GurbaniShabad() {
 
 export default function Gurbani() {
   return (
-    <GurbaniPlaylistProvider>
-      <Routes>
-        <Route index element={<GurbaniDashboard />} />
-        <Route path="read" element={<GurbaniRead />} />
-        <Route path="read/paath/:id" element={<GurbaniPaath />} />
-        <Route path="read/ang/:ang" element={<GurbaniAng book="sggs" />} />
-        <Route path="read/dasam/:ang" element={<GurbaniAng book="dasam" />} />
-        <Route path="search" element={<GurbaniSearch />} />
-        <Route path="shabad/:id" element={<GurbaniShabad />} />
-        <Route path="playlists" element={<GurbaniPlaylists />} />
-        <Route path="*" element={<Navigate to="/gurbani" replace />} />
-      </Routes>
-    </GurbaniPlaylistProvider>
+    <GurbaniLanguageProvider>
+      <GurbaniPlaylistProvider>
+        <Routes>
+          <Route index element={<GurbaniDashboard />} />
+          <Route path="read" element={<GurbaniRead />} />
+          <Route path="read/paath/:id" element={<GurbaniPaath />} />
+          <Route path="read/ang/:ang" element={<GurbaniAng book="sggs" />} />
+          <Route path="read/dasam/:ang" element={<GurbaniAng book="dasam" />} />
+          <Route path="search" element={<GurbaniSearch />} />
+          <Route path="shabad/:id" element={<GurbaniShabad />} />
+          <Route path="playlists" element={<GurbaniPlaylists />} />
+          <Route path="*" element={<Navigate to="/gurbani" replace />} />
+        </Routes>
+      </GurbaniPlaylistProvider>
+    </GurbaniLanguageProvider>
   );
 }

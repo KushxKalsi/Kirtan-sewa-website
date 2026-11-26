@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { FolderPlus, Pencil, Trash2 } from 'lucide-react';
 import { GURBANI_BOOKS, gurbaniAngPath, isGurbaniAng, isGurbaniShabadLine } from '../../shared/gurbani';
 import { useAuth } from '../components/AuthContext';
+import { GurbaniReadingDisplay } from '../components/GurbaniDisplay';
 import GurbaniShabadLink from '../components/GurbaniShabadLink';
 import Modal from '../components/Modal';
 import { useToast } from '../components/Toast';
@@ -227,9 +228,10 @@ export function GurbaniPlaylistProvider({ children }) {
 }
 
 function PlaylistFolder({ folder, busy, onRename, onDelete, onRemove }) {
+  const [open, setOpen] = useState(false);
   const entries = [...(folder.shabads || []), ...folder.angs];
   return (
-    <details className="gurbani-playlist-folder">
+    <details className="gurbani-playlist-folder" onToggle={(event) => setOpen(event.currentTarget.open)}>
       <summary>{folder.name} <span>{entries.length} {entries.length === 1 ? 'item' : 'items'}</span></summary>
       <div className="gurbani-folder-actions">
         <button type="button" className="btn btn-ghost btn-sm" disabled={busy} onClick={onRename}>
@@ -240,25 +242,27 @@ function PlaylistFolder({ folder, busy, onRename, onDelete, onRemove }) {
         </button>
       </div>
       {entries.length ? (
-        <ul className="gurbani-result-list">
-          {entries.map((entry) => (
-            <li className="gurbani-shabad-result" key={entryKey(entry)}>
-              {entry.shabadId ? (
-                <GurbaniShabadLink line={entry} context={{ view: 'playlists' }} />
-              ) : (
-                <Link className="gurbani-result" to={gurbaniAngPath(entry.book, entry.ang)}>
-                  <strong>{entryLabel(entry)}</strong>
-                  <span className="gurbani-roman">{GURBANI_BOOKS[entry.book].title}</span>
-                </Link>
-              )}
-              <button type="button" className="icon-btn" disabled={busy}
-                aria-label={`Remove ${entry.shabadId ? `“${entry.text}”` : entryLabel(entry)} from ${folder.name}`}
-                onClick={() => onRemove(entry)}>
-                <Trash2 size={17} aria-hidden="true" />
-              </button>
-            </li>
-          ))}
-        </ul>
+        <GurbaniReadingDisplay ids={open ? (folder.shabads || []).map(({ id }) => id) : []} hasRoman>
+          <ul className="gurbani-result-list">
+            {entries.map((entry) => (
+              <li className="gurbani-shabad-result" key={entryKey(entry)}>
+                {entry.shabadId ? (
+                  <GurbaniShabadLink line={entry} context={{ view: 'playlists' }} />
+                ) : (
+                  <Link className="gurbani-result" to={gurbaniAngPath(entry.book, entry.ang)}>
+                    <strong>{entryLabel(entry)}</strong>
+                    <span className="gurbani-roman">{GURBANI_BOOKS[entry.book].title}</span>
+                  </Link>
+                )}
+                <button type="button" className="icon-btn" disabled={busy}
+                  aria-label={`Remove ${entry.shabadId ? `“${entry.text}”` : entryLabel(entry)} from ${folder.name}`}
+                  onClick={() => onRemove(entry)}>
+                  <Trash2 size={17} aria-hidden="true" />
+                </button>
+              </li>
+            ))}
+          </ul>
+        </GurbaniReadingDisplay>
       ) : <p>Save a shabad from search or a page from the reader.</p>}
     </details>
   );
