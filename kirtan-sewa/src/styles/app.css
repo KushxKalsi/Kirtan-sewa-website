@@ -70,8 +70,15 @@
   gap: 18px;
   background: var(--preloader-bg);
 }
-.preloader-logo {
-  width: clamp(150px, 24vw, 220px);
+.preloader-symbol {
+  font-size: clamp(90px, 18vw, 150px);
+  line-height: 1;
+  /* the gradient only paints inside the box; the ੴ curve rises above it */
+  padding: 0.35em 0.15em 0.1em;
+  background: var(--grad-text);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
   filter: drop-shadow(0 0 40px rgba(255, 153, 51, 0.45));
 }
 .preloader-text {
@@ -125,22 +132,23 @@
   gap: 12px;
   min-width: 0;
 }
-.brand-logo {
-  display: block;
-  aspect-ratio: 1;
-  border-radius: 50%;
-  object-fit: contain;
-}
 .brand-mark {
+  display: grid;
+  place-items: center;
   width: 40px;
   height: 40px;
   flex-shrink: 0;
+  border-radius: 12px;
+  font-size: 22px;
+  color: #1a1206;
+  background: var(--grad-gold);
   box-shadow: 0 6px 24px -6px rgba(255, 153, 51, 0.6);
 }
-.preloader-logo .brand-logo,
-.hero-logo .brand-logo {
-  width: 100%;
-  height: auto;
+img.brand-mark {
+  display: block;
+  border-radius: 50%;
+  background: transparent;
+  object-fit: contain;
 }
 .brand-name {
   font-family: var(--font-display);
@@ -364,9 +372,29 @@
 .m-rev {
   animation: spin 55s linear infinite reverse;
 }
-.hero-logo {
+.ik-onkar {
   position: relative;
-  width: 92%;
+  font-size: clamp(96px, 16vw, 150px);
+  line-height: 1;
+  /* the gradient only paints inside the box; the ੴ curve rises above it.
+     Negative top margin keeps the symbol centred in the mandala. */
+  padding: 0.35em 0.15em 0.1em;
+  margin-top: -0.25em;
+  background: var(--grad-text);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 0 30px rgba(255, 153, 51, 0.5));
+  animation: breathe 5s ease-in-out infinite;
+}
+@keyframes breathe {
+  0%,
+  100% {
+    filter: drop-shadow(0 0 24px rgba(255, 153, 51, 0.4));
+  }
+  50% {
+    filter: drop-shadow(0 0 50px rgba(255, 153, 51, 0.75));
+  }
 }
 .hero-gurmukhi {
   margin: 0 0 10px;
@@ -500,10 +528,9 @@
   place-items: center;
   background: var(--placeholder-bg);
 }
-.about-placeholder .brand-logo {
-  width: min(75%, 330px);
-  height: auto;
-  object-fit: contain;
+.about-placeholder span {
+  font-size: clamp(120px, 20vw, 200px);
+  color: var(--placeholder-fg);
   filter: drop-shadow(0 0 40px rgba(255, 153, 51, 0.5));
   transform: translateY(-14%);
 }
@@ -3753,6 +3780,7 @@ input:focus-visible + .tick {
   background: var(--modal-bg);
 }
 .low-end .hero-rays,
+.low-end .ik-onkar,
 .low-end .contact-cta-glow {
   animation: none;
 }
@@ -3868,8 +3896,11 @@ input:focus-visible + .tick {
 }
 .gp-fallback-mark {
   position: relative;
-  width: clamp(78px, 12vw, 126px);
-  height: auto;
+  font-size: clamp(72px, 11vw, 120px);
+  line-height: 1;
+  padding-top: 0.2em;
+  color: var(--gp);
+  text-shadow: 0 0 40px color-mix(in srgb, var(--gp) 60%, transparent);
 }
 .gp-fallback-name {
   position: relative;

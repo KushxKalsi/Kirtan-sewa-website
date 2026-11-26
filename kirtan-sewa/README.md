@@ -1,4 +1,4 @@
-# Amrit Kirtan Lehar — portfolio & booking website
+# Kirtan Sewa — portfolio & booking website
 
 React + Framer Motion + Lenis front end, with a small Express API. Data lives in Postgres tables (when `DATABASE_URL` is set) or in `data/db.json` locally.
 

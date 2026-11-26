@@ -1,5 +1,3 @@
-import { BRAND_LOGO } from '../../shared/brand';
-
-export default function BrandLogo({ className, alt = '', src = BRAND_LOGO, ...props }) {
-  return <img src={src} className={`brand-logo ${className || ''}`} alt={alt} width="768" height="768" draggable={false} {...props} />;
+export default function BrandLogo() {
+  return <img className="brand-mark" src="/icon-192.png?v=2" alt="" width="40" height="40" draggable={false} />;
 }

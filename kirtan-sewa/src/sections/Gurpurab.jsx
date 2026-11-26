@@ -10,7 +10,6 @@ import { fromKey, prettyDate } from '../lib/date';
 import { enableGurpurabReminders, gurpurabRemindersOn, isIos, isStandalone, pushSupported } from '../lib/push';
 import { ease } from '../lib/motion';
 import { useLowEnd } from '../lib/perf';
-import BrandLogo from '../components/BrandLogo';
 
 const AUTOPLAY_MS = 6500;
 
@@ -31,7 +30,9 @@ function Media({ slide, lowEnd }) {
     return (
       <div className={`gp-media gp-fallback k-${slide.event.kind}`}>
         <span className="gp-fallback-ring" aria-hidden="true" />
-        <BrandLogo className="gp-fallback-mark" loading="lazy" />
+        <span className="gp-fallback-mark gurmukhi" aria-hidden="true">
+          ੴ
+        </span>
         <span className="gp-fallback-name gurmukhi">{slide.event.gurmukhi || slide.event.name}</span>
       </div>
     );

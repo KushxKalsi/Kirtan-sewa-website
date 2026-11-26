@@ -1,6 +1,4 @@
 import { Link } from 'react-router-dom';
-import { BRAND_NAME } from '../../shared/brand';
-import BrandLogo from './BrandLogo';
 import { useSite } from './SiteContext';
 import { useGoTo } from './useGoTo';
 import { rupees } from '../lib/money';
@@ -23,8 +21,8 @@ export default function Footer() {
       <div className="container footer-grid">
         <div>
           <div className="brand">
-            <BrandLogo className="brand-mark" />
-            <span className="brand-name">{s?.siteName || BRAND_NAME}</span>
+            <span className="brand-mark gurmukhi">ੴ</span>
+            <span className="brand-name">{s?.siteName || 'Kirtan Sewa'}</span>
           </div>
           <p className="footer-text">{s?.gurmukhiTagline}</p>
         </div>
@@ -38,7 +36,7 @@ export default function Footer() {
           <Link to="/admin">Admin</Link>
         </div>
         <p className="footer-copy">
-          © {new Date().getFullYear()} {s?.siteName || BRAND_NAME}. Made with sewa bhav.
+          © {new Date().getFullYear()} {s?.siteName}. Made with sewa bhav.
         </p>
         {s?.commissionRate > 0 && (
           <p className="footer-fine">

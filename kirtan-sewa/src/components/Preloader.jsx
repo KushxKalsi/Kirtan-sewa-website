@@ -2,8 +2,6 @@ import { useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { ease } from '../lib/motion';
 import { isLowEnd } from '../lib/perf';
-import { BRAND_NAME } from '../../shared/brand';
-import BrandLogo from './BrandLogo';
 
 export default function Preloader({ onDone }) {
   const blur = !isLowEnd();
@@ -19,13 +17,13 @@ export default function Preloader({ onDone }) {
       exit={{ clipPath: 'inset(0 0 100% 0)', transition: { duration: 1, ease: [0.76, 0, 0.24, 1] } }}
     >
       <motion.div
-        className="preloader-logo"
+        className="preloader-symbol gurmukhi"
         initial={{ opacity: 0, scale: 0.6, ...(blur && { filter: 'blur(20px)' }) }}
         animate={{ opacity: 1, scale: 1, ...(blur && { filter: 'blur(0px)' }) }}
         exit={{ opacity: 0, y: -60, transition: { duration: 0.6, ease } }}
         transition={{ duration: 1.2, ease }}
       >
-        <BrandLogo alt={BRAND_NAME} />
+        ੴ
       </motion.div>
       <motion.p
         className="preloader-text gurmukhi"

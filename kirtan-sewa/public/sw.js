@@ -12,10 +12,10 @@ self.addEventListener('push', (event) => {
     data = { body: event.data && event.data.text() };
   }
   event.waitUntil(
-    self.registration.showNotification(data.title || 'Amrit Kirtan Lehar', {
+    self.registration.showNotification(data.title || 'Kirtan Sewa', {
       body: data.body || '',
-      icon: '/icon-192.png?v=2',
-      badge: '/badge-96.png?v=2',
+      icon: '/notification-icon.png',
+      badge: '/badge-96.png',
       tag: data.tag,
       ...(data.image && { image: data.image }), // big picture (Android Chrome), e.g. the Gurpurab poster
       renotify: !!data.tag,

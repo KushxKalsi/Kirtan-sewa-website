@@ -7,7 +7,6 @@ import { fileURLToPath } from 'node:url';
 import { db, gurbani, save, uid, makeRef, slugify, DATA_DIR, initDb, kv } from './db.js';
 import { gurbaniQuery } from './gurbani.js';
 import { GURBANI_BOOKS, isGurbaniAng } from '../shared/gurbani.js';
-import { BRAND_LOGO } from '../shared/brand.js';
 import { initPush, pushPublicKey, addSubscription, notifyPhone, addAdminSubscription, removeAdminSubscription, adminDeviceCount, notifyAdmins, addPublicSubscription, notifyEveryone, everyoneCount } from './push.js';
 import { GURPURAB_KINDS, isMonthly, topUpMonthlyDays } from './gurpurabs.js';
 import { checkPassword, hashPassword, passwordProblem, sessions } from './auth.js';
@@ -2618,7 +2617,7 @@ app.get('/api/media/:id', async (req, res) => {
   res.status(206).set('Content-Range', `bytes ${start}-${end}/${total}`).send(file.buffer.subarray(start, end + 1));
 });
 
-const jathaAuthor = () => ({ id: '', name: db.settings.siteName, role: 'Jatha', photo: BRAND_LOGO });
+const jathaAuthor = () => ({ id: '', name: db.settings.siteName, role: 'Jatha', photo: db.settings.aboutImage || '' });
 const memberAuthor = (p) => ({ id: p.id, name: p.name, role: ROLES[p.role] || '', photo: p.photo ? mediaUrl(p.photo, p.photoLocal) : '' });
 const authorOf = (post) => (post.personId ? personOf(post.personId) : null);
 // Shown on the site: not hidden, and by the jatha or a member who is still active.
@@ -3086,34 +3085,32 @@ if (fs.existsSync(dist)) {
   // Shared post / profile links get a title and picture in WhatsApp and other link previews.
   const page = () => fs.readFileSync(path.join(dist, 'index.html'), 'utf8'); // read each time: a rebuild changes it
   const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
-  const withPreview = (req, title = db.settings.siteName, text = db.settings.tagline, image) => {
+  const withPreview = (req, title, text, image) => {
     const origin = `${req.get('x-forwarded-proto')?.split(',')[0] || req.protocol}://${req.get('host')}`;
-    const previewImage = image || '/icon-512.png?v=2';
     const tags = [
       ['og:title', title],
       ['og:description', text],
       ['og:url', origin + req.originalUrl],
-      ['og:type', req.path.startsWith('/p/') || req.path.startsWith('/m/') ? 'article' : 'website'],
-      ['og:site_name', db.settings.siteName],
-      ['og:image', previewImage.startsWith('http') ? previewImage : origin + previewImage],
+      ['og:type', 'article'],
+      ...(image ? [['og:image', image.startsWith('http') ? image : origin + image]] : []),
     ].map(([k, v]) => `<meta property="${k}" content="${esc(v)}" />`);
     return page().replace('</head>', `${tags.join('')}<meta name="twitter:card" content="summary_large_image" /></head>`);
   };
   app.get('/p/:id', (req, res) => {
     const post = db.posts.find((p) => p.id === req.params.id);
-    if (!post || !postVisible(post)) return res.send(withPreview(req));
+    if (!post || !postVisible(post)) return res.send(page());
     const who = post.personId ? authorOf(post)?.name : db.settings.siteName;
     const image = post.media.find((m) => m.kind === 'image');
     res.send(withPreview(req, `${who} · ${db.settings.siteName}`, post.caption || 'Gurbani Kirtan sewa', image && mediaUrl(image.id, image.local)));
   });
   app.get('/m/:id', (req, res) => {
     const p = personOf(req.params.id);
-    if (!p?.active) return res.send(withPreview(req));
+    if (!p?.active) return res.send(page());
     res.send(withPreview(req, `${p.name}${ROLES[p.role] ? ` · ${ROLES[p.role]}` : ''}`, `Kirtan photos and videos · ${db.settings.siteName}`, p.photo && mediaUrl(p.photo, p.photoLocal)));
   });
   app.use((req, res, next) => {
     if (req.method !== 'GET' || req.path.startsWith('/api')) return next();
-    res.send(withPreview(req));
+    res.sendFile(path.join(dist, 'index.html'));
   });
 }
 

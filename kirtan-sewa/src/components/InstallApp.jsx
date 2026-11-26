@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Download, Share, X } from 'lucide-react';
-import { BRAND_NAME } from '../../shared/brand';
 import BrandLogo from './BrandLogo';
 import { isNative } from '../lib/native';
 import { isIos, isStandalone } from '../lib/push';
@@ -102,7 +101,7 @@ export default function InstallApp() {
     <AnimatePresence>
       {target && (
         <motion.div className="install-app" initial={{ y: '120%' }} animate={{ y: 0 }} exit={{ y: '120%' }} transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}>
-          <BrandLogo className="brand-mark" />
+          <BrandLogo />
           {target.kind === 'ios-help' ? (
             <div className="install-text">
               <strong>Install on iPhone</strong>
@@ -113,7 +112,7 @@ export default function InstallApp() {
           ) : (
             <>
               <div className="install-text">
-                <strong>{BRAND_NAME} app</strong>
+                <strong>Kirtan Sewa app</strong>
                 <span>Install it for a faster, smoother experience</span>
               </div>
               {target.kind === 'link' ? (

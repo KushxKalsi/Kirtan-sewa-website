@@ -4,7 +4,6 @@ import Reveal from '../components/Reveal';
 import SplitText from '../components/SplitText';
 import Counter from '../components/Counter';
 import { useSite } from '../components/SiteContext';
-import BrandLogo from '../components/BrandLogo';
 
 export default function About() {
   const { site } = useSite();
@@ -30,7 +29,7 @@ export default function About() {
               <img src={s.aboutImage} alt={s.siteName} loading="lazy" />
             ) : (
               <div className="about-placeholder">
-                <BrandLogo loading="lazy" />
+                <span className="gurmukhi">ੴ</span>
               </div>
             )}
             <div className="about-quote">

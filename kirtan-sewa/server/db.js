@@ -5,16 +5,16 @@ import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { seedGurpurabs, topUpMonthlyDays } from './gurpurabs.js';
 import { createGurbaniStore } from './gurbani.js';
-import { BRAND_NAME } from '../shared/brand.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const DATA_DIR = process.env.DATA_DIR || path.resolve(__dirname, '../data');
 const FILE = path.join(DATA_DIR, 'db.json');
+const DEFAULT_SITE_NAME = 'Amrit Kirtan Sewa';
 
 const defaults = () => ({
   meta: { secret: crypto.randomBytes(32).toString('hex'), createdAt: new Date().toISOString() },
   settings: {
-    siteName: BRAND_NAME,
+    siteName: DEFAULT_SITE_NAME,
     gurmukhiTagline: 'ਗੁਰਬਾਣੀ ਕੀਰਤਨ ਸੇਵਾ',
     tagline: 'Soul-stirring Gurbani Kirtan for every sacred occasion — weddings, Sukhmani Sahib, Akhand Path bhog, new homes and remembrances.',
     about:
@@ -502,9 +502,9 @@ export async function initDb() {
   }
   db.gurpurabs.sort((a, b) => a.date.localeCompare(b.date));
   topUpMonthlyDays(db);
-  if (!db.meta.brandNameUpdated) {
-    if (['Amrit Kirtan Sewa', 'Kirtan Sewa'].includes(db.settings.siteName)) db.settings.siteName = BRAND_NAME;
-    db.meta.brandNameUpdated = true;
+  if (db.meta.brandNameUpdated) {
+    if (db.settings.siteName === 'Amrit Kirtan Lehar') db.settings.siteName = DEFAULT_SITE_NAME;
+    delete db.meta.brandNameUpdated;
   }
   // The commission went from 10% to 5% (Nov 2026): set it once; later changes in Site settings are kept.
   if (!db.meta.commission5) {

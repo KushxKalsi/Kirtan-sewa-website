@@ -1108,17 +1108,6 @@ export function renderPoster(canvas, design, width = W) {
   ctx.textBaseline = 'middle';
   const show = { khanda: true, ornaments: true, frame: true, footer: true, ...design.show };
   ({ samagam: drawSamagam, text: drawTextOnly }[design.layout] || drawKirtan)(ctx, design.text || {}, themeOf(design.palette), show, design);
-  if (design.logo && show.logo !== false) {
-    const size = 76;
-    const x = 24;
-    const y = H - size - 24;
-    ctx.save();
-    ctx.beginPath();
-    ctx.arc(x + size / 2, y + size / 2, size / 2, 0, Math.PI * 2);
-    ctx.clip();
-    ctx.drawImage(design.logo, x, y, size, size);
-    ctx.restore();
-  }
   return canvas;
 }
 

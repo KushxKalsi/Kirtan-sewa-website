@@ -4,7 +4,7 @@
 <dict>
 	<!-- xtool fills in bundle id, executable, versions and UILaunchScreen; these are merged on top. -->
 	<key>CFBundleDisplayName</key>
-	<string>Amrit Kirtan Lehar</string>
+	<string>Kirtan Sewa</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
