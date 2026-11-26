@@ -3476,6 +3476,14 @@ input:focus-visible + .tick {
   background: #fff;
   padding: 6px;
 }
+.about-image-preview {
+  height: 150px;
+}
+.about-image-preview img {
+  object-fit: cover;
+  background: transparent;
+  padding: 0;
+}
 .qr-upload .muted {
   margin-bottom: 12px;
 }

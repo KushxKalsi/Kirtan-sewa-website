@@ -42,6 +42,7 @@ if (db.settings.upiQrFile) {
 
 const app = express();
 const QR_PATH = '/api/admin/upi-qr';
+const ABOUT_IMAGE_PATH = '/api/admin/about-image';
 const GP_IMAGE_PATH = '/api/admin/gurpurab-images';
 const DOC_PATH = '/api/team/documents/';
 const TEAM_SIGNUP_PATH = '/api/auth/register-team';
@@ -62,8 +63,8 @@ app.use('/api', (req, res, next) => {
   next();
 });
 const smallJson = express.json({ limit: '300kb' });
-// Image uploads (UPI QR, Gurpurab pictures, team documents and sign-ups with them) get their own larger body limit.
-const bigBody = (path) => path === QR_PATH || path === GP_IMAGE_PATH || path === TEAM_SIGNUP_PATH || path.startsWith(DOC_PATH);
+// Image uploads and team sign-ups get their own larger body limit.
+const bigBody = (path) => path === QR_PATH || path === ABOUT_IMAGE_PATH || path === GP_IMAGE_PATH || path === TEAM_SIGNUP_PATH || path.startsWith(DOC_PATH);
 app.use((req, res, next) => (bigBody(req.path) ? next() : smallJson(req, res, next)));
 
 
@@ -118,6 +119,13 @@ function readDoc(dataUrl) {
   const match = /^data:(image\/(?:png|jpeg|webp)|application\/pdf);base64,([A-Za-z0-9+/=]+)$/.exec(dataUrl || '');
   if (!match) fail(400, 'Please upload a photo (JPG, PNG, WebP) or a PDF.');
   if (Buffer.byteLength(match[2], 'base64') > 5 * 1024 * 1024) fail(400, 'File is too large (max 5 MB).');
+  return { type: match[1], data: match[2] };
+}
+
+function readImage(dataUrl, maxMb) {
+  const match = /^data:(image\/(?:png|jpeg|webp));base64,([A-Za-z0-9+/=]+)$/.exec(dataUrl || '');
+  if (!match) fail(400, 'Please upload a PNG, JPG or WebP image.');
+  if (Buffer.byteLength(match[2], 'base64') > maxMb * 1024 * 1024) fail(400, `Image is too large (max ${maxMb} MB).`);
   return { type: match[1], data: match[2] };
 }
 
@@ -724,6 +732,16 @@ app.get('/api/upi-qr', async (_req, res) => {
   const qr = await loadQr();
   if (!qr) fail(404, 'No QR uploaded.');
   res.set('Cache-Control', 'public, max-age=86400').type(qr.type).send(Buffer.from(qr.data, 'base64'));
+});
+
+app.get('/api/about-image/:id', async (req, res) => {
+  const { id } = req.params;
+  if (!/^[a-f0-9]{16}$/.test(id)) fail(404, 'Photo not found.');
+  const image = await kv.get(`about-image-${id}`);
+  if (!image) fail(404, 'Photo not found.');
+  res.set('Cache-Control', 'public, max-age=86400, immutable')
+    .set('X-Content-Type-Options', 'nosniff')
+    .type(image.type).send(Buffer.from(image.data, 'base64'));
 });
 
 app.get('/api/push/key', async (_req, res) => {
@@ -1785,6 +1803,21 @@ app.get('/api/admin/data', async (_req, res) => {
   });
 });
 
+async function saveAboutImage(url) {
+  const previous = db.settings.aboutImage;
+  db.settings.aboutImage = url;
+  try {
+    await save();
+  } catch (error) {
+    if (db.settings.aboutImage === url) db.settings.aboutImage = previous;
+    throw error;
+  }
+  const oldId = /^\/api\/about-image\/([a-f0-9]{16})$/.exec(previous)?.[1];
+  if (oldId && !db.settings.aboutImage.endsWith(previous)) {
+    await kv.set(`about-image-${oldId}`, null).catch((error) => console.error('Could not remove the old About photo:', error.message));
+  }
+}
+
 app.put('/api/admin/settings', async (req, res) => {
   const b = req.body || {};
   const s = db.settings;
@@ -1793,7 +1826,7 @@ app.put('/api/admin/settings', async (req, res) => {
   const upiId = 'upiId' in b ? str(b.upiId, 300) : s.upiId;
   if (upiOn && !upiId) fail(400, 'Enter your UPI ID, or turn UPI off.');
   if (upiId && !/^[\w.\-]{2,}@[a-zA-Z]{2,}$/.test(upiId)) fail(400, 'UPI ID looks wrong — it should look like name@okhdfcbank.');
-  for (const key of ['siteName', 'gurmukhiTagline', 'tagline', 'about', 'aboutImage', 'phone', 'whatsapp', 'email', 'address', 'upiId', 'upiName', 'paymentNote']) {
+  for (const key of ['siteName', 'gurmukhiTagline', 'tagline', 'about', 'phone', 'whatsapp', 'email', 'address', 'upiId', 'upiName', 'paymentNote']) {
     if (key in b) s[key] = str(b[key], key === 'about' || key === 'tagline' ? 1500 : 300);
   }
   for (const key of ['cashEnabled', 'upiEnabled', 'customTimeEnabled']) {
@@ -1810,8 +1843,22 @@ app.put('/api/admin/settings', async (req, res) => {
       .filter((t) => t.name && t.text)
       .slice(0, 30);
   }
-  await save();
+  if ('aboutImage' in b) await saveAboutImage(str(b.aboutImage, 300));
+  else await save();
   res.json({ settings: s });
+});
+
+app.post(ABOUT_IMAGE_PATH, express.json({ limit: '6mb' }), async (req, res) => {
+  const image = readImage(req.body?.dataUrl, 4);
+  const id = uid();
+  await kv.set(`about-image-${id}`, image);
+  await saveAboutImage(`/api/about-image/${id}`);
+  res.status(201).json({ settings: db.settings });
+});
+
+app.delete(ABOUT_IMAGE_PATH, async (_req, res) => {
+  await saveAboutImage('');
+  res.json({ settings: db.settings });
 });
 
 const readService = (b, existing = {}) => {
@@ -2568,11 +2615,9 @@ app.post('/api/admin/gurpurabs/:id/notify', async (req, res) => {
 });
 
 app.post(GP_IMAGE_PATH, express.json({ limit: '6mb' }), async (req, res) => {
-  const match = /^data:(image\/(?:png|jpeg|webp));base64,([A-Za-z0-9+/=]+)$/.exec(req.body?.dataUrl || '');
-  if (!match) fail(400, 'Please upload a PNG, JPG or WebP image.');
-  if (Buffer.byteLength(match[2], 'base64') > 4 * 1024 * 1024) fail(400, 'Image is too large (max 4 MB).');
+  const image = readImage(req.body?.dataUrl, 4);
   const id = uid();
-  await kv.set(`gp-img-${id}`, { type: match[1], data: match[2] });
+  await kv.set(`gp-img-${id}`, image);
   res.status(201).json({ id, url: gpImageUrl(id) });
 });
 

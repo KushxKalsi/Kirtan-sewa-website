@@ -130,6 +130,8 @@ export const teamApi = (token) => ({
 export const adminApi = (token) => ({
   data: () => request('/admin/data', { token }),
   saveSettings: (settings) => request('/admin/settings', { method: 'PUT', body: settings, token }),
+  uploadAboutImage: (dataUrl) => request('/admin/about-image', { method: 'POST', body: { dataUrl }, token }),
+  removeAboutImage: () => request('/admin/about-image', { method: 'DELETE', token }),
   addService: (service) => request('/admin/services', { method: 'POST', body: service, token }),
   updateService: (id, service) => request(`/admin/services/${id}`, { method: 'PUT', body: service, token }),
   deleteService: (id) => request(`/admin/services/${id}`, { method: 'DELETE', token }),

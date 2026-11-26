@@ -9,7 +9,6 @@ const FIELDS = [
   { k: 'gurmukhiTagline', label: 'Gurmukhi tagline', gurmukhi: true },
   { k: 'tagline', label: 'Hero description', area: true },
   { k: 'about', label: 'About the jatha', area: true, rows: 5 },
-  { k: 'aboutImage', label: 'About photo URL (optional)', placeholder: 'https://…' },
   { k: 'phone', label: 'Phone number' },
   { k: 'whatsapp', label: 'WhatsApp number (with country code, digits only)', placeholder: '919876543210' },
   { k: 'email', label: 'Email' },
@@ -25,9 +24,34 @@ const NUMBERS = [
 export default function SettingsTab({ data, api, patch, toast }) {
   const [form, setForm] = useState(() => ({ ...data.settings, galleryText: (data.settings.gallery || []).join('\n') }));
   const [saving, setSaving] = useState(false);
+  const [aboutBusy, setAboutBusy] = useState(false);
   const [qrBusy, setQrBusy] = useState(false);
+  const aboutFileRef = useRef(null);
   const fileRef = useRef(null);
   const check = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.checked }));
+
+  const changeAboutImage = async (request, message) => {
+    if (aboutBusy || saving) return;
+    setAboutBusy(true);
+    try {
+      const { settings } = await request();
+      patch({ settings });
+      setForm((f) => ({ ...f, aboutImage: settings.aboutImage }));
+      toast(message);
+    } catch (err) {
+      toast(err.message, 'error');
+    } finally {
+      setAboutBusy(false);
+    }
+  };
+
+  const uploadAboutImage = (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (file) {
+      changeAboutImage(async () => api.uploadAboutImage(await fileToDataUrl(file, 1800, 'image/jpeg', 0.88)), 'Our Jatha photo updated.');
+    }
+  };
 
   const uploadQr = async (e) => {
     const file = e.target.files?.[0];
@@ -64,11 +88,14 @@ export default function SettingsTab({ data, api, patch, toast }) {
 
   const save = async (e) => {
     e.preventDefault();
+    if (saving || aboutBusy) return;
     setSaving(true);
     try {
-      const { galleryText, ...rest } = form;
+      const { galleryText, aboutImage, ...rest } = form;
+      if (aboutImage !== data.settings.aboutImage) rest.aboutImage = aboutImage;
       const res = await api.saveSettings({ ...rest, gallery: galleryText.split('\n').map((s) => s.trim()).filter(Boolean) });
       patch({ settings: res.settings });
+      setForm((f) => ({ ...f, aboutImage: res.settings.aboutImage }));
       toast('Settings saved — the website is updated.');
     } catch (err) {
       toast(err.message, 'error');
@@ -91,6 +118,31 @@ export default function SettingsTab({ data, api, patch, toast }) {
             )}
           </label>
         ))}
+        <div className="qr-upload">
+          <div className="qr-preview about-image-preview">
+            {form.aboutImage ? <img src={form.aboutImage} alt="Our Jatha photo preview" /> : <ImageUp size={32} aria-hidden="true" />}
+          </div>
+          <div>
+            <span className="label">Our Jatha photo</span>
+            <p className="muted">Uploads appear immediately behind the quote on the homepage.</p>
+            <div className="row-actions start">
+              <input ref={aboutFileRef} type="file" accept="image/*" onChange={uploadAboutImage} hidden />
+              <button type="button" className="btn btn-primary btn-sm" onClick={() => aboutFileRef.current?.click()} disabled={aboutBusy || saving}>
+                {aboutBusy ? <Loader2 size={16} className="spin" /> : <ImageUp size={16} />} {form.aboutImage ? 'Replace photo' : 'Upload photo'}
+              </button>
+              {form.aboutImage && (
+                <button type="button" className="btn btn-ghost btn-sm danger-text" disabled={aboutBusy || saving}
+                  onClick={() => changeAboutImage(api.removeAboutImage, 'Our Jatha photo removed.')}>
+                  <Trash2 size={16} /> Remove photo
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+        <label>
+          <span className="label">Our Jatha photo URL (optional)</span>
+          <input className="input" value={form.aboutImage || ''} onChange={set('aboutImage')} placeholder="https://…" inputMode="url" disabled={aboutBusy || saving} />
+        </label>
         <div className="grid-2">
           {NUMBERS.map((f) => (
             <label key={f.k}>
@@ -211,7 +263,7 @@ export default function SettingsTab({ data, api, patch, toast }) {
       </div>
 
       <div className="sticky-save">
-        <button className="btn btn-primary" disabled={saving}>
+        <button className="btn btn-primary" disabled={saving || aboutBusy}>
           {saving ? <Loader2 size={18} className="spin" /> : <Save size={18} />} Save settings
         </button>
       </div>
