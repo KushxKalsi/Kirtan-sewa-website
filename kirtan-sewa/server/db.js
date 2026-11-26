@@ -118,6 +118,7 @@ const defaults = () => ({
   // skills: [{ categoryId, serviceId }] = what they do; role: head-ragi / side-ragi / tabla.
   people: [],
   users: [], // customer accounts (mobile number + password)
+  gurbaniPlaylists: [],
   messages: [], // chat between the admin and one customer (thread "u:<id>") or team member ("m:<id>")
   threads: [], // per chat thread: when each side last read it
   leaves: [], // team members' leave requests
@@ -218,6 +219,10 @@ const TABLES = {
     indexes: ['CREATE INDEX IF NOT EXISTS team_members_phone_key ON team_members (phone_key)'],
     rows: (d) =>
       d.people.map((p) => ({ id: p.id, name: p.name, phone: p.phone, phone_key: phoneKey(p.phone), role: p.role || null, active: !!p.active, password_hash: p.passwordHash || null, data: omit(p, 'passwordHash') })),
+  },
+  gurbani_playlists: {
+    cols: { owner: 'text' },
+    rows: (d) => d.gurbaniPlaylists.map((playlist) => ({ id: playlist.id, owner: playlist.owner, data: playlist })),
   },
   bookings: {
     cols: {
@@ -326,6 +331,7 @@ function assemble(t) {
     gurpurabs: t.gurpurabs.map((r) => r.data).sort((a, b) => a.date.localeCompare(b.date)),
     users: t.users.map((r) => ({ ...r.data, passwordHash: r.password_hash || '' })),
     people: t.team_members.map((r) => ({ ...r.data, passwordHash: r.password_hash || '' })),
+    gurbaniPlaylists: t.gurbani_playlists.map((r) => r.data),
     bookings: t.bookings.map((r) => ({ ...r.data, assignees: assignees.get(r.id) || [] })).sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || '')),
     leaves: t.leave_requests.map((r) => r.data).sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || '')),
     messages: t.chat_messages.map((r) => r.data).sort((a, b) => a.at.localeCompare(b.at)),
@@ -483,7 +489,7 @@ export async function initDb() {
   db = stored
     ? { ...base, ...stored, meta: { ...base.meta, ...stored.meta }, settings: { ...base.settings, ...stored.settings } }
     : base;
-  for (const key of ['users', 'messages', 'threads', 'leaves', 'people', 'categories', 'blockedTimes', 'gurpurabs', 'adminPushSubs', 'publicPushSubs', 'posts', 'audioLibrary', 'posterBackgrounds']) db[key] ||= [];
+  for (const key of ['users', 'messages', 'threads', 'leaves', 'people', 'categories', 'blockedTimes', 'gurpurabs', 'adminPushSubs', 'publicPushSubs', 'posts', 'audioLibrary', 'posterBackgrounds', 'gurbaniPlaylists']) db[key] ||= [];
   db.pushSubs ||= {};
   // Seed days added in newer versions (e.g. Gurgaddi Diwas). Days already there, edited or not, are left alone;
   // ones the admin deleted are remembered so they don't come back.

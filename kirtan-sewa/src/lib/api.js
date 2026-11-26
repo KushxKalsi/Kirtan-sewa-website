@@ -37,10 +37,11 @@ async function request(path, { method = 'GET', body, token, device, signal } = {
 export const api = {
   site: () => request('/public'),
   searchGurbani: (q, page, signal) => request(`/gurbani/search?${new URLSearchParams({ q, page })}`, { signal }),
-  gurbaniShabad: (id, signal) => request(`/gurbani/shabads/${encodeURIComponent(id)}`, { signal }),
+  gurbaniShabad: (id, book, signal) => request(`/gurbani/shabads/${encodeURIComponent(id)}?${new URLSearchParams({ book })}`, { signal }),
   gurbaniPaaths: (signal) => request('/gurbani/paaths', { signal }),
   gurbaniPaath: (id, signal) => request(`/gurbani/paaths/${encodeURIComponent(id)}`, { signal }),
-  gurbaniAng: (ang, signal) => request(`/gurbani/angs/${encodeURIComponent(ang)}`, { signal }),
+  gurbaniAng: (ang, book, signal) => request(`/gurbani/angs/${encodeURIComponent(ang)}?${new URLSearchParams({ book })}`, { signal }),
+  gurbaniChapters: (book, signal) => request(`/gurbani/books/${encodeURIComponent(book)}/chapters`, { signal }),
   availability: (from, to) => request(`/availability?from=${from}&to=${to}`),
   pushKey: () => request('/push/key'),
   pushSubscribePublic: (subscription) => request('/push/subscribe-public', { method: 'POST', body: { subscription } }),
@@ -62,6 +63,13 @@ export const api = {
   sharePost: (id) => request(`/posts/${id}/share`, { method: 'POST', body: {} }),
   reportPost: (id, reason) => request(`/posts/${id}/report`, { method: 'POST', body: { reason }, device: true, token: sessionToken() }),
 };
+
+export const gurbaniPlaylistApi = (token) => ({
+  gurbaniFolders: (signal) => request('/gurbani/playlists', { token, signal }),
+  createGurbaniFolder: (name, entry) => request('/gurbani/playlists', { token, method: 'POST', body: { name, entry } }),
+  saveGurbaniAng: (id, { book, ang }) => request(`/gurbani/playlists/${id}/angs/${book}/${ang}`, { token, method: 'PUT' }),
+  removeGurbaniAng: (id, { book, ang }) => request(`/gurbani/playlists/${id}/angs/${book}/${ang}`, { token, method: 'DELETE' }),
+});
 
 // A logged-in customer ("sangat" account).
 export const userApi = (token) => ({

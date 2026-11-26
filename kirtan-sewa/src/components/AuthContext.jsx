@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useMemo, useState } from 'react';
-import { teamApi, userApi } from '../lib/api';
+import { gurbaniPlaylistApi, teamApi, userApi } from '../lib/api';
 import { readStore, writeStore } from '../lib/storage';
 
 const KEY = 'sewa.session';
@@ -33,7 +33,10 @@ export function AuthProvider({ children }) {
   // Every call goes through here so an expired or revoked session logs out cleanly.
   const client = useMemo(() => {
     if (!session) return null;
-    const raw = session.role === 'member' ? teamApi(session.token) : userApi(session.token);
+    const raw = {
+      ...(session.role === 'member' ? teamApi(session.token) : userApi(session.token)),
+      ...gurbaniPlaylistApi(session.token),
+    };
     return Object.fromEntries(
       Object.entries(raw).map(([k, fn]) => [
         k,
