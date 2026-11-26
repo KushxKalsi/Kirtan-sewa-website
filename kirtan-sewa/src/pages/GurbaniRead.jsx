@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { BookOpen, List } from 'lucide-react';
-import { GURBANI_BOOKS, gurbaniAngPath, isGurbaniAng } from '../../shared/gurbani';
+import { ASA_DI_VAAR_PAATH_ID, GURBANI_BOOKS, gurbaniAngPath, isGurbaniAng } from '../../shared/gurbani';
 import { api } from '../lib/api';
 import GurbaniText from '../components/GurbaniText';
 import Modal from '../components/Modal';
@@ -59,24 +59,33 @@ function ReadingLines({ label, lines }) {
   );
 }
 
-function ChapterPicker({ chapters, status, pageLabel, onSelect }) {
+function ChapterPicker({ chapters, status, pageLabel, label = 'Go to chapter', onSelect }) {
   const [open, setOpen] = useState(false);
   const close = useCallback(() => setOpen(false), []);
   return (
     <>
       <button type="button" className="btn btn-ghost btn-sm" aria-haspopup="dialog" onClick={() => setOpen(true)}>
-        <List size={17} aria-hidden="true" /> Go to chapter
+        <List size={17} aria-hidden="true" /> {label}
       </button>
-      <Modal open={open} onClose={close} title="Go to chapter">
+      <Modal open={open} onClose={close} title={label}>
         {status}
         {chapters && (
           <ul className="gurbani-chapter-list">
             {chapters.map((chapter) => (
               <li key={`${chapter.ang || 0}:${chapter.line}`}>
                 <button type="button" className="gurbani-result" onClick={() => { close(); onSelect(chapter); }}>
-                  {chapter.title && <span>{chapter.title}</span>}
-                  {chapter.gurmukhi && <span className="gurmukhi" lang="pa-Guru">{chapter.gurmukhi}</span>}
-                  <span className="gurbani-result-ang">{chapter.ang ? `${pageLabel} ${chapter.ang}` : `Line ${chapter.line + 1}`}</span>
+                  {chapter.gurmukhiTitle ? (
+                    <span className="gurmukhi" lang="pa-Guru">
+                      <strong>{chapter.gurmukhiTitle}</strong>
+                      {chapter.gurmukhi && <> — <GurbaniText text={chapter.gurmukhi} /></>}
+                    </span>
+                  ) : (
+                    <>
+                      {chapter.title && <span>{chapter.title}</span>}
+                      {chapter.gurmukhi && <span className="gurmukhi" lang="pa-Guru">{chapter.gurmukhi}</span>}
+                      <span className="gurbani-result-ang">{chapter.ang ? `${pageLabel} ${chapter.ang}` : `Line ${chapter.line + 1}`}</span>
+                    </>
+                  )}
                 </button>
               </li>
             ))}
@@ -138,7 +147,8 @@ export function GurbaniPaath() {
         <>
           <ReadingLines label={paath.title} lines={paath.lines} />
           <div className="gurbani-pagination gurbani-reader-footer">
-            <ChapterPicker chapters={paath.chapters} onSelect={({ line }) => navigate({ hash: chapterHash(line) })} />
+            <ChapterPicker chapters={paath.chapters} label={paath.id === ASA_DI_VAAR_PAATH_ID ? 'Go to chakka' : undefined}
+              onSelect={({ line }) => navigate({ hash: chapterHash(line) })} />
           </div>
         </>
       )}

@@ -3,7 +3,7 @@ import { createRequire } from 'node:module';
 import { resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { gzipSync } from 'node:zlib';
-import { GURBANI_BOOKS } from '../../shared/gurbani.js';
+import { ASA_DI_VAAR_PAATH_ID, GURBANI_BOOKS } from '../../shared/gurbani.js';
 
 const [, , databasePath, converterPath] = process.argv;
 if (!databasePath || !converterPath) {
@@ -83,7 +83,27 @@ function numberedChapters(rows, { start, count, label, last = count }) {
   return chapters;
 }
 
+function asaDiVaarChapters(rows) {
+  const chapters = [{ title: 'Mangal', gurmukhiTitle: 'ਮੰਗਲ', line: 0 }];
+  // The source alternates a chakka and its vaar section. Anchor to the first pankti in each chakka.
+  for (const [line, row] of rows.entries()) {
+    const number = chapters.length;
+    if (row.line_group !== 2 * number - 1 || row.type_id !== 4) continue;
+    chapters.push({
+      title: `Chakka ${number}`,
+      gurmukhiTitle: `ਛੱਕਾ ${toUnicode(String(number))}`,
+      gurmukhi: toUnicode(row.gurmukhi),
+      line,
+    });
+  }
+  if (chapters.length !== 25 || chapters.slice(1).some(({ gurmukhi }) => !gurmukhi.endsWith('ਰਾਮ ਰਾਜੇ ॥'))) {
+    throw new Error('Expected all 24 chakka openings in Asa Ki Var.');
+  }
+  return chapters;
+}
+
 function paathChapters({ id, rows }) {
+  if (id === ASA_DI_VAAR_PAATH_ID) return asaDiVaarChapters(rows);
   const chapters = [{ title: 'Beginning', line: 0 }];
   if (id === 12) {
     const ashtpadis = rows.flatMap(({ gurmukhi, type_id }, line) =>

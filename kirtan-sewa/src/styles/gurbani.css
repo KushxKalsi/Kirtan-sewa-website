@@ -141,6 +141,10 @@
   background: var(--bg-2);
 }
 
+body:has(.install-app) .gurbani-reader-footer {
+  bottom: calc(max(12px, env(safe-area-inset-bottom)) + 5.5rem);
+}
+
 .gurbani-form,
 .gurbani-search-library,
 .gurbani-shabad {
