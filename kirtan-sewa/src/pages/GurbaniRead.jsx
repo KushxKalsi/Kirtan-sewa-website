@@ -82,7 +82,7 @@ export function GurbaniPaath() {
   const { response, retry } = useReading(load);
   const paath = response?.data;
   return (
-    <GurbaniPage title={paath?.title || 'Paath'} gurmukhi={paath?.gurmukhi} back={READ_BACK}>
+    <GurbaniPage title={paath?.title || 'Paath'} gurmukhi={paath?.gurmukhi} back={READ_BACK} adjustableText>
       <ReadingStatus response={response} retry={retry} message="Loading paath…" />
       {paath && <ReadingLines label={paath.title} lines={paath.lines} />}
     </GurbaniPage>
@@ -112,7 +112,7 @@ export function GurbaniAng() {
   }
 
   return (
-    <GurbaniPage title="Sri Guru Granth Sahib Ji" subtitle={data && `Ang ${data.ang} of ${LAST_ANG}`} back={READ_BACK}>
+    <GurbaniPage title="Sri Guru Granth Sahib Ji" subtitle={data && `Ang ${data.ang} of ${LAST_ANG}`} back={READ_BACK} adjustableText>
       <form className="gurbani-ang-form" onSubmit={jumpToAng}>
         <label htmlFor="gurbani-ang">Go to Ang</label>
         <input id="gurbani-ang" name="ang" type="number" min="1" max={LAST_ANG} defaultValue={/^\d{1,4}$/.test(ang) ? ang : 1} required />

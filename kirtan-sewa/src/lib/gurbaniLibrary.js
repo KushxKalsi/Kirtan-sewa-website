@@ -8,7 +8,11 @@ const listeners = new Set();
 function readLibrary(fallback = {}) {
   const { history, favourites } = readStore(KEY, fallback) || {};
   return {
-    history: Array.isArray(history) ? history.filter((query) => typeof query === 'string' && query.trim()) : [],
+    history: Array.isArray(history)
+      ? history.filter((line) => (
+        typeof line?.id === 'string' && typeof line.shabadId === 'string' && typeof line.text === 'string'
+      ))
+      : [],
     favourites: Array.isArray(favourites)
       ? favourites.filter((line) => line && typeof line.shabadId === 'string' && typeof line.text === 'string')
       : [],
@@ -39,14 +43,9 @@ function subscribe(listener) {
 
 export const useGurbaniLibrary = () => useSyncExternalStore(subscribe, () => library);
 
-const searchKey = (query) => query.normalize('NFC').toLowerCase().replace(/\s+/g, ' ');
-
-export function rememberGurbaniSearch(query) {
-  const value = query.trim();
-  if (!value) return;
-  const key = searchKey(value);
+export function rememberGurbaniSearch(line) {
   update(({ history, favourites }) => ({
-    history: [value, ...history.filter((entry) => searchKey(entry) !== key)].slice(0, HISTORY_LIMIT),
+    history: [line, ...history.filter((entry) => entry.id !== line.id)].slice(0, HISTORY_LIMIT),
     favourites,
   }));
 }

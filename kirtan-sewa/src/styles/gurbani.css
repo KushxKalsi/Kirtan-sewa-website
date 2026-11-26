@@ -165,18 +165,25 @@
   color: var(--muted);
 }
 
-.gurbani-history-list {
-  display: grid;
+.gurbani-text-size {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
-  list-style: none;
-  margin: 0;
-  padding: 0;
+  margin-bottom: 12px;
+  color: var(--muted);
+  font-size: 0.875rem;
 }
 
-.gurbani-history-list button {
-  width: 100%;
-  overflow-wrap: anywhere;
-  text-align: start;
+.gurbani-text-size .btn {
+  min-width: 40px;
+  padding-inline: 8px;
+}
+
+.gurbani-text-size-value {
+  min-width: 4ch;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
 }
 
 .gurbani-form label {
@@ -199,7 +206,7 @@
   border-radius: var(--radius-sm);
   background: var(--bg);
   color: var(--text);
-  font: 1.125rem / 1.65 var(--font-gurmukhi);
+  font: calc(1.125rem * var(--gurbani-text-scale, 1)) / 1.65 var(--font-gurmukhi);
 }
 
 .gurbani-search-field .btn {
@@ -273,7 +280,7 @@
 .gurbani-compact-results :is(.gurbani-verse, .gurbani-roman) {
   grid-column: 1;
   grid-row: 1;
-  font-size: 1rem;
+  font-size: calc(1rem * var(--gurbani-text-scale, 1));
   line-height: 1.5;
   overflow: hidden;
   white-space: nowrap;
@@ -300,8 +307,12 @@
   grid-template-columns: repeat(10, minmax(0, 1fr));
 }
 
+.gurbani-key-delete {
+  grid-column: -2;
+}
+
 .gurbani-key-controls {
-  grid-template-columns: 1fr minmax(42px, 13%);
+  grid-template-columns: minmax(42px, 1fr) minmax(42px, 1fr) minmax(56px, 4fr) minmax(64px, 1.5fr);
 }
 
 .gurbani-keyboard button {
@@ -326,6 +337,11 @@
 
 .gurbani-keyboard button:active {
   background: var(--surface-2);
+}
+
+.gurbani-keyboard button:disabled {
+  opacity: 0.55;
+  cursor: default;
 }
 
 .gurbani-examples button,
@@ -399,7 +415,7 @@
 .gurbani-verse {
   margin: 0;
   overflow-wrap: anywhere;
-  font-size: clamp(1.125rem, 3.2vw, 1.375rem);
+  font-size: calc(clamp(1.125rem, 3.2vw, 1.375rem) * var(--gurbani-text-scale, 1));
   line-height: 1.8;
 }
 
@@ -427,11 +443,16 @@
   }
 }
 
-.gurbani-roman,
 .gurbani-pagination,
 .gurbani-credit {
   color: var(--muted);
   font-size: 0.875rem;
+}
+
+.gurbani-roman {
+  color: var(--muted);
+  overflow-wrap: anywhere;
+  font-size: calc(0.875rem * var(--gurbani-text-scale, 1));
 }
 
 .gurbani-pagination {
