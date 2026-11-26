@@ -666,6 +666,11 @@ body:has(.install-app) .gurbani-reader-footer {
 }
 
 .gurbani-translation {
+  padding: .25em .55em;
+  border-inline-start: 2px solid var(--gold);
+  border-radius: 4px;
+  background-color: var(--surface-2);
+  background-color: color-mix(in srgb, var(--gold) 14%, transparent);
   color: color-mix(in srgb, color-mix(in srgb, var(--text) 65%, var(--muted)), black 8%);
 }
 
