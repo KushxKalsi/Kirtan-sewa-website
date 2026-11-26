@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { withBase } from '../lib/native';
 import { AnimatePresence, motion } from 'framer-motion';
 import { differenceInCalendarDays, format, subDays, subMonths } from 'date-fns';
-import { BellRing, Eye, EyeOff, ImagePlus, Loader2, Pencil, Plus, Save, Send, Sparkles, Trash2, X } from 'lucide-react';
+import { BellRing, Eye, EyeOff, ImagePlus, Loader2, Pencil, Plus, RefreshCw, Save, Send, Sparkles, Trash2, X } from 'lucide-react';
 import Modal from '../components/Modal';
 import { fromKey, prettyDate } from '../lib/date';
 import { fileToDataUrl } from '../lib/image';
@@ -39,6 +39,7 @@ export default function GurpurabTab({ data, api, patch, toast }) {
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(0);
   const [busy, setBusy] = useState('');
+  const [checking, setChecking] = useState(false);
   const [deleteFor, setDeleteFor] = useState(null);
   const [notifyFor, setNotifyFor] = useState(null);
   const formMonthly = !!kindOf(form.kind).monthly;
@@ -46,7 +47,7 @@ export default function GurpurabTab({ data, api, patch, toast }) {
   const run = async (fn, msg) => {
     try {
       const res = await fn();
-      if (res.gurpurabs) patch({ gurpurabs: res.gurpurabs });
+      if (res.gurpurabs) patch({ gurpurabs: res.gurpurabs, ...(res.jantriSync && { jantriSync: res.jantriSync }) });
       if (msg) toast(typeof msg === 'function' ? msg(res) : msg);
       return true;
     } catch (e) {
@@ -65,7 +66,12 @@ export default function GurpurabTab({ data, api, patch, toast }) {
   const save = async (e) => {
     e.preventDefault();
     setSaving(true);
-    const ok = await run(() => (editing === 'new' ? api.addGurpurab(form) : api.updateGurpurab(editing.id, form)), editing === 'new' ? 'Added.' : 'Saved.');
+    const change = editing === 'new' ? api.addGurpurab : (day) => api.updateGurpurab(editing.id, {
+      ...day,
+      originalDate: editing.date,
+      ...(day.jantriAuto !== editing.jantriAuto && { followJantri: day.jantriAuto }),
+    });
+    const ok = await run(() => change(form), editing === 'new' ? 'Added.' : 'Saved.');
     setSaving(false);
     if (ok) setEditing(null);
   };
@@ -89,6 +95,11 @@ export default function GurpurabTab({ data, api, patch, toast }) {
     await run(() => api.notifyGurpurab(g.id), (res) => `Sent to ${res.sent} device${res.sent === 1 ? '' : 's'}.`);
     setBusy('');
     setNotifyFor(null);
+  };
+  const checkDates = async () => {
+    setChecking(true);
+    await run(api.syncGurpurabs);
+    setChecking(false);
   };
 
   const noticeText = (g) => {
@@ -118,7 +129,8 @@ export default function GurpurabTab({ data, api, patch, toast }) {
                 <BellRing size={12} /> {noticeText(g)}
               </span>
             )}
-            {isPast && <span className="chip warn-chip">Passed — set next year’s date</span>}
+            {g.jantriAuto === false && <span className="chip">Manual date</span>}
+            {isPast && g.jantriAuto && <span className="chip">Waiting for next Jantri date</span>}
           </div>
           {g.images?.length > 0 && (
             <div className="gp-thumbs">
@@ -134,7 +146,7 @@ export default function GurpurabTab({ data, api, patch, toast }) {
               {busy === g.id ? <Loader2 size={16} className="spin" /> : <Send size={16} />}
             </button>
           )}
-          <button className="icon-btn" onClick={() => run(() => api.updateGurpurab(g.id, { ...g, active: !g.active }), g.active ? 'Hidden from website.' : 'Shown on website.')} aria-label={g.active ? 'Hide' : 'Show'}>
+          <button className="icon-btn" onClick={() => run(() => api.updateGurpurab(g.id, { ...g, originalDate: g.date, active: !g.active }), g.active ? 'Hidden from website.' : 'Shown on website.')} aria-label={g.active ? 'Hide' : 'Show'}>
             {g.active ? <Eye size={16} /> : <EyeOff size={16} />}
           </button>
           <button className="icon-btn" onClick={() => openEdit(g)} aria-label="Edit">
@@ -148,6 +160,7 @@ export default function GurpurabTab({ data, api, patch, toast }) {
     );
   };
 
+  const sync = data.jantriSync;
   return (
     <div className="admin-section">
       <div className="admin-section-head">
@@ -159,8 +172,21 @@ export default function GurpurabTab({ data, api, patch, toast }) {
             home page, with the reminder going out {MONTHLY_NOTICE_DAYS} days before.
           </p>
           <p className="muted gp-note">
-            <Sparkles size={14} /> Dates are from the SGPC calendar (Nanakshahi 558). Most follow the moon and change every year — when the SGPC publishes the new Jantri, edit each past day and set its new date.
+            <Sparkles size={14} /> Annual dates are checked daily against a feed of confirmed SGPC Jantri dates. You can set a manual date for any day.
           </p>
+          <div className="gp-jantri-status" aria-live="polite">
+            {sync?.publishedYear && (
+              <p className="muted">
+                <a href={sync.sourceUrl} target="_blank" rel="noreferrer">Nanakshahi {sync.publishedYear}</a>
+                {' · '}{sync.matched} of {sync.total} dates confirmed
+              </p>
+            )}
+            {sync?.error && <p className="muted">{sync.error}</p>}
+            {sync?.checkedAt && <p className="fine-print">Last checked {format(new Date(sync.checkedAt), 'd MMM yyyy, h:mm a')}.</p>}
+            <button type="button" className="btn btn-ghost btn-sm" onClick={checkDates} disabled={checking}>
+              <RefreshCw size={14} className={checking ? 'spin' : undefined} /> {checking ? 'Checking dates…' : 'Check Jantri now'}
+            </button>
+          </div>
         </div>
         <button className="btn btn-primary btn-sm" onClick={openNew}>
           <Plus size={16} /> Add day
@@ -189,7 +215,7 @@ export default function GurpurabTab({ data, api, patch, toast }) {
       )}
       {past.length > 0 && (
         <>
-          <h3 className="gp-admin-title">Passed this year · {past.length}</h3>
+          <h3 className="gp-admin-title">Past dates · {past.length}</h3>
           <motion.ul className="admin-services" layout>
             <AnimatePresence initial={false}>{past.map((g) => row(g, true))}</AnimatePresence>
           </motion.ul>
@@ -220,8 +246,14 @@ export default function GurpurabTab({ data, api, patch, toast }) {
           </div>
           <label>
             <span className="label">Date *</span>
-            <input className="input" type="date" value={form.date} onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))} required />
+            <input className="input" type="date" value={form.date} onChange={(e) => setForm((f) => ({ ...f, date: e.target.value, ...(f.jantriAuto && { jantriAuto: false }) }))} required />
           </label>
+          {typeof form.jantriAuto === 'boolean' && editing && form.kind === editing.kind && (
+            <label className="switch-row">
+              <input type="checkbox" checked={form.jantriAuto} onChange={(e) => setForm((f) => ({ ...f, jantriAuto: e.target.checked, date: e.target.checked ? editing.date : f.date }))} />
+              <span className="switch" /> Use confirmed Jantri dates
+            </label>
+          )}
           {!formMonthly && (
           <div>
             <span className="label">Pictures for the home page carousel (posters or photos, up to {MAX_IMAGES})</span>

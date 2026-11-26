@@ -172,6 +172,7 @@ export const adminApi = (token) => ({
   uploadQr: (dataUrl) => request('/admin/upi-qr', { method: 'POST', body: { dataUrl }, token }),
   removeQr: () => request('/admin/upi-qr', { method: 'DELETE', token }),
   addGurpurab: (g) => request('/admin/gurpurabs', { method: 'POST', body: g, token }),
+  syncGurpurabs: () => request('/admin/gurpurabs/sync', { method: 'POST', token }),
   updateGurpurab: (id, g) => request(`/admin/gurpurabs/${id}`, { method: 'PUT', body: g, token }),
   deleteGurpurab: (id) => request(`/admin/gurpurabs/${id}`, { method: 'DELETE', token }),
   notifyGurpurab: (id) => request(`/admin/gurpurabs/${id}/notify`, { method: 'POST', body: {}, token }),

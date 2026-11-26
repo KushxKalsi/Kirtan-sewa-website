@@ -4267,6 +4267,16 @@ input:focus-visible + .tick {
   margin-top: 3px;
   color: var(--gold);
 }
+.gp-jantri-status {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  font-size: 13px;
+}
+.gp-jantri-status a {
+  text-decoration: underline;
+}
 .gp-kind-chip {
   color: var(--gp) !important;
 }

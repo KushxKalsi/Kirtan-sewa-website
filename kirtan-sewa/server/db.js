@@ -4,6 +4,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { seedGurpurabs, topUpMonthlyDays } from './gurpurabs.js';
+import { initJantriDays } from './jantri.js';
 import { createGurbaniStore } from './gurbani.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -500,6 +501,7 @@ export async function initDb() {
     db.meta.gurpurabSeeded.push(g.id);
     if (!db.gurpurabs.some((x) => x.id === g.id)) db.gurpurabs.push(g);
   }
+  initJantriDays(db);
   db.gurpurabs.sort((a, b) => a.date.localeCompare(b.date));
   topUpMonthlyDays(db);
   if (db.meta.brandNameUpdated) {

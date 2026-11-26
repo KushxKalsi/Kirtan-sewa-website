@@ -125,10 +125,11 @@ Each time slot takes one booking per day, across all sewas, because there is one
   Angad Dev Ji to Guru Gobind Singh Ji and of Sri Guru Granth Sahib Ji, the Shaheedi Purab of Guru
   Arjan Dev Ji and Guru Tegh Bahadur Ji, and the Bhagats in the SGPC calendar (Ravidas Ji, Dhanna Ji,
   Kabir Ji). Days added to this list in a newer version appear by themselves on the next start; days you
-  deleted don't come back. Dates are from the SGPC calendar for Nanakshahi 558 (March 2026 – March 2027). Add others with
-  **Add day**.
-- Most of these follow the moon, so dates change every year. When the SGPC publishes the new Jantri, open each
-  day under "Passed this year" and set its new date.
+  deleted don't come back. Add others with **Add day**.
+- The server checks the [SGPC publication list](https://sgpc.net/nanakshahi-calendar/) and the [Jantri feed](https://janpreet.github.io/nanakshahi-ical/)
+  daily. It imports confirmed dates for editions listed by SGPC. Each day advances to its next confirmed date
+  when its current date passes, keeping its photos and visibility. Editing a date keeps it under manual control.
+  Turn on **Use confirmed Jantri dates** to resume automatic updates, or use **Check Jantri now** to check for a release immediately.
 - **Home page carousel:** upcoming days, with the pictures you add to each (posters or photos, any shape, up
   to 8 per day). A day without pictures gets a designed card with the name in Gurmukhi. Visitors can swipe,
   and **Book kirtan for this day** opens that date in the booking calendar.

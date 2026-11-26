@@ -2,10 +2,8 @@
 //
 // Dates are from the SGPC calendar, Nanakshahi Samvat 558 (March 2026 – March 2027), as listed at
 // https://www.sikhnet.com/pages/sikh-gurpurab-calendar and checked against
-// https://www.goldentempleamritsar.org (SGPC Nanakshahi 558). Most of these follow the lunar
-// calendar, so they move every year: update them in Admin → Gurpurab when the SGPC publishes the
-// next Jantri (around March). Days that already passed this year stay listed so you can just
-// change their date for next year.
+// https://www.goldentempleamritsar.org (SGPC Nanakshahi 558). These are the bundled dates.
+// jantri.js imports confirmed dates as subsequent editions are published.
 
 import { MONTHLY_KINDS, monthlyRows } from './sikhdays.js';
 

@@ -9,6 +9,7 @@ import { gurbaniQuery } from './gurbani.js';
 import { GURBANI_BOOKS, isGurbaniAng, isGurbaniShabadLine } from '../shared/gurbani.js';
 import { initPush, pushPublicKey, addSubscription, notifyPhone, addAdminSubscription, removeAdminSubscription, adminDeviceCount, notifyAdmins, addPublicSubscription, notifyEveryone, everyoneCount } from './push.js';
 import { GURPURAB_KINDS, isMonthly, topUpMonthlyDays } from './gurpurabs.js';
+import { applyJantriDates, editJantriDay, refreshJantri } from './jantri.js';
 import { checkPassword, hashPassword, passwordProblem, sessions } from './auth.js';
 import { reversePlace, searchPlaces } from './geo.js';
 import { MEDIA_KINDS, kindOfType, mediaRedirect, readLocal, removeMedia, storageName, storeLocal, uploadTarget, r2On } from './media.js';
@@ -1795,6 +1796,7 @@ app.get('/api/admin/data', async (_req, res) => {
     blockedDates: db.blockedDates,
     blockedTimes: db.blockedTimes || [],
     gurpurabs: db.gurpurabs || [],
+    jantriSync: db.meta.jantriSync || null,
     everyoneDevices: everyoneCount(),
     bookings: db.bookings,
     notifyPhones: Object.keys(db.pushSubs || {}),
@@ -2578,6 +2580,11 @@ const readGurpurab = (b, existing = {}) => {
 };
 const dropImages = (ids) => Promise.all(ids.map((id) => kv.set(`gp-img-${id}`, null)));
 
+app.post('/api/admin/gurpurabs/sync', async (_req, res) => {
+  await updateJantri(true);
+  res.json({ gurpurabs: db.gurpurabs, jantriSync: db.meta.jantriSync });
+});
+
 app.post('/api/admin/gurpurabs', async (req, res) => {
   db.gurpurabs = [...(db.gurpurabs || []), { id: uid(), ...readGurpurab(req.body || {}) }];
   sortGurpurabs();
@@ -2588,9 +2595,13 @@ app.post('/api/admin/gurpurabs', async (req, res) => {
 app.put('/api/admin/gurpurabs/:id', async (req, res) => {
   const g = (db.gurpurabs || []).find((x) => x.id === req.params.id);
   if (!g) fail(404, 'Not found.');
-  const next = readGurpurab(req.body || {}, g);
+  const body = req.body || {};
+  const next = readGurpurab(body);
   await dropImages((g.images || []).filter((id) => !next.images.includes(id)));
-  Object.assign(g, next);
+  if (!db.gurpurabs.includes(g)) fail(404, 'Not found.');
+  const edited = { ...g, ...next, noticeSentFor: g.noticeSentFor };
+  editJantriDay(edited, g, body, db, todayKey());
+  Object.assign(g, edited);
   sortGurpurabs();
   await save();
   res.json({ gurpurabs: db.gurpurabs });
@@ -3255,19 +3266,23 @@ const gpTitle = (g) => (isMonthly(g) ? `${g.name} ${gpKind(g).label}` : `${gpKin
 const NOTICE_GRACE = 3 * 24 * 60 * 60 * 1000; // still send if the server was asleep at that moment
 
 async function sendGurpurabNotice(g) {
-  const days = Math.round((new Date(`${g.date}T00:00:00`) - new Date(`${todayKey()}T00:00:00`)) / 86400000);
-  const when = format(new Date(`${g.date}T00:00:00`), 'EEEE, d MMMM');
+  const date = g.date;
+  const days = Math.round((new Date(`${date}T00:00:00`) - new Date(`${todayKey()}T00:00:00`)) / 86400000);
+  const when = format(new Date(`${date}T00:00:00`), 'EEEE, d MMMM');
   const sent = await notifyEveryone({
     title: `🙏 ${gpTitle(g)}`,
     body: `${when}${days > 1 ? ` · ${days} days to go` : days === 1 ? ' · tomorrow' : ''}. Book Gurbani Kirtan sewa for the ${isMonthly(g) ? gpKind(g).label : 'Gurpurab'}.`,
     url: `/?gurpurab=${encodeURIComponent(g.id)}`,
-    tag: `gp-${g.id}-${g.date}`,
+    tag: `gp-${g.id}-${date}`,
     ...(g.images?.[0] && { image: gpImageUrl(g.images[0]) }),
   });
-  g.noticeSentFor = g.date;
-  g.noticeSentAt = new Date().toISOString();
-  g.noticeDevices = sent;
-  await save();
+  const current = db.gurpurabs.find((day) => day.id === g.id);
+  if (current?.date === date) {
+    current.noticeSentFor = date;
+    current.noticeSentAt = new Date().toISOString();
+    current.noticeDevices = sent;
+    await save();
+  }
   return sent;
 }
 
@@ -3276,18 +3291,36 @@ async function sendGurpurabNotices() {
   for (const g of upcomingGurpurabs()) {
     if (g.noticeSentFor === g.date) continue;
     const at = noticeAt(g);
-    if (now >= at && now < at + NOTICE_GRACE) await sendGurpurabNotice(g);
+    // SGPC can release a date after its usual reminder time.
+    const imported = g.jantriUpdatedOn ? new Date(`${g.jantriUpdatedOn}T00:00:00`).getTime() : 0;
+    if (now >= at && now < Math.max(at, imported) + NOTICE_GRACE) await sendGurpurabNotice(g);
   }
 }
 
+let jantriCheck;
+function updateJantri(force = false) {
+  jantriCheck ||= (async () => {
+    const checked = await refreshJantri(db, todayKey(), { force });
+    const advanced = applyJantriDates(db, todayKey());
+    if (checked || advanced) await save();
+  })().finally(() => { jantriCheck = undefined; });
+  return jantriCheck;
+}
+
+async function checkGurpurabDays() {
+  if (topUpMonthlyDays(db)) await save();
+  await updateJantri();
+  await sendGurpurabNotices();
+}
+
 // Team reminders: checked every minute (the keep-alive below keeps the server awake for this).
+const checkGurpurabs = () => checkGurpurabDays().catch((e) => console.error('[sewa] Gurpurab maintenance failed:', e));
 setInterval(() => {
   sendReminders().catch((e) => console.error('[sewa] Reminders failed:', e));
-  sendGurpurabNotices().catch((e) => console.error('[sewa] Gurpurab notices failed:', e));
-  if (topUpMonthlyDays(db)) save().catch((e) => console.error('[sewa] Saving monthly days failed:', e)); // once a day
+  checkGurpurabs();
 }, 60 * 1000);
 sendReminders().catch(() => {});
-sendGurpurabNotices().catch(() => {});
+checkGurpurabs();
 
 // Free hosting plans put the site to sleep when idle. Render sets RENDER_EXTERNAL_URL itself;
 // on other hosts set KEEP_ALIVE_URL to the public address. KEEP_ALIVE=off disables it.
