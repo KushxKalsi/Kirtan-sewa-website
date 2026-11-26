@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { db, gurbani, save, uid, makeRef, slugify, DATA_DIR, initDb, kv } from './db.js';
 import { gurbaniQuery } from './gurbani.js';
 import { GURBANI_BOOKS, isGurbaniAng } from '../shared/gurbani.js';
+import { BRAND_LOGO } from '../shared/brand.js';
 import { initPush, pushPublicKey, addSubscription, notifyPhone, addAdminSubscription, removeAdminSubscription, adminDeviceCount, notifyAdmins, addPublicSubscription, notifyEveryone, everyoneCount } from './push.js';
 import { GURPURAB_KINDS, isMonthly, topUpMonthlyDays } from './gurpurabs.js';
 import { checkPassword, hashPassword, passwordProblem, sessions } from './auth.js';
@@ -822,19 +823,22 @@ app.delete(`${playlistsPath}/:id/angs/:book/:ang`, async (req, res) => {
 });
 
 app.get('/api/gurbani/search', async (req, res) => {
-  const { q, page = '1' } = req.query;
+  const { q, page = '1', book = 'sggs' } = req.query;
   if (typeof q !== 'string' || q.length > 160) fail(400, 'Enter up to 160 characters of Gurbani.');
   const query = gurbaniQuery(q);
   if (!query) fail(400, 'Enter Gurbani in Gurmukhi or Romanized Punjabi.');
   if (typeof page !== 'string' || !/^[1-9][0-9]{0,2}$/.test(page)) fail(400, 'Invalid search page.');
-  const results = await gurbani.search(query, Number(page));
+  if (typeof book !== 'string' || (book !== 'all' && !Object.hasOwn(GURBANI_BOOKS, book))) fail(400, 'Choose a valid book.');
+  const results = await gurbani.search(query, Number(page), book);
   res.set('Cache-Control', 'public, max-age=300');
   res.json(results);
 });
 
 app.get('/api/gurbani/shabads/:id', async (req, res) => {
+  const { book = 'sggs' } = req.query;
   if (!/^[a-z0-9]{3}$/i.test(req.params.id)) fail(404, 'Shabad not found.');
-  const shabad = await gurbani.shabad(req.params.id);
+  if (typeof book !== 'string' || !Object.hasOwn(GURBANI_BOOKS, book)) fail(404, 'Book not found.');
+  const shabad = await gurbani.shabad(req.params.id, book);
   if (!shabad) fail(404, 'Shabad not found.');
   res.set('Cache-Control', 'public, max-age=86400');
   res.json(shabad);
@@ -853,10 +857,19 @@ app.get('/api/gurbani/paaths/:id', async (req, res) => {
 });
 
 app.get('/api/gurbani/angs/:ang', async (req, res) => {
-  const ang = Number(req.params.ang);
-  if (!/^[1-9]\d{0,3}$/.test(req.params.ang) || ang > 1430) fail(404, 'Ang not found.');
-  const lines = await gurbani.ang(ang);
+  const { book = 'sggs' } = req.query;
+  const ang = /^[1-9]\d{0,3}$/.test(req.params.ang) ? Number(req.params.ang) : NaN;
+  if (!isGurbaniAng(book, ang)) fail(404, 'Ang not found.');
+  const lines = await gurbani.ang(ang, book);
+  if (!lines.length) fail(404, 'Ang not found.');
   res.set('Cache-Control', 'public, max-age=86400').json({ ang, lines });
+});
+
+app.get('/api/gurbani/books/:book/chapters', async (req, res) => {
+  const { book } = req.params;
+  if (!Object.hasOwn(GURBANI_BOOKS, book)) fail(404, 'Book not found.');
+  const chapters = await gurbani.chapters(book);
+  res.set('Cache-Control', 'public, max-age=86400').json({ chapters });
 });
 
 // Customers can only ask to cancel; the admin approves or rejects the request.
@@ -1898,6 +1911,7 @@ app.delete('/api/admin/people/:id', async (req, res) => {
   // Bookings keep the name they were assigned with, so history stays readable.
   const person = db.people.find((p) => p.id === req.params.id);
   db.people = (db.people || []).filter((p) => p.id !== req.params.id);
+  db.gurbaniPlaylists = db.gurbaniPlaylists.filter((folder) => folder.owner !== `m:${req.params.id}`);
   await save();
   await Promise.all(Object.values(person?.docs || {}).map((d) => kv.set(`doc-${d.id}`, null)));
   res.json({ people: peopleView() });
@@ -2438,6 +2452,7 @@ app.delete('/api/admin/users/:id', async (req, res) => {
   // Bookings stay (they keep the name and number); only the login and its chat are removed.
   const thread = threadOf('u', req.params.id);
   db.users = db.users.filter((u) => u.id !== req.params.id);
+  db.gurbaniPlaylists = db.gurbaniPlaylists.filter((folder) => folder.owner !== `u:${req.params.id}`);
   db.messages = db.messages.filter((m) => m.thread !== thread);
   db.threads = db.threads.filter((t) => t.id !== thread);
   await save();
@@ -2603,7 +2618,7 @@ app.get('/api/media/:id', async (req, res) => {
   res.status(206).set('Content-Range', `bytes ${start}-${end}/${total}`).send(file.buffer.subarray(start, end + 1));
 });
 
-const jathaAuthor = () => ({ id: '', name: db.settings.siteName, role: 'Jatha', photo: db.settings.aboutImage || '' });
+const jathaAuthor = () => ({ id: '', name: db.settings.siteName, role: 'Jatha', photo: BRAND_LOGO });
 const memberAuthor = (p) => ({ id: p.id, name: p.name, role: ROLES[p.role] || '', photo: p.photo ? mediaUrl(p.photo, p.photoLocal) : '' });
 const authorOf = (post) => (post.personId ? personOf(post.personId) : null);
 // Shown on the site: not hidden, and by the jatha or a member who is still active.
@@ -3071,32 +3086,34 @@ if (fs.existsSync(dist)) {
   // Shared post / profile links get a title and picture in WhatsApp and other link previews.
   const page = () => fs.readFileSync(path.join(dist, 'index.html'), 'utf8'); // read each time: a rebuild changes it
   const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
-  const withPreview = (req, title, text, image) => {
+  const withPreview = (req, title = db.settings.siteName, text = db.settings.tagline, image) => {
     const origin = `${req.get('x-forwarded-proto')?.split(',')[0] || req.protocol}://${req.get('host')}`;
+    const previewImage = image || '/icon-512.png?v=2';
     const tags = [
       ['og:title', title],
       ['og:description', text],
       ['og:url', origin + req.originalUrl],
-      ['og:type', 'article'],
-      ...(image ? [['og:image', image.startsWith('http') ? image : origin + image]] : []),
+      ['og:type', req.path.startsWith('/p/') || req.path.startsWith('/m/') ? 'article' : 'website'],
+      ['og:site_name', db.settings.siteName],
+      ['og:image', previewImage.startsWith('http') ? previewImage : origin + previewImage],
     ].map(([k, v]) => `<meta property="${k}" content="${esc(v)}" />`);
     return page().replace('</head>', `${tags.join('')}<meta name="twitter:card" content="summary_large_image" /></head>`);
   };
   app.get('/p/:id', (req, res) => {
     const post = db.posts.find((p) => p.id === req.params.id);
-    if (!post || !postVisible(post)) return res.send(page());
+    if (!post || !postVisible(post)) return res.send(withPreview(req));
     const who = post.personId ? authorOf(post)?.name : db.settings.siteName;
     const image = post.media.find((m) => m.kind === 'image');
     res.send(withPreview(req, `${who} · ${db.settings.siteName}`, post.caption || 'Gurbani Kirtan sewa', image && mediaUrl(image.id, image.local)));
   });
   app.get('/m/:id', (req, res) => {
     const p = personOf(req.params.id);
-    if (!p?.active) return res.send(page());
+    if (!p?.active) return res.send(withPreview(req));
     res.send(withPreview(req, `${p.name}${ROLES[p.role] ? ` · ${ROLES[p.role]}` : ''}`, `Kirtan photos and videos · ${db.settings.siteName}`, p.photo && mediaUrl(p.photo, p.photoLocal)));
   });
   app.use((req, res, next) => {
     if (req.method !== 'GET' || req.path.startsWith('/api')) return next();
-    res.sendFile(path.join(dist, 'index.html'));
+    res.send(withPreview(req));
   });
 }
 

@@ -1,4 +1,4 @@
-# Kirtan Sewa — portfolio & booking website
+# Amrit Kirtan Lehar — portfolio & booking website
 
 React + Framer Motion + Lenis front end, with a small Express API. Data lives in Postgres tables (when `DATABASE_URL` is set) or in `data/db.json` locally.
 
@@ -64,7 +64,7 @@ empty, it copies `data/db.json` into it. Upload the UPI QR again afterwards.
   group ID. Either all the slots are booked or none are.
 - **Calendar**: anyone can see which slots are booked, what sewa each is for, and the venue address.
   Visitors must choose their sewa first. Nothing is pre-selected.
-- **`/gurbani`**: choose **Read** for the paath library and the complete Sri Guru Granth Sahib Ji by Ang, or **Search** to find shabads in Gurmukhi, by first letters, or in Romanized Punjabi. Matches appear after typing three characters. Search history and favourite shabads are saved on the current device. See the [Gurbani corpus and import details](server/gurbani-data/README.md).
+- **`/gurbani`** offers the paath library, Sri Guru Granth Sahib Ji by Ang, and Sri Dasam Granth by Panna. **Go to chapter** opens a section picker in the reader. **Search** finds shabads in both books in Gurmukhi, by first letters, or in Romanized Punjabi. Signed-in readers can save pages to playlist folders from the reader or search results. Search history and favourites are saved on the current device. See the [Gurbani corpus and import details](server/gurbani-data/README.md).
 - **`/login`**: customers (sangat) and team members log in with their mobile number and password. Customers can
   create an account there or in the last booking step, and land on the booking calendar after logging in. Team
   members create their own account there too, choosing Head Ragi, Side Ragi or Tabla, picking where they are based on the map (required) and adding their documents (Aadhaar card required; jatha photos and bank

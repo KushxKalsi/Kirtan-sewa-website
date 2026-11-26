@@ -9,6 +9,8 @@ import { canInstall, showInstall } from './InstallApp';
 import ThemeToggle from './ThemeToggle';
 import { ease } from '../lib/motion';
 import { lockScroll, unlockScroll } from '../lib/scroll';
+import { BRAND_NAME } from '../../shared/brand';
+import BrandLogo from './BrandLogo';
 
 const LINKS = [
   { id: 'gurpurab', label: 'Gurpurab' },
@@ -60,8 +62,8 @@ export default function Navbar() {
       <motion.header className={`nav ${solid ? 'solid' : ''}`} initial={{ y: '-100%' }} animate={{ y: '0%' }} transition={{ duration: 0.6, ease }}>
         <div className="nav-inner container">
           <button className="brand" onClick={() => go('top')} aria-label="Home">
-            <span className="brand-mark gurmukhi">ੴ</span>
-            <span className="brand-name">{site?.settings.siteName || 'Kirtan Sewa'}</span>
+            <BrandLogo className="brand-mark" />
+            <span className="brand-name">{site?.settings.siteName || BRAND_NAME}</span>
           </button>
 
           <nav className="nav-links" onMouseLeave={() => setHovered(null)}>

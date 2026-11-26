@@ -4,6 +4,8 @@ import { Download } from 'lucide-react';
 import Modal from './Modal';
 import { prettyDate, rangeTo12 } from '../lib/date';
 import { PAYMENT_LABEL, rupees } from '../lib/money';
+import { BRAND_LOGO } from '../../shared/brand';
+import BrandLogo from './BrandLogo';
 
 // Kept as a string so the exact same styles are used on screen and in the print window.
 export const BILL_CSS = `
@@ -11,7 +13,7 @@ export const BILL_CSS = `
 .bill *{box-sizing:border-box}
 .bill-head{display:flex;justify-content:space-between;gap:24px;padding-bottom:22px;border-bottom:2px solid var(--gold)}
 .bill-brand{display:flex;gap:14px;align-items:center}
-.bill-mark{display:grid;place-items:center;width:52px;height:52px;border-radius:14px;background:linear-gradient(135deg,#f6d58e,#e9b44c 45%,#ff9933);color:#1a1206;font-family:'Noto Sans Gurmukhi',sans-serif;font-size:28px;flex-shrink:0}
+.bill-mark{display:block;width:62px;height:62px;border-radius:50%;object-fit:contain;flex-shrink:0}
 .bill-name{font-family:'Cormorant Garamond',Georgia,serif;font-size:28px;font-weight:700;line-height:1.05;margin:0}
 .bill-tag{font-family:'Noto Sans Gurmukhi',sans-serif;color:var(--soft);margin:2px 0 0;font-size:13px}
 .bill-title{text-align:right}
@@ -60,7 +62,7 @@ export function Bill({ booking: b, settings: s, origin = '' }) {
     <div className="bill">
       <header className="bill-head">
         <div className="bill-brand">
-          <span className="bill-mark">ੴ</span>
+          <BrandLogo className="bill-mark" src={origin ? new URL(BRAND_LOGO, window.location.href).href : BRAND_LOGO} />
           <div>
             <p className="bill-name">{s.siteName}</p>
             {s.gurmukhiTagline && <p className="bill-tag">{s.gurmukhiTagline}</p>}
@@ -161,7 +163,7 @@ export function TeamBill({ leave: l, settings: s, member, roles = {}, nameOf = (
     <div className="bill">
       <header className="bill-head">
         <div className="bill-brand">
-          <span className="bill-mark">ੴ</span>
+          <BrandLogo className="bill-mark" src={origin ? new URL(BRAND_LOGO, window.location.href).href : BRAND_LOGO} />
           <div>
             <p className="bill-name">{s.siteName}</p>
             {s.gurmukhiTagline && <p className="bill-tag">{s.gurmukhiTagline}</p>}

@@ -1,6 +1,6 @@
 {
-  "name": "Kirtan Sewa — Book Gurbani Kirtan",
-  "short_name": "Kirtan Sewa",
+  "name": "Amrit Kirtan Lehar",
+  "short_name": "Kirtan Lehar",
   "description": "Book Kirtan Diwan, Asa Di Vaar, So Dar Di Chaunki and Aarti.",
   "start_url": "/",
   "scope": "/",
@@ -8,8 +8,8 @@
   "background_color": "#070A14",
   "theme_color": "#070A14",
   "icons": [
-    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
-    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" },
-    { "src": "/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+    { "src": "/icon-192.png?v=2", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icon-512.png?v=2", "sizes": "512x512", "type": "image/png" },
+    { "src": "/icon-maskable-512.png?v=2", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
   ]
 }

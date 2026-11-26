@@ -36,10 +36,10 @@ async function request(path, { method = 'GET', body, token, device, signal } = {
 
 export const api = {
   site: () => request('/public'),
-  searchGurbani: (q, page, signal) => request(`/gurbani/search?${new URLSearchParams({ q, page })}`, { signal }),
+  searchGurbani: (q, page, signal) => request(`/gurbani/search?${new URLSearchParams({ q, page, book: 'all' })}`, { signal }),
   gurbaniShabad: (id, book, signal) => request(`/gurbani/shabads/${encodeURIComponent(id)}?${new URLSearchParams({ book })}`, { signal }),
   gurbaniPaaths: (signal) => request('/gurbani/paaths', { signal }),
-  gurbaniPaath: (id, signal) => request(`/gurbani/paaths/${encodeURIComponent(id)}`, { signal }),
+  gurbaniPaath: (id, signal) => request(`/gurbani/paaths/${encodeURIComponent(id)}?chapters=1`, { signal }),
   gurbaniAng: (ang, book, signal) => request(`/gurbani/angs/${encodeURIComponent(ang)}?${new URLSearchParams({ book })}`, { signal }),
   gurbaniChapters: (book, signal) => request(`/gurbani/books/${encodeURIComponent(book)}/chapters`, { signal }),
   availability: (from, to) => request(`/availability?from=${from}&to=${to}`),

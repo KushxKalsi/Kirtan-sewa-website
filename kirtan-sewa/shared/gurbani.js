@@ -1,6 +1,6 @@
 export const GURBANI_BOOKS = {
-  sggs: { title: 'Sri Guru Granth Sahib Ji', gurmukhi: 'ਸ੍ਰੀ ਗੁਰੂ ਗ੍ਰੰਥ ਸਾਹਿਬ ਜੀ', lastAng: 1430, route: 'ang' },
-  dasam: { title: 'Sri Dasam Granth', gurmukhi: 'ਸ੍ਰੀ ਦਸਮ ਗ੍ਰੰਥ', lastAng: 1428, route: 'dasam' },
+  sggs: { title: 'Sri Guru Granth Sahib Ji', pageLabel: 'Ang', lastAng: 1430, route: 'ang' },
+  dasam: { title: 'Sri Dasam Granth', pageLabel: 'Panna', lastAng: 1428, route: 'dasam' },
 };
 
 export function isGurbaniAng(book, ang) {

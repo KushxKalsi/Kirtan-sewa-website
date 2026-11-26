@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { format } from 'date-fns';
 import { AlignCenter, ArrowLeft, ArrowUp, Camera, Crop, Download, Eye, EyeOff, ImagePlus, Images, Loader2, Palette, Plus, RefreshCw, RotateCcw, Send, Share2, SlidersHorizontal, Sparkles, Trash2, Type, UserRound, UsersRound, Wand2, X } from 'lucide-react';
+import { BRAND_LOGO, BRAND_NAME } from '../../shared/brand';
 import Modal from './Modal';
 import { useSite } from './SiteContext';
 import { fromKey, prettyDate } from '../lib/date';
@@ -42,6 +43,7 @@ const SHOW = [
   ['frame', 'Border'],
   ['footer', 'Bottom line'],
 ];
+const DEFAULT_SHOW = { khanda: true, ornaments: true, frame: true, footer: true, logo: true };
 // Templates are grouped by how many photos they have. Frame designs (a picture with banners) are not in the template
 // picker — they are chosen in the Background tab, with every other design.
 const GROUPS = {
@@ -248,7 +250,8 @@ export default function PosterMaker({ open, duty: givenDuty, duties = [], person
   const [wash, setWash] = useState(0.35);
   const [fit, setFit] = useState('cover'); // a picture background: 'cover' fills the page, 'whole' shows all of it
   const [overlays, setOverlays] = useState({}); // template id → its frame picture
-  const [show, setShow] = useState({ khanda: true, ornaments: true, frame: true, footer: true });
+  const [show, setShow] = useState(DEFAULT_SHOW);
+  const [logo, setLogo] = useState(null);
   const [photo, setPhoto] = useState(null); // { url, img }
   const [titlePhoto, setTitlePhoto] = useState(null);
   const [people, setPeople] = useState([]); // [{ key, url, img, name, time }]
@@ -260,7 +263,7 @@ export default function PosterMaker({ open, duty: givenDuty, duties = [], person
   const drag = useRef(null);
   const [panel, setPanel] = useState('text');
   const [caption, setCaption] = useState('');
-  const footer = site?.settings.siteName || '';
+  const footer = site?.settings.siteName || BRAND_NAME;
 
   const detailsFor = (d) => {
     const gp = d && (site?.gurpurabs || []).filter((g) => g.date === d.date).sort((a, b) => !!a.monthly - !!b.monthly)[0]; // a Gurpurab first
@@ -297,11 +300,12 @@ export default function PosterMaker({ open, duty: givenDuty, duties = [], person
     setTitlePhoto(null);
     setItems(textOnlyItems());
     setSel(null);
-    setShow({ khanda: true, ornaments: true, frame: true, footer: true });
+    setShow(DEFAULT_SHOW);
     setGenerated([genBackground(), genBackground(), genBackground()]);
     chooseTemplate(TEMPLATES[0].id);
     setCaption(givenDuty ? `${givenDuty.serviceName} · ${format(fromKey(givenDuty.date), 'd MMM yyyy')}` : '');
     loadPosterFonts().then(() => setFontsOk(true));
+    loadImage(BRAND_LOGO).then(setLogo);
     Promise.all(TEMPLATES.filter((t) => t.overlay).map(async (t) => [t.id, await loadImage(t.overlay)])).then((list) => setOverlays(Object.fromEntries(list.filter(([, img]) => img))));
     team.posts().then(
       async (r) => {
@@ -334,6 +338,7 @@ export default function PosterMaker({ open, duty: givenDuty, duties = [], person
     palette,
     bg: bg.type === 'image' ? { type: 'image', img: bgImg, wash, fit } : bg,
     show,
+    logo,
     photo: photo?.img,
     titlePhoto: titlePhoto?.img,
     people,
@@ -364,6 +369,7 @@ export default function PosterMaker({ open, duty: givenDuty, duties = [], person
               palette: t.palette,
               bg: t.bg.type === 'image' ? { type: 'image', img: teamArt[t.art?.id]?.img, wash: 0.35 } : t.bg,
               show: t.show,
+              logo,
               overlay: overlayFor(t),
               templateId: t.id,
               template: t,
@@ -377,7 +383,7 @@ export default function PosterMaker({ open, duty: givenDuty, duties = [], person
       ]),
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, fontsOk, footer, overlays, teamDesigns]);
+  }, [open, fontsOk, footer, logo, overlays, teamDesigns]);
   const bgThumbs = useMemo(() => {
     if (!open || step !== 'edit') return {};
     return Object.fromEntries([...BG_PRESETS, ...generated].map((b) => [bgKey(b), snapshot((c) => renderBackground(c, b, 84))]));
@@ -533,10 +539,12 @@ export default function PosterMaker({ open, duty: givenDuty, duties = [], person
 
   /* ---------- result ---------- */
   // Drawn again on its own canvas, so the editor's selection outline is not in the picture.
-  const blob = () =>
-    new Promise((resolve, reject) =>
-      renderPoster(document.createElement('canvas'), design).toBlob((b) => (b ? resolve(b) : reject(new Error('Could not make the image — try another photo or background.'))), 'image/jpeg', 0.92),
+  const blob = async () => {
+    const brandLogo = show.logo ? logo || await loadImage(BRAND_LOGO) : null;
+    return new Promise((resolve, reject) =>
+      renderPoster(document.createElement('canvas'), { ...design, logo: brandLogo }).toBlob((b) => (b ? resolve(b) : reject(new Error('Could not make the image — try another photo or background.'))), 'image/jpeg', 0.92),
     );
+  };
   const fileName = `poster-${details.date || format(new Date(), 'yyyy-MM-dd')}.jpg`;
   const download = () =>
     run('download', async () => {
@@ -999,6 +1007,10 @@ export default function PosterMaker({ open, duty: givenDuty, duties = [], person
                     </div>
                   </>
                 )}
+                <label className="check">
+                  <input type="checkbox" checked={show.logo} onChange={(event) => setShow((current) => ({ ...current, logo: event.target.checked }))} />
+                  <span>Jatha logo</span>
+                </label>
               </div>
             )}
 

@@ -2,7 +2,9 @@ import { readFile } from 'node:fs/promises';
 import { promisify } from 'node:util';
 import { gunzip } from 'node:zlib';
 
-const CORPUS = 'shabados-4.8.7-sggs';
+const CORPORA = { sggs: 'shabados-4.8.7-sggs', dasam: 'shabados-4.8.7-dasam' };
+const versions = Object.values(CORPORA);
+const bookByVersion = new Map(Object.entries(CORPORA).map(([book, version]) => [version, book]));
 const PAATHS = 'shabados-4.8.7-paaths';
 const PAGE_SIZE = 20;
 const unzip = promisify(gunzip);
@@ -32,26 +34,27 @@ export function gurbaniQuery(text) {
   return key && { key, initials: '', roman: true };
 }
 
-async function readCorpus() {
-  const rows = await readSeed('sggs');
+async function readCorpus(book) {
+  const rows = await readSeed(book);
   return rows.map(([id, shabad_id, ang, text, roman], i) => {
     const gurmukhi_key = gurmukhiKey(text);
     return {
-      id, shabad_id, ang, text, roman, line_no: i + 1, gurmukhi_key, roman_key: romanKey(roman),
+      version: CORPORA[book], id, shabad_id, ang, text, roman, line_no: i + 1, gurmukhi_key, roman_key: romanKey(roman),
       initials: [...gurmukhi_key.matchAll(/(?:^| )(\p{L})/gu)].map((match) => match[1]).join(''),
     };
   });
 }
 
-const publicLine = ({ id, shabad_id: shabadId, ang, text, roman }) => ({ id, shabadId, ang, text, roman });
+const publicLine = ({ version, id, shabad_id: shabadId, ang, text, roman }) => ({ book: bookByVersion.get(version), id, shabadId, ang, text, roman });
 
 function pageOf(lines) {
   return { results: lines.slice(0, PAGE_SIZE).map(publicLine), hasMore: lines.length > PAGE_SIZE };
 }
 
-function localSearch(rows, query, page) {
+function localSearch(rows, query, page, sourceVersions) {
   const best = new Map();
   for (const row of rows) {
+    if (!sourceVersions.includes(row.version)) continue;
     const text = query.roman ? row.roman_key : row.gurmukhi_key;
     let rank;
     if (text === query.key) rank = 0;
@@ -65,7 +68,7 @@ function localSearch(rows, query, page) {
   }
   const offset = (page - 1) * PAGE_SIZE;
   return pageOf([...best.values()]
-    .sort((a, b) => a.rank - b.rank || a.row.line_no - b.row.line_no)
+    .sort((a, b) => a.rank - b.rank || versions.indexOf(a.row.version) - versions.indexOf(b.row.version) || a.row.line_no - b.row.line_no)
     .slice(offset, offset + PAGE_SIZE + 1)
     .map(({ row }) => row));
 }
@@ -103,15 +106,16 @@ async function seedPostgres(pool) {
     const addCorpus = async (version) => (await client.query(
       'INSERT INTO gurbani_corpora (version) VALUES ($1) ON CONFLICT DO NOTHING RETURNING version', [version],
     )).rows.length > 0;
-    if (await addCorpus(CORPUS)) {
-      const rows = await readCorpus();
+    for (const [book, version] of Object.entries(CORPORA)) {
+      if (!(await addCorpus(version))) continue;
+      const rows = await readCorpus(book);
       for (let i = 0; i < rows.length; i += 2000) {
         await client.query(`INSERT INTO gurbani_lines
           (version, line_no, id, shabad_id, ang, text, roman, gurmukhi_key, roman_key, initials)
           SELECT $1, line_no, id, shabad_id, ang, text, roman, gurmukhi_key, roman_key, initials
           FROM jsonb_to_recordset($2::jsonb) AS seed(line_no integer, id text, shabad_id text, ang integer,
             text text, roman text, gurmukhi_key text, roman_key text, initials text)`,
-        [CORPUS, JSON.stringify(rows.slice(i, i + 2000))]);
+        [version, JSON.stringify(rows.slice(i, i + 2000))]);
       }
     }
     if (await addCorpus(PAATHS)) {
@@ -129,28 +133,33 @@ async function seedPostgres(pool) {
   }
 }
 
-async function postgresSearch(pool, query, page) {
+async function postgresSearch(pool, query, page, sourceVersions) {
   const keyColumn = query.roman ? 'roman_key' : 'gurmukhi_key';
   const { rows } = await pool.query(`WITH ranked AS (
-      SELECT line_no, id, shabad_id, ang, text, roman, CASE
+      SELECT version, line_no, id, shabad_id, ang, text, roman, CASE
         WHEN ${keyColumn} = $2 THEN 0
         WHEN strpos(${keyColumn}, $2) = 1 THEN 1
         WHEN strpos(${keyColumn}, $2) > 1 THEN 2
         WHEN $3 <> '' AND strpos(initials, $3) = 1 THEN 3
       END AS rank
-      FROM gurbani_lines WHERE version = $1
+      FROM gurbani_lines WHERE version = ANY($1::text[])
     ), best AS (
-      SELECT DISTINCT ON (shabad_id) * FROM ranked WHERE rank IS NOT NULL ORDER BY shabad_id, rank, line_no
+      SELECT DISTINCT ON (version, shabad_id) * FROM ranked WHERE rank IS NOT NULL ORDER BY version, shabad_id, rank, line_no
     )
-    SELECT id, shabad_id, ang, text, roman FROM best ORDER BY rank, line_no LIMIT $4 OFFSET $5`,
-  [CORPUS, query.key, query.initials, PAGE_SIZE + 1, (page - 1) * PAGE_SIZE]);
+    SELECT version, id, shabad_id, ang, text, roman FROM best
+    ORDER BY rank, array_position($1::text[], version), line_no LIMIT $4 OFFSET $5`,
+  [sourceVersions, query.key, query.initials, PAGE_SIZE + 1, (page - 1) * PAGE_SIZE]);
   return pageOf(rows);
 }
 
 export function createGurbaniStore(pool) {
   let ready;
   function prepare() {
-    ready ||= (pool ? seedPostgres(pool) : Promise.all([readCorpus(), readSeed('paaths')]).then(([lines, paaths]) => ({ lines, paaths }))).catch((error) => {
+    ready ||= Promise.all([
+      pool ? seedPostgres(pool) : Promise.all(Object.keys(CORPORA).map(readCorpus)),
+      pool ? null : readSeed('paaths'),
+      readSeed('chapters'),
+    ]).then(([corpora, paaths, chapters]) => ({ lines: corpora?.flat(), paaths, chapters })).catch((error) => {
       ready = undefined;
       throw error;
     });
@@ -159,16 +168,18 @@ export function createGurbaniStore(pool) {
 
   return {
     prepare,
-    async search(query, page) {
+    async search(query, page, book = 'sggs') {
       const local = await prepare();
-      return pool ? postgresSearch(pool, query, page) : localSearch(local.lines, query, page);
+      const sourceVersions = book === 'all' ? versions : [CORPORA[book]];
+      return pool ? postgresSearch(pool, query, page, sourceVersions) : localSearch(local.lines, query, page, sourceVersions);
     },
-    async shabad(id) {
+    async shabad(id, book = 'sggs') {
       const local = await prepare();
+      const version = CORPORA[book];
       const lines = pool
-        ? (await pool.query(`SELECT id, shabad_id, ang, text, roman FROM gurbani_lines
-            WHERE version = $1 AND shabad_id = $2 ORDER BY line_no`, [CORPUS, id])).rows
-        : local.lines.filter((row) => row.shabad_id === id);
+        ? (await pool.query(`SELECT version, id, shabad_id, ang, text, roman FROM gurbani_lines
+            WHERE version = $1 AND shabad_id = $2 ORDER BY line_no`, [version, id])).rows
+        : local.lines.filter((row) => row.version === version && row.shabad_id === id);
       return lines.length ? { id, lines: lines.map(publicLine) } : null;
     },
     async paaths() {
@@ -179,15 +190,20 @@ export function createGurbaniStore(pool) {
     },
     async paath(id) {
       const local = await prepare();
-      return pool
+      const paath = pool
         ? (await pool.query('SELECT id, title, gurmukhi, lines FROM gurbani_paaths WHERE version = $1 AND id = $2', [PAATHS, id])).rows[0]
         : local.paaths.find((paath) => paath.id === id);
+      return paath && { ...paath, chapters: local.chapters.paaths[id] };
     },
-    async ang(ang) {
+    async chapters(book) {
+      return (await prepare()).chapters.books[book];
+    },
+    async ang(ang, book = 'sggs') {
       const local = await prepare();
+      const version = CORPORA[book];
       const lines = pool
-        ? (await pool.query('SELECT text FROM gurbani_lines WHERE version = $1 AND ang = $2 ORDER BY line_no', [CORPUS, ang])).rows
-        : local.lines.filter((row) => row.ang === ang);
+        ? (await pool.query('SELECT text FROM gurbani_lines WHERE version = $1 AND ang = $2 ORDER BY line_no', [version, ang])).rows
+        : local.lines.filter((row) => row.version === version && row.ang === ang);
       return lines.map(({ text }) => text);
     },
   };

@@ -4,7 +4,11 @@
 
 The export selects Sri Guru Granth Sahib Ji and its Roman transliteration from the release and converts the source's legacy Gurmukhi encoding to Unicode with [gurmukhi-utils 3.2.2](https://github.com/shabados/gurmukhi-utils/tree/3.2.2). Each row contains the line ID, shabad ID, ang, Unicode Gurmukhi text and Roman transliteration.
 
+`dasam.json.gz` contains all 67,758 lines of Sri Dasam Granth across its 1,428 pannas, preserving the release's 5,470 shabad groupings and Roman transliteration. It uses the same export format and license.
+
 `paaths.json.gz` contains the 29 named paaths in the same release, including those with lines from other sources such as Sri Dasam Granth. It preserves the source's text and line order by sorting first by bani line group and then by line order. The export converts the Gurmukhi text and titles to Unicode and uses the same data license.
+
+`chapters.json.gz` indexes the opening lines of the 51 sections of Sri Guru Granth Sahib Ji and 17 sections of Sri Dasam Granth. The paath indexes use source headings, line groups, and numbered verses.
 
 To regenerate the seed, download `database.sqlite` from the release above, install `gurmukhi-utils@3.2.2` in a temporary directory, and run the following with Node.js 22.13 or newer.
 

@@ -10,6 +10,8 @@ import { useSite } from '../components/SiteContext';
 import { scrollToId } from '../lib/scroll';
 import { ease } from '../lib/motion';
 import { useLowEnd } from '../lib/perf';
+import { BRAND_NAME } from '../../shared/brand';
+import BrandLogo from '../components/BrandLogo';
 
 export default function Hero({ ready }) {
   const { site } = useSite();
@@ -19,9 +21,8 @@ export default function Hero({ ready }) {
   const y = useTransform(scrollYProgress, [0, 1], [0, 220]);
   const opacity = useTransform(scrollYProgress, [0, 0.75], [1, 0]);
   const emblemScale = useTransform(scrollYProgress, [0, 1], [1, 1.35]);
-  const emblemRotate = useTransform(scrollYProgress, [0, 1], [0, 40]);
   const blur = !useLowEnd();
-  const name = s?.siteName || 'Kirtan Sewa';
+  const name = s?.siteName || BRAND_NAME;
   const words = name.split(' ');
 
   const appear = (delay) => ({
@@ -39,20 +40,20 @@ export default function Hero({ ready }) {
       <motion.div className="hero-inner container" style={{ y, opacity }}>
         <motion.div
           className="hero-emblem"
-          style={{ scale: emblemScale, rotate: emblemRotate }}
+          style={{ scale: emblemScale }}
           initial={{ opacity: 0, scale: 0.7 }}
           animate={ready ? { opacity: 1, scale: 1 } : {}}
           transition={{ duration: 1.6, ease }}
         >
           {ready && <Mandala className="hero-mandala" />}
-          <motion.span
-            className="ik-onkar gurmukhi"
+          <motion.div
+            className="hero-logo"
             initial={{ opacity: 0, ...(blur && { filter: 'blur(16px)' }) }}
             animate={ready ? { opacity: 1, ...(blur && { filter: 'blur(0px)' }) } : {}}
             transition={{ duration: 1.4, ease, delay: 0.5 }}
           >
-            ੴ
-          </motion.span>
+            <BrandLogo fetchPriority="high" />
+          </motion.div>
         </motion.div>
 
         <motion.p className="hero-gurmukhi gurmukhi" {...appear(0.6)}>
