@@ -666,7 +666,7 @@ body:has(.install-app) .gurbani-reader-footer {
 }
 
 .gurbani-translation {
-  color: color-mix(in srgb, var(--text) 65%, var(--muted));
+  color: color-mix(in srgb, color-mix(in srgb, var(--text) 65%, var(--muted)), black 8%);
 }
 
 .gurbani-reading-extra[dir='rtl'] {
