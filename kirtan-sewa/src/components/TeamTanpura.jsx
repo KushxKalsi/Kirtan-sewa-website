@@ -333,7 +333,10 @@ export default function TeamTanpura() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
-  useEffect(() => () => engine.close(), [engine]);
+  useEffect(() => {
+    engine.prepare().catch(() => {}); // render the strings now, so Play starts at once
+    return () => engine.close();
+  }, [engine]);
 
   const change = (next) => {
     setSettings((s) => {
