@@ -1,5 +1,6 @@
 // A tanpura drone made in the browser with the Web Audio API — no audio files to download.
-// Each string is synthesised harmonic by harmonic with the tanpura's jawari buzz (see tanpuraVoice.js),
+// Each string is synthesised harmonic by harmonic with the tanpura's jawari buzz, its sound fitted to
+// measurements of real tanpura recordings (see tanpuraVoice.js),
 // in a worker, and played in the usual four-string cycle: first string (Pa / Ma / Ni), two middle Sa
 // strings, then the low Sa (kharaj).
 
@@ -47,7 +48,7 @@ export function stringFrequencies({ scale, octave, first }) {
   return [sa * FIRST_STRING[first].ratio, sa, sa, sa / 2];
 }
 
-const sampleKey = (freq, variant) => `${freq.toFixed(3)}:${variant}`;
+const sampleKey = (freq, variant, sa) => `${freq.toFixed(3)}:${variant}:${sa.toFixed(3)}`;
 
 /** Renders strings in a worker (or right here if workers aren't available). */
 class Renderer {
@@ -72,8 +73,8 @@ class Renderer {
     return this.worker;
   }
 
-  render(freq, variant) {
-    const key = sampleKey(freq, variant);
+  render(freq, variant, sa) {
+    const key = sampleKey(freq, variant, sa);
     if (!this.cache.has(key)) {
       if (this.cache.size >= CACHE_LIMIT) this.cache.delete(this.cache.keys().next().value);
       const worker = this.startWorker();
@@ -81,9 +82,9 @@ class Renderer {
         ? new Promise((resolve) => {
           const id = this.nextId++;
           this.waiting.set(id, resolve);
-          worker.postMessage({ id, freq, variant });
+          worker.postMessage({ id, freq, variant, sa });
         })
-        : import('./tanpuraVoice').then(({ renderString, RENDER_RATE }) => ({ samples: renderString(freq, variant), rate: RENDER_RATE }));
+        : import('./tanpuraVoice').then(({ renderString, RENDER_RATE }) => ({ samples: renderString(freq, variant, undefined, undefined, undefined, { sa }), rate: RENDER_RATE }));
       this.cache.set(key, job);
     }
     return this.cache.get(key);
@@ -141,7 +142,8 @@ export class Tanpura {
 
   /** Get the four strings for these settings ready (in the background). Resolves when they are. */
   prepare(settings = this.settings) {
-    return Promise.all(stringFrequencies(settings).map((freq, i) => this.renderer.render(freq, i)));
+    const freqs = stringFrequencies(settings);
+    return Promise.all(freqs.map((freq, i) => this.renderer.render(freq, i, freqs[1])));
   }
 
   setup() {
@@ -162,15 +164,10 @@ export class Tanpura {
     const lowCut = ctx.createBiquadFilter();
     lowCut.type = 'highpass';
     lowCut.frequency.value = 30;
-    // the gourd: a warm body resonance and a softened top end
-    const body = ctx.createBiquadFilter();
-    body.type = 'peaking';
-    body.frequency.value = 190;
-    body.Q.value = 1.1;
-    body.gain.value = 3;
+    // The gourd's colour is already in the fitted strings; this only rounds off the very top.
     const air = ctx.createBiquadFilter();
     air.type = 'lowpass';
-    air.frequency.value = 8500;
+    air.frequency.value = 9500;
     air.Q.value = 0.5;
 
     const reverb = ctx.createConvolver();
@@ -184,14 +181,14 @@ export class Tanpura {
     limiter.knee.value = 6;
     limiter.ratio.value = 4;
 
-    this.bus.connect(lowCut).connect(body).connect(air);
+    this.bus.connect(lowCut).connect(air);
     air.connect(this.master);
     air.connect(reverb).connect(wet).connect(this.master);
     this.master.connect(limiter).connect(ctx.destination);
   }
 
-  buffer(freq, variant, { samples, rate }) {
-    const key = sampleKey(freq, variant);
+  buffer(freq, variant, sa, { samples, rate }) {
+    const key = sampleKey(freq, variant, sa);
     if (!this.buffers.has(key)) {
       if (this.buffers.size >= CACHE_LIMIT) this.buffers.delete(this.buffers.keys().next().value);
       const buffer = this.ctx.createBuffer(1, samples.length, rate);
@@ -208,7 +205,8 @@ export class Tanpura {
     const settings = this.settings;
     const rendered = await this.prepare(settings);
     if (token !== this.tuning || !this.ctx) return;
-    this.strings = stringFrequencies(settings).map((freq, i) => this.buffer(freq, i, rendered[i]));
+    const freqs = stringFrequencies(settings);
+    this.strings = freqs.map((freq, i) => this.buffer(freq, i, freqs[1], rendered[i]));
     this.ready = true;
     this.step = 0;
     this.nextAt = this.ctx.currentTime + 0.08;
