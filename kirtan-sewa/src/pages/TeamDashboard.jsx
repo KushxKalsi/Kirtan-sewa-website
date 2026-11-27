@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Navigate, useSearchParams } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import { addDays, format } from 'date-fns';
@@ -24,6 +24,7 @@ import {
   LogOut,
   MapPin,
   MessagesSquare,
+  Music2,
   Navigation,
   Phone,
   Save,
@@ -56,12 +57,15 @@ import { fileToDataUrl, readDataUrl } from '../lib/image';
 import { rupees } from '../lib/money';
 import { ease } from '../lib/motion';
 
+const TeamTanpura = lazy(() => import('../components/TeamTanpura'));
+
 const TABS = [
   { id: 'calendar', label: 'Calendar', icon: CalendarRange },
   { id: 'overview', label: 'Overview', icon: Gauge },
   { id: 'duties', label: 'My sewas', icon: ListChecks },
   { id: 'leave', label: 'Team booking', icon: UsersRound },
   { id: 'chat', label: 'Chat with admin', icon: MessagesSquare },
+  { id: 'tanpura', label: 'Tanpura & shabads', icon: Music2 },
   { id: 'posts', label: 'Posts', icon: Images },
   { id: 'profile', label: 'Profile & documents', icon: UserRound },
 ];
@@ -1447,7 +1451,12 @@ export default function TeamDashboard() {
               <CircleAlert size={18} /> {error}
             </div>
           )}
-          {!data && !error && (
+          {tab === 'tanpura' && (
+            <Suspense fallback={<div className="admin-loading"><Loader2 className="spin" /></div>}>
+              <TeamTanpura />
+            </Suspense>
+          )}
+          {!data && !error && tab !== 'tanpura' && (
             <div className="admin-loading">
               <Loader2 className="spin" />
             </div>

@@ -1,0 +1,422 @@
+/* =========================================================
+   Team dashboard: Tanpura + shabad reader
+   ========================================================= */
+.tanpura-tab {
+  display: grid;
+  gap: 18px;
+}
+
+.tanpura-card,
+.tanpura-reader {
+  padding: clamp(16px, 3vw, 26px);
+}
+
+.tanpura-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+.tanpura-head h2 {
+  margin: 4px 0 2px;
+  font: 700 clamp(1.7rem, 4vw, 2.1rem) / 1.1 var(--font-display);
+}
+.tanpura-head p {
+  margin: 0;
+  font-size: 14px;
+}
+
+.tanpura-play {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 68px;
+  height: 68px;
+  border-radius: 50%;
+  background: var(--grad-gold);
+  color: #1a1206;
+  box-shadow: 0 10px 28px -10px rgba(233, 180, 76, 0.7);
+  transition: transform 0.15s, box-shadow 0.3s;
+}
+.tanpura-play:hover {
+  transform: scale(1.05);
+}
+.tanpura-play:active {
+  transform: scale(0.96);
+}
+.tanpura-play.on {
+  animation: tanpura-glow 2.4s ease-in-out infinite;
+}
+.tanpura-play:disabled {
+  opacity: 0.7;
+}
+@keyframes tanpura-glow {
+  50% {
+    box-shadow: 0 0 0 10px rgba(233, 180, 76, 0.12), 0 10px 28px -10px rgba(233, 180, 76, 0.8);
+  }
+}
+
+/* the four strings */
+.tanpura-strings {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+  margin: 18px 0 8px;
+  height: 92px;
+  padding: 0 6%;
+  border-radius: var(--radius-sm);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--gold) 9%, transparent), transparent 85%);
+}
+.tanpura-string {
+  position: relative;
+  display: grid;
+  justify-items: center;
+}
+.tanpura-string span {
+  display: block;
+  width: 2px;
+  height: 70px;
+  margin-top: 6px;
+  border-radius: 2px;
+  background: linear-gradient(180deg, var(--gold-2), var(--gold));
+  opacity: 0.45;
+  transform-origin: 50% 50%;
+}
+.tanpura-string.s3 span {
+  width: 3px;
+}
+.tanpura-strings.playing .tanpura-string span.plucked {
+  animation: tanpura-pluck 1.8s ease-out;
+}
+@keyframes tanpura-pluck {
+  0% {
+    opacity: 1;
+    box-shadow: 0 0 12px var(--gold);
+    transform: scaleX(2.6);
+  }
+  8% {
+    transform: scaleX(0.6) translateX(1.5px);
+  }
+  16% {
+    transform: scaleX(2) translateX(-1.5px);
+  }
+  30% {
+    transform: scaleX(0.8) translateX(1px);
+  }
+  100% {
+    opacity: 0.45;
+    box-shadow: none;
+    transform: none;
+  }
+}
+.tanpura-string em {
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 700;
+  color: var(--muted);
+  letter-spacing: 0.04em;
+}
+
+.tanpura-now {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-bottom: 16px;
+}
+.tanpura-now strong {
+  font: 700 2rem / 1 var(--font-display);
+  color: var(--gold-2);
+}
+.tanpura-now span {
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.tanpura-group {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+.tanpura-label {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.tanpura-scales {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 6px;
+}
+.tanpura-scales button {
+  display: grid;
+  gap: 1px;
+  padding: 8px 4px;
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  background: var(--surface);
+  text-align: center;
+  transition: border-color 0.2s, background 0.2s, color 0.2s;
+}
+.tanpura-scales button.kali {
+  background: color-mix(in srgb, var(--text) 9%, transparent);
+}
+.tanpura-scales button strong {
+  font-size: 16px;
+}
+.tanpura-scales button small {
+  font-size: 10.5px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.tanpura-scales button:hover {
+  border-color: var(--gold);
+}
+.tanpura-scales button.active {
+  border-color: transparent;
+  background: var(--grad-gold);
+  color: #1a1206;
+}
+.tanpura-scales button.active small {
+  color: rgba(26, 18, 6, 0.75);
+}
+
+.tanpura-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  margin-top: 16px;
+}
+.tanpura-seg {
+  display: flex;
+  padding: 3px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--surface);
+}
+.tanpura-seg button {
+  flex: 1;
+  padding: 7px 8px;
+  border-radius: 999px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.tanpura-seg button.active {
+  background: var(--grad-gold);
+  color: #1a1206;
+}
+
+.tanpura-sliders {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  margin-top: 18px;
+}
+.tanpura-sliders label {
+  display: grid;
+  gap: 6px;
+}
+.tanpura-sliders label > span {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.tanpura-sliders em {
+  font-style: normal;
+  font-weight: 500;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.tanpura-sliders .gurbani-text-button {
+  font-size: 12px;
+}
+.tanpura-sliders input[type='range'] {
+  width: 100%;
+  accent-color: var(--gold);
+}
+
+/* the reader */
+.tanpura-reader {
+  position: relative;
+}
+.tanpura-reader h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 14px 0 12px;
+  font: 700 1.5rem / 1.2 var(--font-display);
+}
+.tanpura-reader h3 svg {
+  color: var(--gold);
+}
+
+/* stays at the top while you scroll a long shabad */
+.tanpura-mini {
+  position: sticky;
+  top: calc(var(--nav-h) + 8px);
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px 6px 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--bg-2);
+  box-shadow: 0 8px 22px -14px rgba(0, 0, 0, 0.6);
+}
+.tanpura-mini-play {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: var(--grad-gold);
+  color: #1a1206;
+}
+.tanpura-mini-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 13.5px;
+  font-weight: 600;
+}
+.tanpura-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--success);
+  animation: tanpura-blink 1.4s ease-in-out infinite;
+}
+@keyframes tanpura-blink {
+  50% {
+    opacity: 0.25;
+  }
+}
+.tanpura-mini-tools {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.tanpura-mini-tools .icon-btn {
+  width: 30px;
+  height: 30px;
+}
+.tanpura-mini-tools .icon-btn:disabled {
+  opacity: 0.4;
+}
+.tanpura-mini-tools .gurbani-language-button {
+  margin-left: 4px;
+}
+
+.tanpura-search {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+}
+.tanpura-search:focus-within {
+  border-color: var(--gold);
+}
+.tanpura-search svg {
+  flex: none;
+  color: var(--muted);
+}
+.tanpura-search input {
+  flex: 1;
+  min-width: 0;
+  padding: 11px 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text);
+  font: 1.0625rem / 1.6 var(--font-gurmukhi, inherit);
+}
+.tanpura-hint {
+  margin: 10px 0 0;
+  font-size: 13.5px;
+}
+.tanpura-found {
+  margin-top: 14px;
+}
+.tanpura-saved {
+  margin-top: 18px;
+}
+.tanpura-saved h4 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 8px;
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.tanpura-results .gurbani-result {
+  width: 100%;
+  text-align: left;
+}
+
+.tanpura-shabad-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+  font-size: 13.5px;
+}
+.tanpura-shabad-bar .icon-btn {
+  margin-left: auto;
+}
+.tanpura-shabad .gurbani-shabad {
+  padding: clamp(10px, 2.5vw, 22px);
+}
+
+@media (max-width: 640px) {
+  .tanpura-play {
+    width: 58px;
+    height: 58px;
+  }
+  .tanpura-scales {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+  .tanpura-row,
+  .tanpura-sliders {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .tanpura-mini-name {
+    font-size: 12.5px;
+  }
+  .tanpura-mini-tools > span {
+    display: none;
+  }
+  .tanpura-mini-tools .gurbani-language-button span {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tanpura-play.on,
+  .tanpura-dot,
+  .tanpura-strings.playing .tanpura-string span.plucked {
+    animation: none;
+  }
+}
