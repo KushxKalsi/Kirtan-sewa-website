@@ -1,8 +1,12 @@
-// A tanpura drone made in the browser with the Web Audio API — no audio files to download.
+// A tanpura drone made in the browser with the Web Audio API. By default it plays a looped recording of a real
+// tanpura (see tanpuraRecordings.js), re-pitched to the chosen scale; where no recording fits (Ni tuning, far
+// octaves) or when asked to, it synthesises one instead.
 // Each string is synthesised harmonic by harmonic with the tanpura's jawari buzz, its sound fitted to
 // measurements of real tanpura recordings (see tanpuraVoice.js),
 // in a worker, and played in the usual four-string cycle: first string (Pa / Ma / Ni), two middle Sa
 // strings, then the low Sa (kharaj).
+
+import { pickRecording } from './tanpuraRecordings';
 
 export const SCALES = [
   { id: 0, name: 'C', harmonium: 'Safed 1' },
@@ -32,16 +36,31 @@ export const OCTAVES = {
   4: 'High',
 };
 
-export const DEFAULTS = { scale: 1, octave: 3, first: 'pa', cycle: 4.4, volume: 0.8, fine: 0 };
+// sound: 'real' plays a looped recording of a real tanpura when one fits the scale; 'synth' always synthesises.
+export const DEFAULTS = { scale: 1, octave: 3, first: 'pa', cycle: 4.4, volume: 0.8, fine: 0, sound: 'real' };
 
 // Where each of the four plucks falls in one cycle — the low Sa is followed by a short rest.
 const GAPS = [0.23, 0.21, 0.23, 0.33];
 const STRING_LEVEL = [0.85, 0.7, 0.7, 1];
-const STRING_CENTS = [0, -1.2, 1.2, 0]; // the two middle strings a hair apart, as on a real tanpura
+const STRING_CENTS = [0, 0, 0, 0]; // in exact unison: detuned strings beat against each other and swirl
 const STRING_PAN = [-0.28, -0.08, 0.1, 0.26];
 const CACHE_LIMIT = 12;
 
 const saFrequency = (scale, octave) => 440 * 2 ** ((scale - 9) / 12 + (octave - 4));
+const LOOP_FADE = 0.35; // seconds of recording crossfaded at each loop join
+
+/** The real recording that will play for these settings ({ rec, shift, rate }), or null when it will be synthesised. */
+export function recordingFor(settings) {
+  return settings.sound === 'synth' ? null : pickRecording(saFrequency(settings.scale, settings.octave), settings.first);
+}
+
+function fadeCurve(up) {
+  const curve = new Float32Array(64);
+  for (let i = 0; i < 64; i++) curve[i] = up ? Math.sin((i / 63) * (Math.PI / 2)) : Math.cos((i / 63) * (Math.PI / 2));
+  return curve;
+}
+const FADE_IN = fadeCurve(true);
+const FADE_OUT = fadeCurve(false);
 
 export function stringFrequencies({ scale, octave, first }) {
   const sa = saFrequency(scale, octave);
@@ -118,6 +137,9 @@ export class Tanpura {
     this.settings = { ...DEFAULTS, ...settings };
     this.renderer = new Renderer();
     this.buffers = new Map(); // key -> AudioBuffer for this.ctx
+    this.files = new Map(); // recording file -> Promise<ArrayBuffer>
+    this.decoded = new Map(); // recording file -> Promise<AudioBuffer> for this.ctx
+    this.mode = null; // 'real' | 'synth' while playing
     this.ctx = null;
     this.playing = false;
     this.ready = false;
@@ -142,6 +164,8 @@ export class Tanpura {
 
   /** Get the four strings for these settings ready (in the background). Resolves when they are. */
   prepare(settings = this.settings) {
+    const pick = recordingFor(settings);
+    if (pick) return this.fetchRecording(pick.rec.file);
     const freqs = stringFrequencies(settings);
     return Promise.all(freqs.map((freq, i) => this.renderer.render(freq, i, freqs[1])));
   }
@@ -181,6 +205,10 @@ export class Tanpura {
     limiter.knee.value = 6;
     limiter.ratio.value = 4;
 
+    // Recordings already carry their own room, so they skip the reverb.
+    this.realBus = ctx.createGain();
+    this.realBus.connect(this.master);
+
     this.bus.connect(lowCut).connect(air);
     air.connect(this.master);
     air.connect(reverb).connect(wet).connect(this.master);
@@ -198,12 +226,53 @@ export class Tanpura {
     return this.buffers.get(key);
   }
 
+  fetchRecording(file) {
+    if (!this.files.has(file)) {
+      const job = fetch(`/tanpura/${file}`).then((r) => {
+        if (!r.ok) throw new Error(`Could not load the tanpura recording (${r.status}).`);
+        return r.arrayBuffer();
+      });
+      job.catch(() => this.files.delete(file)); // let a later attempt retry
+      this.files.set(file, job);
+    }
+    return this.files.get(file);
+  }
+
+  decodeRecording(file) {
+    if (!this.decoded.has(file)) {
+      const ctx = this.ctx;
+      const job = this.fetchRecording(file).then((data) => new Promise((resolve, reject) => ctx.decodeAudioData(data.slice(0), resolve, reject)));
+      job.catch(() => this.decoded.delete(file));
+      this.decoded.set(file, job);
+    }
+    return this.decoded.get(file);
+  }
+
   /** Make AudioBuffers for the current settings, then (re)start the cycle. */
   async tune() {
     const token = ++this.tuning;
     this.ready = false;
     const settings = this.settings;
-    const rendered = await this.prepare(settings);
+    const pick = recordingFor(settings);
+    if (pick) {
+      try {
+        const buffer = await this.decodeRecording(pick.rec.file);
+        if (token !== this.tuning || !this.ctx) return;
+        this.mode = 'real';
+        this.loop = { ...pick, buffer };
+        this.realBus.gain.setValueAtTime(10 ** (pick.rec.gainDb / 20), this.ctx.currentTime);
+        this.ready = true;
+        this.loopNextAt = this.ctx.currentTime + 0.08;
+        this.loopFirst = true;
+        this.schedule();
+        return;
+      } catch (e) {
+        console.warn('Tanpura recording unavailable, synthesising instead:', e);
+        if (token !== this.tuning || !this.ctx) return;
+      }
+    }
+    this.mode = 'synth';
+    const rendered = await this.prepare({ ...settings, sound: 'synth' });
     if (token !== this.tuning || !this.ctx) return;
     const freqs = stringFrequencies(settings);
     this.strings = freqs.map((freq, i) => this.buffer(freq, i, freqs[1], rendered[i]));
@@ -258,7 +327,7 @@ export class Tanpura {
   update(next) {
     const before = this.settings;
     this.settings = { ...before, ...next };
-    const retuned = ['scale', 'octave', 'first'].some((k) => next[k] !== undefined && next[k] !== before[k]);
+    const retuned = ['scale', 'octave', 'first', 'sound'].some((k) => next[k] !== undefined && next[k] !== before[k]);
     if (!this.ctx || !this.playing) {
       if (retuned) this.prepare().catch(() => {}); // get it ready before Play is pressed
       return;
@@ -296,6 +365,15 @@ export class Tanpura {
     const ctx = this.ctx;
     // Hidden tabs only run timers about once a second, so plan further ahead then.
     const ahead = document.visibilityState === 'hidden' ? 2.5 : 0.35;
+    if (this.mode === 'real') {
+      const { rec, rate } = this.loop;
+      while (this.loopNextAt < ctx.currentTime + ahead + LOOP_FADE / rate) {
+        this.playLoop(this.loopNextAt, this.loopFirst);
+        this.loopFirst = false;
+        this.loopNextAt += (rec.end - rec.start) / rate;
+      }
+      return;
+    }
     while (this.nextAt < ctx.currentTime + ahead) {
       const index = this.step;
       const at = Math.max(this.nextAt, ctx.currentTime + 0.01);
@@ -307,11 +385,51 @@ export class Tanpura {
     }
   }
 
+  /** One pass of the recorded loop, starting (its first pluck) at `at`, crossfaded with the passes either side. */
+  playLoop(at, first) {
+    const ctx = this.ctx;
+    const { rec, rate, buffer } = this.loop;
+    const fade = LOOP_FADE / rate;
+    const source = ctx.createBufferSource();
+    source.buffer = buffer;
+    source.playbackRate.value = rate;
+    source.detune.value = this.settings.fine;
+    const gain = ctx.createGain(); // the join crossfades
+    const kill = ctx.createGain(); // only for stopping/retuning (never touched while a crossfade runs on `gain`)
+    source.connect(gain).connect(kill).connect(this.realBus);
+
+    let begins = at;
+    if (first) {
+      gain.gain.setValueAtTime(0, at);
+      gain.gain.linearRampToValueAtTime(1, at + 0.03);
+      source.start(at, rec.start);
+    } else {
+      begins = at - fade;
+      gain.gain.setValueAtTime(0, begins);
+      gain.gain.setValueCurveAtTime(FADE_IN, begins, fade);
+      source.start(begins, rec.start - LOOP_FADE);
+    }
+    const fadeOutAt = at + (rec.end - rec.start - LOOP_FADE) / rate;
+    gain.gain.setValueCurveAtTime(FADE_OUT, fadeOutAt, fade);
+    source.stop(fadeOutAt + fade + 0.05);
+
+    const voice = { source, gain: kill, level: 1, cents: 0, at: begins };
+    this.voices.add(voice);
+    source.onended = () => {
+      this.voices.delete(voice);
+      kill.disconnect();
+    };
+    for (const [t, index] of rec.plucks) {
+      const delay = at + t / rate - ctx.currentTime;
+      this.listeners.forEach((fn) => fn(index, delay));
+    }
+  }
+
   play(index, at) {
     const ctx = this.ctx;
     const source = ctx.createBufferSource();
     source.buffer = this.strings[index];
-    const cents = STRING_CENTS[index] + (Math.random() - 0.5) * 0.6;
+    const cents = STRING_CENTS[index] + (Math.random() - 0.5) * 0.2;
     source.detune.value = this.settings.fine + cents;
 
     const level = STRING_LEVEL[index] * (0.9 + Math.random() * 0.1);

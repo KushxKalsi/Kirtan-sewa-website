@@ -7,8 +7,9 @@
 //   • The jawari: right after the pluck the brightest overtone is around the 4th; within ~0.6 s it climbs to
 //     the 9th–10th, holds, then drifts back down by ~2.5 s.
 //   • The level doesn't simply fade: it swells by ~2 dB over the first second, then decays slowly.
-//   • The bright band never sits still: it drifts up and down while the string rings, so the brightness of
-//     the drone swings by roughly ±450 Hz, and each overtone also wavers on its own (the shimmer).
+//   • Between plucks the tone is steady — real tanpuras don't swirl. The movement comes from the plucks
+//     (each one a little different) plus small, irregular (never regular, never cyclic) wavering of the
+//     overtones: about 2 dB of fast level change, measured on steady playing.
 
 export const RENDER_RATE = 32000;
 export const RENDER_SECONDS = 8.5;
@@ -18,7 +19,7 @@ const FIT_SA = 138.59; // the recordings' Sa (≈ C#3)
 // (within ~0.3 dB per band). The jawari band below adds its moving lift on top of this.
 export const TONE = {
   hz: [56, 71, 89, 112, 141, 178, 224, 283, 356, 449, 566, 713, 898, 1131, 1425, 1796, 2263, 2851, 3592, 4525, 5702, 7184, 9050],
-  db: [-10.6, -9.2, -5.2, -3.2, -6.3, -10.0, -11.8, -11.7, -9.0, -4.5, -5, -13.8, -10.4, -13.3, -7.2, -12.7, -11.3, -14, -20.5, -15.8, -16.5, -11.6, -40],
+  db: [-14.3, -11.8, -4.3, 0, -3.6, -6.2, -6.2, -7.8, -9.1, -8.5, -6.5, -17.4, -12.9, -14.1, -5.6, -5.2, -5, -6.3, -11.5, -9.9, -13.9, -11, -40],
 };
 
 export const PARAMS = {
@@ -28,8 +29,9 @@ export const PARAMS = {
   jawariRise: 0.6,
   jawariSettle: 6, // …and drifts back to, by ~2.5 s
   jawariWidth: 0.45, // octaves
-  wander: 2.2, // how far (octaves) the jawari band drifts about while the string rings
-  shimmer: 1.2, // depth of each overtone's own random wavering (natural-log units)
+  variety: 0.35, // octaves: each pluck's jawari band sits a little higher or lower (no two plucks alike)
+  drift: 0.15, // octaves: slow, irregular drift of the band while the string rings (never a regular sweep)
+  shimmer: 0.9, // depth of each overtone's own irregular wavering (natural-log units) — ~1.5 dB between plucks
   swellDb: 2, // the level rises by this much over the first second…
   decayDbPerSec: 1.7, // …then falls this fast (higher overtones a little faster)
   sa: FIT_SA, // the scale's Sa in Hz; higher scales pull the jawari band down to lower overtones…
@@ -45,6 +47,27 @@ function random(seed) {
     s ^= s << 5;
     return (s >>> 0) / 4294967296;
   };
+}
+
+/** Smooth, irregular (non-repeating) noise: random knots `spacing` s apart on average, eased between. */
+function smoothNoise(rand, spacing, seconds) {
+  const times = [0];
+  const values = [gauss(rand)];
+  while (times.at(-1) < seconds + spacing) {
+    times.push(times.at(-1) + spacing * (0.55 + rand() * 0.9));
+    values.push(gauss(rand));
+  }
+  let i = 0;
+  return (t) => {
+    while (times[i + 1] < t) i++;
+    const f = (t - times[i]) / (times[i + 1] - times[i]);
+    const e = f * f * (3 - 2 * f);
+    return values[i] + (values[i + 1] - values[i]) * e;
+  };
+}
+
+function gauss(rand) {
+  return (rand() + rand() + rand() + rand() - 2) * 1.73;
 }
 
 function toneAt(hz, tone) {
@@ -74,11 +97,9 @@ export function renderString(freq, variant = 0, sr = RENDER_RATE, seconds = REND
 
   const placement = (FIT_SA / (P.sa || FIT_SA)) ** P.saFollow;
 
-  // the band's slow drift: two unrelated slow sines per string
-  const q1 = 0.25 + rand() * 0.6;
-  const q2 = 0.7 + rand() * 1.1;
-  const f1 = rand() * Math.PI * 2;
-  const f2 = rand() * Math.PI * 2;
+  // this pluck's own brightness, and the band's slow irregular drift
+  const offset = 2 ** (P.variety * gauss(rand) * 0.5);
+  const drift = smoothNoise(rand, 1.6, seconds);
 
   const partials = [];
   for (let k = 1; k <= count; k++) {
@@ -90,11 +111,8 @@ export function renderString(freq, variant = 0, sr = RENDER_RATE, seconds = REND
       base: 10 ** (toneAt(hz, tone) / 20),
       // decay: a little faster for higher overtones
       decay: (P.decayDbPerSec * (1 + 0.004 * k)) / 8.686,
-      // each overtone's own slow wavering: two drifting sines at unrelated rates
-      r1: 0.4 + rand() * 2.6,
-      r2: 1.5 + rand() * 3.5,
-      p1: rand() * Math.PI * 2,
-      p2: rand() * Math.PI * 2,
+      // each overtone's own irregular wavering
+      waver: smoothNoise(rand, 0.45 + rand() * 0.5, seconds),
       depth: P.shimmer * (k < 3 ? 0.35 : 1),
       c: Math.cos(phase),
       s: Math.sin(phase),
@@ -116,15 +134,14 @@ export function renderString(freq, variant = 0, sr = RENDER_RATE, seconds = REND
     const glide = t < P.jawariRise
       ? P.jawariFrom + (P.jawariTo - P.jawariFrom) * Math.sin((Math.PI / 2) * (t / P.jawariRise))
       : P.jawariSettle + (P.jawariTo - P.jawariSettle) * Math.exp(-(t - P.jawariRise) / 0.9);
-    const drift = P.wander * Math.min(1, t / 0.8) * (0.6 * Math.sin(2 * Math.PI * q1 * t + f1) + 0.4 * Math.sin(2 * Math.PI * q2 * t + f2));
-    const centre = glide * 2 ** drift * placement;
+    const centre = glide * offset * 2 ** (P.drift * Math.min(1, t / 0.8) * drift(t)) * placement;
     const lift = 10 ** (P.jawariDb / 20) - 1;
 
     for (const p of partials) {
       if (p.hz * bend >= sr / 2) continue;
       const d = Math.log2(p.k / centre) / P.jawariWidth;
       const jawari = 1 + lift * Math.exp(-0.5 * d * d);
-      const waver = Math.exp(p.depth * (0.6 * Math.sin(2 * Math.PI * p.r1 * t + p.p1) + 0.4 * Math.sin(2 * Math.PI * p.r2 * t + p.p2)) - p.depth * p.depth * 0.13);
+      const waver = Math.exp(p.depth * p.waver(t) - p.depth * p.depth * 0.5);
       const target = attack * swell * Math.exp(-p.decay * t) * p.base * jawari * waver;
 
       const w = (2 * Math.PI * p.hz * bend) / sr;

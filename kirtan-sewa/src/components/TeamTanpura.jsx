@@ -4,7 +4,8 @@ import { GURBANI_BOOKS } from '../../shared/gurbani';
 import { api } from '../lib/api';
 import { readStore, writeStore } from '../lib/storage';
 import { rememberGurbaniSearch, toggleGurbaniFavourite, useGurbaniLibrary } from '../lib/gurbaniLibrary';
-import { DEFAULTS, FIRST_STRING, OCTAVES, SCALES, Tanpura } from '../lib/tanpura';
+import { DEFAULTS, FIRST_STRING, OCTAVES, SCALES, Tanpura, recordingFor } from '../lib/tanpura';
+import { RECORDING_CREDIT } from '../lib/tanpuraRecordings';
 import { GurbaniLanguageButton, GurbaniLanguageProvider, GurbaniReadingDisplay, GurbaniReadingExtras } from './GurbaniDisplay';
 import GurbaniText from './GurbaniText';
 import '../styles/gurbani.css';
@@ -21,6 +22,7 @@ function savedSettings() {
   if (SCALES.some((x) => x.id === saved.scale)) s.scale = saved.scale;
   if (OCTAVES[saved.octave]) s.octave = saved.octave;
   if (FIRST_STRING[saved.first]) s.first = saved.first;
+  if (saved.sound === 'real' || saved.sound === 'synth') s.sound = saved.sound;
   for (const [key, min, max] of [['cycle', 2.6, 7], ['volume', 0, 1], ['fine', -50, 50]]) {
     if (typeof saved[key] === 'number' && saved[key] >= min && saved[key] <= max) s[key] = saved[key];
   }
@@ -60,8 +62,11 @@ function Strings({ engine, playing, first }) {
   );
 }
 
+const SOUNDS = { real: 'Real tanpura', synth: 'Synthesised' };
+
 function TanpuraPanel({ engine, settings, change, playing, toggle, busy }) {
   const current = SCALES[settings.scale];
+  const recording = recordingFor(settings);
   return (
     <section className="tanpura-card glass" aria-labelledby="tanpura-title">
       <div className="tanpura-head">
@@ -81,6 +86,20 @@ function TanpuraPanel({ engine, settings, change, playing, toggle, busy }) {
       <div className="tanpura-now" aria-live="polite">
         <strong>{current.name}</strong>
         <span>{current.harmonium} · {FIRST_STRING[settings.first].label} tuning · {OCTAVES[settings.octave]}</span>
+      </div>
+
+      <div className="tanpura-group tanpura-sound">
+        <span className="tanpura-label" id="tanpura-sound">Sound</span>
+        <div className="tanpura-seg" role="radiogroup" aria-labelledby="tanpura-sound">
+          {Object.entries(SOUNDS).map(([id, label]) => (
+            <button key={id} type="button" role="radio" aria-checked={settings.sound === id} className={settings.sound === id ? 'active' : ''} onClick={() => change({ sound: id })}>
+              {label}
+            </button>
+          ))}
+        </div>
+        {settings.sound === 'real' && !recording && (
+          <p className="tanpura-note">There’s no recording for {settings.first === 'ni' ? 'Ni tuning' : 'this scale in this octave'} yet, so this plays the synthesised tanpura.</p>
+        )}
       </div>
 
       <div className="tanpura-group">
@@ -126,9 +145,10 @@ function TanpuraPanel({ engine, settings, change, playing, toggle, busy }) {
           <span>Volume <em>{Math.round(settings.volume * 100)}%</em></span>
           <input type="range" min="0" max="1" step="0.01" value={settings.volume} onChange={(e) => change({ volume: Number(e.target.value) })} />
         </label>
-        <label>
-          <span>Speed <em>{settings.cycle.toFixed(1)} s / round</em></span>
-          <input type="range" min="2.6" max="7" step="0.1" value={9.6 - settings.cycle} onChange={(e) => change({ cycle: Math.round((9.6 - Number(e.target.value)) * 10) / 10 })} />
+        <label className={recording ? 'tanpura-disabled' : undefined}>
+          <span>Speed <em>{recording ? 'follows the recording' : `${settings.cycle.toFixed(1)} s / round`}</em></span>
+          <input type="range" min="2.6" max="7" step="0.1" value={9.6 - settings.cycle} disabled={!!recording}
+            onChange={(e) => change({ cycle: Math.round((9.6 - Number(e.target.value)) * 10) / 10 })} />
         </label>
         <label>
           <span>
@@ -138,6 +158,14 @@ function TanpuraPanel({ engine, settings, change, playing, toggle, busy }) {
           <input type="range" min="-50" max="50" step="1" value={settings.fine} onChange={(e) => change({ fine: Number(e.target.value) })} />
         </label>
       </div>
+
+      {recording && (
+        <p className="tanpura-credit">
+          Recorded tanpura: <a href={recording.rec.source.url} target="_blank" rel="noreferrer">{recording.rec.source.title}</a> by{' '}
+          <a href={RECORDING_CREDIT.authorUrl} target="_blank" rel="noreferrer">{RECORDING_CREDIT.author}</a> (Freesound),{' '}
+          <a href={RECORDING_CREDIT.licenceUrl} target="_blank" rel="noreferrer">{RECORDING_CREDIT.licence}</a> — {RECORDING_CREDIT.changes}.
+        </p>
+      )}
     </section>
   );
 }
