@@ -6,6 +6,7 @@ import { readStore, writeStore } from '../lib/storage';
 import { rememberGurbaniSearch, toggleGurbaniFavourite, useGurbaniLibrary } from '../lib/gurbaniLibrary';
 import { DEFAULTS, FIRST_STRING, OCTAVES, SCALES, Tanpura, recordingFor } from '../lib/tanpura';
 import { RECORDING_CREDIT } from '../lib/tanpuraRecordings';
+import { registerTanpuraControls, setTanpuraPlayer, stopTanpura, useTanpuraPlayer } from '../lib/tanpuraPlayer';
 import { GurbaniLanguageButton, GurbaniLanguageProvider, GurbaniReadingDisplay, GurbaniReadingExtras } from './GurbaniDisplay';
 import GurbaniText from './GurbaniText';
 import '../styles/gurbani.css';
@@ -354,17 +355,39 @@ function ShabadReader({ settings, playing, toggle, busy }) {
 
 /* ---------------- The tab ---------------- */
 
+// One tanpura for the whole visit: it is made the first time this tab opens and is never closed, so it keeps
+// playing while you read Gurbani or use other tabs. The floating player (TanpuraDock) can stop it from anywhere.
+let engine = null;
+function getEngine(settings) {
+  if (!engine) {
+    engine = new Tanpura(settings);
+    registerTanpuraControls({
+      stop: () => {
+        engine.stop();
+        setTanpuraPlayer({ playing: false });
+      },
+    });
+  }
+  return engine;
+}
+
 export default function TeamTanpura() {
   const [settings, setSettings] = useState(savedSettings);
-  const [engine] = useState(() => new Tanpura(settings));
-  const [playing, setPlaying] = useState(false);
+  const [tanpura] = useState(() => getEngine(settings));
+  const { playing } = useTanpuraPlayer();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => {
-    engine.prepare().catch(() => {}); // render the strings now, so Play starts at once
-    return () => engine.close();
-  }, [engine]);
+    tanpura.prepare().catch(() => {}); // get the sound ready now, so Play starts at once
+    setTanpuraPlayer({ panelOpen: true });
+    return () => setTanpuraPlayer({ panelOpen: false }); // leaving the tab does NOT stop the sound
+  }, [tanpura]);
+
+  // what the floating player shows
+  useEffect(() => {
+    setTanpuraPlayer({ label: `${scaleName(settings)} · ${FIRST_STRING[settings.first].label}` });
+  }, [settings]);
 
   const change = (next) => {
     setSettings((s) => {
@@ -372,20 +395,19 @@ export default function TeamTanpura() {
       writeStore(SETTINGS_KEY, merged);
       return merged;
     });
-    engine.update(next);
+    tanpura.update(next);
   };
 
   const toggle = async () => {
     if (playing) {
-      engine.stop();
-      setPlaying(false);
+      stopTanpura();
       return;
     }
     setBusy(true);
     setError('');
     try {
-      await engine.start();
-      setPlaying(true);
+      await tanpura.start();
+      setTanpuraPlayer({ playing: true });
     } catch (e) {
       setError(e.message || 'Could not start the tanpura.');
     } finally {
@@ -396,7 +418,7 @@ export default function TeamTanpura() {
   return (
     <GurbaniLanguageProvider>
       <div className="tanpura-tab">
-        <TanpuraPanel engine={engine} settings={settings} change={change} playing={playing} toggle={toggle} busy={busy} />
+        <TanpuraPanel engine={tanpura} settings={settings} change={change} playing={playing} toggle={toggle} busy={busy} />
         {error && <p className="form-error" role="alert">{error}</p>}
         <ShabadReader settings={settings} playing={playing} toggle={toggle} busy={busy} />
       </div>

@@ -1368,6 +1368,11 @@ export default function TeamDashboard() {
   const [tab, setTab] = useState(params.get('chat') ? 'chat' : TABS.some((t) => t.id === params.get('tab')) ? params.get('tab') : 'calendar');
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
+  // e.g. the floating tanpura player links to /team?tab=tanpura while this page is already open
+  const tabParam = params.get('tab');
+  useEffect(() => {
+    if (TABS.some((t) => t.id === tabParam)) setTab(tabParam);
+  }, [tabParam]);
 
   const load = useCallback(async () => {
     if (!team) return;

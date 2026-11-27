@@ -8249,3 +8249,77 @@ a.comment-name:hover {
     display: none;
   }
 }
+
+/* =========================================================
+   Floating tanpura player (keeps playing across pages)
+   ========================================================= */
+.tanpura-dock {
+  position: fixed;
+  z-index: 70;
+  top: calc(var(--nav-h) + 10px);
+  right: max(12px, env(safe-area-inset-right));
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 4px 4px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--modal-bg, var(--bg-2));
+  box-shadow: 0 10px 28px -14px rgba(0, 0, 0, 0.7);
+  animation: tanpura-dock-in 0.35s ease-out;
+}
+.tanpura-dock-open {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: min(62vw, 300px);
+  font-size: 13px;
+  color: var(--text);
+}
+.tanpura-dock-open svg {
+  flex: none;
+  color: var(--gold);
+}
+.tanpura-dock-open span {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--muted);
+}
+.tanpura-dock-open strong {
+  color: var(--text);
+}
+.tanpura-dock-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--success);
+  animation: tanpura-dock-blink 1.4s ease-in-out infinite;
+}
+.tanpura-dock-stop {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--grad-gold);
+  color: #1a1206;
+}
+@keyframes tanpura-dock-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+}
+@keyframes tanpura-dock-blink {
+  50% {
+    opacity: 0.25;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tanpura-dock,
+  .tanpura-dock-dot {
+    animation: none;
+  }
+}

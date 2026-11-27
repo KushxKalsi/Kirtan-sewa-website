@@ -10,6 +10,7 @@ import Navbar from './components/Navbar';
 import Footer from './components/Footer';
 import Preloader from './components/Preloader';
 import InstallApp from './components/InstallApp';
+import TanpuraDock from './components/TanpuraDock';
 import CursorGlow from './components/CursorGlow';
 import ScrollProgress from './components/ScrollProgress';
 import Home from './pages/Home';
@@ -84,6 +85,7 @@ function Shell() {
       <AnimatePresence>{intro && <Preloader key="pre" onDone={finishIntro} />}</AnimatePresence>
       <Navbar />
       <InstallApp />
+      <TanpuraDock />
 
       {site404 ? (
         <main className="page offline">
